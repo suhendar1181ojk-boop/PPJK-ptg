@@ -1,0 +1,6 @@
+{
+  "name": "PTG PPJK Outstanding",
+  "description": "Sistem pencatatan dan pemantauan dokumen shipment impor (Outstanding) PTG PPJK dengan Google Apps Script.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
