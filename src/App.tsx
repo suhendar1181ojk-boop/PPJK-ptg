@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
-import { Menu, Plus, RefreshCw } from 'lucide-react';
+import { HardDrive, LogOut as LogOutIcon, Menu, Plus, RefreshCw } from 'lucide-react';
 import type {
   AppView,
   Customer,
+  DokumenItem,
   Importir,
   KontainerItem,
   Pengaturan,
@@ -12,6 +13,7 @@ import type {
   SessionUser,
   Shipment,
   Shipper,
+  StatusDokumenType,
   UserRole,
 } from './types/ppjk';
 import {
@@ -21,6 +23,7 @@ import {
   type DatabaseState,
   deleteCustomerMaster,
   deleteImportirMaster,
+  deleteShipmentDocument,
   deleteShipmentRecord,
   deleteShipperMaster,
   ensureDbInitialized,
@@ -34,7 +37,17 @@ import {
   saveStoredSession,
   saveUserRecord,
   syncSessionWithDb,
+  updateShipmentStatusDokumen,
 } from './services/gasSimulator';
+import {
+  deleteGoogleDriveFile,
+  getGoogleDriveAccessToken,
+  googleDriveSignIn,
+  googleDriveSignOut,
+  initGoogleDriveAuth,
+  listGoogleDriveFiles,
+  uploadFileToGoogleDrive,
+} from './services/googleDriveService';
 import { canPerformAction, isShipmentOutstanding } from './utils/ppjkLogic';
 import { LoginView } from './components/LoginView';
 import { Sidebar } from './components/Sidebar';
@@ -45,6 +58,7 @@ import { ShipmentFormModal } from './components/ShipmentFormModal';
 import { MasterSettingsView } from './components/MasterSettingsView';
 import { GasDeployView } from './components/GasDeployView';
 import { CheckerSummaryView } from './components/CheckerSummaryView';
+import { GoogleSignInButton } from './components/GoogleDriveButton';
 
 const VIEW_TITLES: Record<AppView, string> = {
   dashboard: 'Dashboard Ringkasan',
@@ -70,6 +84,21 @@ export default function App() {
     shipment: Shipment | null;
     containers: KontainerItem[];
   }>({ open: false, shipment: null, containers: [] });
+
+  const [driveUserEmail, setDriveUserEmail] = useState<string | null>(null);
+  const [driveConnecting, setDriveConnecting] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = initGoogleDriveAuth(
+      (user) => {
+        setDriveUserEmail(user.email || user.displayName || 'Google Drive Terhubung');
+      },
+      () => {
+        setDriveUserEmail(null);
+      }
+    );
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -136,6 +165,59 @@ export default function App() {
     setFormState({ open: true, shipment: found, containers: conts });
   };
 
+  const handleConnectGoogleDrive = async () => {
+    setDriveConnecting(true);
+    try {
+      const { user } = await googleDriveSignIn();
+      setDriveUserEmail(user.email || user.displayName || 'Google Drive Terhubung');
+    } catch (err) {
+      await Swal.fire({
+        title: 'Koneksi Google Drive',
+        text:
+          err instanceof Error
+            ? err.message
+            : 'Gagal terhubung ke Google Drive. Silakan coba lagi.',
+        icon: 'error',
+      });
+    } finally {
+      setDriveConnecting(false);
+    }
+  };
+
+  const handleDisconnectGoogleDrive = async () => {
+    await googleDriveSignOut();
+    setDriveUserEmail(null);
+  };
+
+  const uploadSingleDocument = async (
+    kodeOs: string,
+    jenisDokumen: string,
+    namaFile: string,
+    file?: File,
+    parentFolderSetting = 'PTG_PPJK_DOKUMEN_ROOT'
+  ) => {
+    if (!session) return;
+    const accessToken = getGoogleDriveAccessToken();
+    if (accessToken && file) {
+      const uploaded = await uploadFileToGoogleDrive({
+        accessToken,
+        file,
+        kodeOs,
+        parentFolderSetting,
+        jenisDokumen,
+      });
+      return addShipmentDocument(session, kodeOs, jenisDokumen, uploaded.name, {
+        linkDrive: uploaded.webViewLink,
+        driveFileId: uploaded.fileId,
+        driveFolderId: uploaded.folderId,
+        source: 'google-drive',
+      });
+    }
+    return addShipmentDocument(session, kodeOs, jenisDokumen, namaFile, {
+      source: 'simulasi',
+    });
+  };
+
   const handleSaveShipment = async (
     shipment: Shipment,
     containers: KontainerItem[],
@@ -145,23 +227,66 @@ export default function App() {
     if (!session) return;
     const res = await saveShipmentRecord(session, shipment, containers, isNew);
     let latestDb = res.db;
-    for (const file of pendingUploads) {
-      latestDb = await addShipmentDocument(
-        session,
-        res.saved.kodeOs,
-        file.jenisDokumen,
-        file.namaFile
-      );
+    let driveUploadedCount = 0;
+    let driveFallbackError = '';
+
+    for (const item of pendingUploads) {
+      try {
+        const accessToken = getGoogleDriveAccessToken();
+        if (accessToken && item.file) {
+          const uploaded = await uploadFileToGoogleDrive({
+            accessToken,
+            file: item.file,
+            kodeOs: res.saved.kodeOs,
+            parentFolderSetting: latestDb.pengaturan.driveParentFolderId,
+            jenisDokumen: item.jenisDokumen,
+          });
+          latestDb = await addShipmentDocument(
+            session,
+            res.saved.kodeOs,
+            item.jenisDokumen,
+            uploaded.name,
+            {
+              linkDrive: uploaded.webViewLink,
+              driveFileId: uploaded.fileId,
+              driveFolderId: uploaded.folderId,
+              source: 'google-drive',
+            }
+          );
+          driveUploadedCount++;
+        } else {
+          latestDb = await addShipmentDocument(
+            session,
+            res.saved.kodeOs,
+            item.jenisDokumen,
+            item.namaFile,
+            { source: 'simulasi' }
+          );
+        }
+      } catch (err) {
+        driveFallbackError = err instanceof Error ? err.message : 'Gagal upload ke Google Drive';
+        latestDb = await addShipmentDocument(
+          session,
+          res.saved.kodeOs,
+          item.jenisDokumen,
+          item.namaFile,
+          { source: 'simulasi' }
+        );
+      }
     }
     setDb({ ...latestDb });
     await Swal.fire({
       title: 'Tersimpan',
       text:
         pendingUploads.length > 0
-          ? `Shipment ${res.saved.kodeOs} berhasil disimpan beserta ${pendingUploads.length} file dokumen.`
+          ? driveUploadedCount > 0
+            ? `Shipment ${res.saved.kodeOs} disimpan & ${driveUploadedCount} file berhasil diupload ke Google Drive.`
+            : driveFallbackError
+            ? `Shipment ${res.saved.kodeOs} disimpan (Drive fallback lokal: ${driveFallbackError}).`
+            : `Shipment ${res.saved.kodeOs} berhasil disimpan beserta ${pendingUploads.length} file dokumen.`
           : `Shipment ${res.saved.kodeOs} berhasil disimpan.`,
       icon: 'success',
-      timer: 1800,
+      timer: 2000,
       showConfirmButton: false,
     });
   };
@@ -192,11 +317,68 @@ export default function App() {
   const handleUploadDocument = async (
     kodeOs: string,
     jenisDokumen: string,
-    namaFile: string
+    namaFile: string,
+    file?: File
   ) => {
     if (!session) return;
-    const nextDb = await addShipmentDocument(session, kodeOs, jenisDokumen, namaFile);
+    const nextDb = await uploadSingleDocument(
+      kodeOs,
+      jenisDokumen,
+      namaFile,
+      file,
+      db?.pengaturan.driveParentFolderId
+    );
+    if (nextDb) setDb({ ...nextDb });
+  };
+
+  const handleUpdateStatusDokumen = async (
+    kodeOs: string,
+    nextStatus: StatusDokumenType
+  ) => {
+    if (!session) return;
+    const nextDb = await updateShipmentStatusDokumen(session, kodeOs, nextStatus);
     setDb({ ...nextDb });
+  };
+
+  const handleDeleteDocument = async (doc: DokumenItem) => {
+    if (!session) return;
+    const isRealDrive = Boolean(doc.driveFileId);
+    const confirm = await Swal.fire({
+      title: `Hapus Dokumen "${doc.namaFile}"?`,
+      text: isRealDrive
+        ? `File "${doc.namaFile}" (${doc.jenisDokumen}) akan dihapus secara permanen dari Google Drive Anda dan dari daftar dokumen ${doc.kodeOs}.`
+        : `Catatan dokumen "${doc.namaFile}" akan dihapus dari shipment ${doc.kodeOs}.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#D64545',
+      cancelButtonText: 'Batal',
+      confirmButtonText: isRealDrive ? 'Ya, Hapus dari Drive' : 'Ya, Hapus',
+    });
+    if (!confirm.isConfirmed) return;
+
+    if (doc.driveFileId) {
+      const token = getGoogleDriveAccessToken();
+      if (!token) {
+        await Swal.fire({
+          title: 'Login Google Drive Diperlukan',
+          text: 'Silakan klik "Sign in with Google" terlebih dahulu untuk menghapus file ini dari Google Drive.',
+          icon: 'info',
+        });
+        return;
+      }
+      await deleteGoogleDriveFile(token, doc.driveFileId);
+    }
+
+    const nextDb = await deleteShipmentDocument(session, doc.id);
+    setDb({ ...nextDb });
+  };
+
+  const handleListDriveFiles = async () => {
+    const token = getGoogleDriveAccessToken();
+    if (!token) {
+      throw new Error('Silakan Sign in with Google terlebih dahulu untuk melihat file Drive.');
+    }
+    return listGoogleDriveFiles({ accessToken: token, pageSize: 15 });
   };
 
   const handleResetDb = async (mode: 'empty' | 'seed') => {
@@ -291,6 +473,32 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {driveUserEmail ? (
+              <div className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-400/30 text-[11px] font-medium text-emerald-100">
+                <HardDrive className="w-3.5 h-3.5 text-emerald-300" />
+                <span className="max-w-[150px] truncate" title={driveUserEmail}>
+                  {driveUserEmail}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleDisconnectGoogleDrive}
+                  title="Putuskan koneksi Google Drive"
+                  aria-label="Putuskan koneksi Google Drive"
+                  className="ml-1 p-0.5 rounded hover:bg-white/10 text-emerald-200 cursor-pointer"
+                >
+                  <LogOutIcon className="w-3 h-3" />
+                </button>
+              </div>
+            ) : (
+              <div className="hidden md:block">
+                <GoogleSignInButton
+                  onClick={handleConnectGoogleDrive}
+                  disabled={driveConnecting}
+                  label={driveConnecting ? 'Menghubungkan...' : 'Sign in with Google'}
+                />
+              </div>
+            )}
+
             <span
               data-testid="active-role-badge"
               className="hidden md:inline-flex items-center px-2.5 py-1 rounded-md bg-white/12 border border-white/15 text-[11px] font-semibold text-white/90 whitespace-nowrap"
@@ -430,11 +638,17 @@ export default function App() {
           checklistItems={db.pengaturan.checklistItems}
           userRole={session.role}
           phasePermissions={session.phasePermissions}
+          googleDriveUserEmail={driveUserEmail}
+          driveConnecting={driveConnecting}
+          onConnectGoogleDrive={handleConnectGoogleDrive}
+          onListDriveFiles={handleListDriveFiles}
+          onDeleteDocument={handleDeleteDocument}
           onClose={() => setDetailKodeOs(null)}
           onEdit={openEditForm}
           onDelete={handleDeleteShipment}
           onAddComment={handleAddComment}
           onUploadDocument={handleUploadDocument}
+          onUpdateStatusDokumen={handleUpdateStatusDokumen}
         />
       )}
 
@@ -455,6 +669,9 @@ export default function App() {
           userRole={session.role}
           phasePermissions={session.phasePermissions}
           currentUsername={session.nama}
+          googleDriveUserEmail={driveUserEmail}
+          driveConnecting={driveConnecting}
+          onConnectGoogleDrive={handleConnectGoogleDrive}
           onClose={() => setFormState({ open: false, shipment: null, containers: [] })}
           onSubmit={handleSaveShipment}
         />

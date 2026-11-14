@@ -10,6 +10,7 @@ import type {
   SessionUser,
   Shipment,
   Shipper,
+  StatusDokumenType,
   UserAccount,
   UserRole,
 } from '../types/ppjk';
@@ -17,6 +18,7 @@ import {
   calculateCountdownEta,
   canPerformAction,
   canUserEditAnyPhase,
+  canUserEditPhase,
   computeSha256Hex,
   createEmptyChecklist,
   DEFAULT_CHECKLIST_ITEMS,
@@ -24,6 +26,7 @@ import {
   formatContainerSummary,
   generateNextKodeOS,
   getAllowedFieldsForPermissions,
+  normalizeStatusDokumen,
   resolveUserPhasePermissions,
   validateShipmentInput,
 } from '../utils/ppjkLogic';
@@ -131,6 +134,7 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
       terimaDok: fullDone,
       noPackinglist: 'PL-NBM-2611-01',
       noBl: 'EGLV142600891234',
+      statusDokumen: 'Draft',
       etd: formatDateOffset(-9),
       eta: formatDateOffset(2),
       countDownEta: 2,
@@ -176,6 +180,7 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
       terimaDok: fullDone,
       noPackinglist: 'PL-KEI-882',
       noBl: 'MSCUJK8829102',
+      statusDokumen: 'Ready',
       etd: formatDateOffset(-14),
       eta: formatDateOffset(-1),
       countDownEta: -1,
@@ -221,6 +226,7 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
       terimaDok: partialChk,
       noPackinglist: 'PL-PKS-309',
       noBl: 'CMASH9921044',
+      statusDokumen: 'Ready',
       etd: formatDateOffset(-8),
       eta: formatDateOffset(5),
       countDownEta: 5,
@@ -266,6 +272,7 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
       terimaDok: fullDone,
       noPackinglist: 'PL-NBM-2611-04',
       noBl: 'OOLU2689112004',
+      statusDokumen: 'Ready',
       etd: formatDateOffset(-6),
       eta: formatDateOffset(10),
       countDownEta: 10,
@@ -311,6 +318,7 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
       terimaDok: fullDone,
       noPackinglist: 'PL-APS-112',
       noBl: 'MAEU99100231',
+      statusDokumen: 'Ready',
       etd: formatDateOffset(-20),
       eta: formatDateOffset(-5),
       countDownEta: -5,
@@ -356,6 +364,7 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
       terimaDok: fullDone,
       noPackinglist: 'PL-KEI-901',
       noBl: 'HLCUJK26110901',
+      statusDokumen: 'Draft',
       etd: formatDateOffset(-6),
       eta: formatDateOffset(4),
       countDownEta: 4,
@@ -401,6 +410,7 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
       terimaDok: fullDone,
       noPackinglist: 'PL-PKS-318',
       noBl: 'ONEYJKT26110318',
+      statusDokumen: 'Ready',
       etd: formatDateOffset(-16),
       eta: formatDateOffset(-2),
       countDownEta: -2,
@@ -577,9 +587,10 @@ export async function ensureDbInitialized(): Promise<DatabaseState> {
     if (changed) {
       writeDbToStorage(existing);
     }
-    // Recalculate dynamic countdown ETA on read
+    // Recalculate dynamic countdown ETA and normalize statusDokumen on read
     existing.shipments = existing.shipments.map((s) => ({
       ...s,
+      statusDokumen: normalizeStatusDokumen(s.statusDokumen),
       countDownEta: calculateCountdownEta(s.eta),
     }));
     return existing;
@@ -815,6 +826,7 @@ export async function saveShipmentRecord(
     }));
 
   merged.noCont = formatContainerSummary(validContainers);
+  merged.statusDokumen = normalizeStatusDokumen(merged.statusDokumen);
   merged.countDownEta = calculateCountdownEta(merged.eta);
   merged.updatedAt = nowIso;
   merged.updatedBy = session.username;
@@ -842,6 +854,50 @@ export async function saveShipmentRecord(
 
   writeDbToStorage(db);
   return { db, saved: merged };
+}
+
+export async function updateShipmentStatusDokumen(
+  session: SessionUser,
+  kodeOs: string,
+  nextStatus: StatusDokumenType
+): Promise<DatabaseState> {
+  const db = await ensureDbInitialized();
+  const activeUser = assertSessionActive(db, session);
+  const activePerms = resolveUserPhasePermissions(
+    activeUser.role,
+    activeUser.phasePermissions
+  );
+  if (!canUserEditPhase({ role: activeUser.role, phasePermissions: activePerms }, 1)) {
+    throw new Error(
+      'Akses ditolak: Anda tidak memiliki izin mengubah Status Dokumen Checker (Fase 1).'
+    );
+  }
+  const idx = db.shipments.findIndex((s) => s.kodeOs === kodeOs);
+  if (idx === -1) throw new Error(`Shipment ${kodeOs} tidak ditemukan.`);
+
+  const target = db.shipments[idx];
+  const oldVal = normalizeStatusDokumen(target.statusDokumen);
+  const newVal = normalizeStatusDokumen(nextStatus);
+  if (oldVal === newVal) return db;
+
+  const nowIso = new Date().toISOString();
+  db.shipments[idx] = {
+    ...target,
+    statusDokumen: newVal,
+    updatedAt: nowIso,
+    updatedBy: activeUser.username,
+  };
+  db.logs.unshift({
+    id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    waktu: nowIso,
+    user: activeUser.username,
+    kodeOs,
+    kolom: 'statusDokumen',
+    nilaiLama: oldVal,
+    nilaiBaru: newVal,
+  });
+  writeDbToStorage(db);
+  return db;
 }
 
 export async function deleteShipmentRecord(
@@ -894,7 +950,13 @@ export async function addShipmentDocument(
   session: SessionUser,
   kodeOs: string,
   jenisDokumen: string,
-  namaFile: string
+  namaFile: string,
+  driveMeta?: {
+    linkDrive?: string;
+    driveFileId?: string;
+    driveFolderId?: string;
+    source?: 'google-drive' | 'simulasi';
+  }
 ): Promise<DatabaseState> {
   if (!canPerformAction(session.role, 'upload_dokumen')) {
     throw new Error('Akses ditolak.');
@@ -909,9 +971,14 @@ export async function addShipmentDocument(
     kodeOs,
     jenisDokumen,
     namaFile,
-    linkDrive: `https://drive.google.com/drive/folders/${folderId}?q=${encodeURIComponent(kodeOs)}`,
+    linkDrive:
+      driveMeta?.linkDrive ||
+      `https://drive.google.com/drive/folders/${folderId}?q=${encodeURIComponent(kodeOs)}`,
     waktuUpload: nowIso,
     user: session.username,
+    driveFileId: driveMeta?.driveFileId,
+    driveFolderId: driveMeta?.driveFolderId,
+    source: driveMeta?.source || (driveMeta?.driveFileId ? 'google-drive' : 'simulasi'),
   });
   db.logs.unshift({
     id: `log_${Date.now()}_${randSuffix}`,
@@ -922,6 +989,33 @@ export async function addShipmentDocument(
     nilaiLama: '-',
     nilaiBaru: `${jenisDokumen}: ${namaFile}`,
   });
+  writeDbToStorage(db);
+  return db;
+}
+
+export async function deleteShipmentDocument(
+  session: SessionUser,
+  docId: string
+): Promise<DatabaseState> {
+  if (!canPerformAction(session.role, 'upload_dokumen')) {
+    throw new Error('Akses ditolak.');
+  }
+  const db = await ensureDbInitialized();
+  assertSessionActive(db, session);
+  const target = db.dokumen.find((d) => d.id === docId);
+  db.dokumen = db.dokumen.filter((d) => d.id !== docId);
+  if (target) {
+    const randSuffix = Math.random().toString(36).slice(2, 7);
+    db.logs.unshift({
+      id: `log_${Date.now()}_${randSuffix}`,
+      waktu: new Date().toISOString(),
+      user: session.username,
+      kodeOs: target.kodeOs,
+      kolom: 'DOKUMEN_HAPUS',
+      nilaiLama: `${target.jenisDokumen}: ${target.namaFile}`,
+      nilaiBaru: 'Dihapus',
+    });
+  }
   writeDbToStorage(db);
   return db;
 }

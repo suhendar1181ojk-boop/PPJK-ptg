@@ -6,7 +6,7 @@ import {
   computeDashboardStats,
   isUrgentMissingAju,
 } from '../utils/ppjkLogic';
-import { CountdownBadge, JalurBadge, StatusBadge } from './Badges';
+import { CountdownBadge, JalurBadge, StatusBadge, StatusDokumenBadge } from './Badges';
 
 Chart.register(...registerables);
 
@@ -186,9 +186,21 @@ export function DashboardView({
 
       {/* Ringkasan Status & Jalur */}
       <div className="bg-white rounded-xl border border-slate-200 p-5">
-        <h3 className="text-sm font-semibold text-[#0B2545] mb-3">
-          Distribusi Status Shipment
-        </h3>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <h3 className="text-sm font-semibold text-[#0B2545]">
+            Distribusi Status Shipment
+          </h3>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-800 font-semibold tabular-nums">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              <span>Dok. Draft (Belum Dibuat): {stats.draftCount}</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold tabular-nums">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              <span>Dok. Ready (Sudah Dibuat): {stats.readyCount}</span>
+            </span>
+          </div>
+        </div>
         <div className="flex flex-wrap gap-3">
           {Object.entries(stats.byStatus).length === 0 ? (
             <p className="text-xs text-slate-500">Belum ada data status.</p>
@@ -285,8 +297,9 @@ export function DashboardView({
                     BL: {s.noBl} · ETA: {s.eta || '-'} · {s.ship || 'Kapal belum diisi'}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
                   <CountdownBadge days={s.countDownEta} />
+                  <StatusDokumenBadge statusDokumen={s.statusDokumen} />
                   <StatusBadge status={s.status} />
                   <JalurBadge jalur={s.jalur} />
                 </div>

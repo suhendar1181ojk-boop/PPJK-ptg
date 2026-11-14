@@ -12,6 +12,7 @@ import type {
   Shipment,
   ShipmentPhase,
   Shipper,
+  StatusDokumenType,
   UserRole,
 } from '../types/ppjk';
 import {
@@ -20,9 +21,11 @@ import {
   canUserEditPhase,
   createEmptyChecklist,
   isCheckerRole,
+  normalizeStatusDokumen,
   PHASE_META,
   validateShipmentInput,
 } from '../utils/ppjkLogic';
+import { GoogleSignInButton } from './GoogleDriveButton';
 
 interface ShipmentFormModalProps {
   initialShipment: Shipment | null;
@@ -35,6 +38,9 @@ interface ShipmentFormModalProps {
   userRole: UserRole;
   phasePermissions?: PhasePermissions;
   currentUsername: string;
+  googleDriveUserEmail?: string | null;
+  driveConnecting?: boolean;
+  onConnectGoogleDrive?: () => Promise<void>;
   onClose: () => void;
   onSubmit: (
     shipment: Shipment,
@@ -62,6 +68,9 @@ export function ShipmentFormModal({
   userRole,
   phasePermissions,
   currentUsername,
+  googleDriveUserEmail,
+  driveConnecting = false,
+  onConnectGoogleDrive,
   onClose,
   onSubmit,
 }: ShipmentFormModalProps) {
@@ -75,7 +84,11 @@ export function ShipmentFormModal({
   });
 
   const [form, setForm] = useState<Shipment>(() => {
-    if (initialShipment) return JSON.parse(JSON.stringify(initialShipment)) as Shipment;
+    if (initialShipment) {
+      const cloned = JSON.parse(JSON.stringify(initialShipment)) as Shipment;
+      cloned.statusDokumen = normalizeStatusDokumen(cloned.statusDokumen);
+      return cloned;
+    }
     return {
       kodeOs: 'OTOMATIS (OS-YYMM-NNNN)',
       ship: '',
@@ -85,6 +98,7 @@ export function ShipmentFormModal({
       terimaDok: createEmptyChecklist(pengaturan.checklistItems),
       noPackinglist: '',
       noBl: '',
+      statusDokumen: 'Draft',
       etd: '',
       eta: '',
       countDownEta: null,
@@ -152,6 +166,7 @@ export function ShipmentFormModal({
       jenisDokumen: uploadJenis,
       namaFile: f.name,
       ukuranLabel: formatFileSize(f.size),
+      file: f,
     }));
     setPendingUploads((prev) => [...prev, ...added]);
   };
@@ -444,6 +459,59 @@ export function ShipmentFormModal({
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm disabled:bg-slate-100"
                   />
                 </div>
+
+                <div className="md:col-span-2">
+                  <span className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Status Pembuatan Dokumen oleh Checker (Draft / Ready)
+                  </span>
+                  <div
+                    role="radiogroup"
+                    aria-label="Status Dokumen Checker"
+                    className="grid grid-cols-1 sm:grid-cols-2 gap-2.5"
+                  >
+                    {(
+                      [
+                        {
+                          value: 'Draft' as StatusDokumenType,
+                          title: 'Draft — Belum Selesai',
+                          desc: 'Dokumen masih disiapkan / belum dibuat lengkap oleh Checker',
+                          activeCls: 'bg-amber-50 border-amber-400 text-amber-900 ring-1 ring-amber-300',
+                          dotCls: 'bg-amber-500',
+                        },
+                        {
+                          value: 'Ready' as StatusDokumenType,
+                          title: 'Ready — Dokumen Siap',
+                          desc: 'Dokumen sudah selesai dibuat oleh Checker dan siap diproses',
+                          activeCls: 'bg-emerald-50 border-emerald-500 text-emerald-900 ring-1 ring-emerald-300',
+                          dotCls: 'bg-emerald-500',
+                        },
+                      ] as const
+                    ).map((opt) => {
+                      const selected = normalizeStatusDokumen(form.statusDokumen) === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          disabled={isPhaseLocked(1)}
+                          onClick={() => updateField('statusDokumen', opt.value)}
+                          className={`text-left px-3.5 py-2.5 rounded-lg border transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
+                            selected
+                              ? opt.activeCls
+                              : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 text-xs font-bold">
+                            <span className={`w-2 h-2 rounded-full ${opt.dotCls}`} />
+                            <span>{opt.title}</span>
+                          </div>
+                          <p className="text-[11px] opacity-80 mt-0.5">{opt.desc}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
 
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
@@ -497,11 +565,24 @@ export function ShipmentFormModal({
                       <Paperclip className="w-3.5 h-3.5 text-[#F28C28]" />
                       <span>Upload File Dokumen Scan (Google Drive)</span>
                     </div>
-                    {!isNew && existingDocuments.length > 0 && (
-                      <span className="text-[11px] font-medium text-slate-500">
-                        {existingDocuments.length} dokumen sudah tersimpan
-                      </span>
-                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {googleDriveUserEmail ? (
+                        <span className="px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-[11px] font-semibold text-emerald-700">
+                          Google Drive Terhubung ({googleDriveUserEmail})
+                        </span>
+                      ) : onConnectGoogleDrive ? (
+                        <GoogleSignInButton
+                          onClick={onConnectGoogleDrive}
+                          disabled={driveConnecting}
+                          label={driveConnecting ? 'Menghubungkan...' : 'Sign in with Google'}
+                        />
+                      ) : null}
+                      {!isNew && existingDocuments.length > 0 && (
+                        <span className="text-[11px] font-medium text-slate-500">
+                          {existingDocuments.length} dokumen sudah tersimpan
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">

@@ -384,11 +384,17 @@
               <input id="searchInput" class="input" type="text" placeholder="Cari Kode OS, No. BL, No. AJU, NOPEN, Kontainer, Customer..." oninput="renderShipmentTable()" />
             </div>
             <select id="filterStatus" class="select" style="width:170px;" onchange="renderShipmentTable()"><option value="">Semua Status</option></select>
+            <select id="filterStatusDokumen" class="select" style="width:155px;" onchange="renderShipmentTable()">
+              <option value="">Status Dok: Semua</option>
+              <option value="Draft">Dokumen: Draft</option>
+              <option value="Ready">Dokumen: Ready</option>
+            </select>
             <select id="filterJalur" class="select" style="width:140px;" onchange="renderShipmentTable()"><option value="">Semua Jalur</option></select>
             <select id="filterCustomer" class="select" style="width:170px;" onchange="renderShipmentTable()"><option value="">Semua Customer</option></select>
             <select id="filterChecker" class="select" style="width:160px;" onchange="renderShipmentTable()"><option value="">Semua Checker</option></select>
             <select id="filterDateField" class="select" style="width:150px;" onchange="renderShipmentTable()">
               <option value="eta">Filter Tgl: ETA</option>
+              <option value="etd">Filter Tgl: ETD</option>
               <option value="tglTerimaDok">Filter Tgl: Terima Dok</option>
               <option value="tglSppb">Filter Tgl: SPPB</option>
             </select>
@@ -955,6 +961,7 @@
 
       var q = document.getElementById('searchInput').value.toLowerCase().trim();
       var fStatus = document.getElementById('filterStatus').value;
+      var fDocStatus = document.getElementById('filterStatusDokumen').value;
       var fJalur = document.getElementById('filterJalur').value;
       var fCust = document.getElementById('filterCustomer').value;
       var fCheck = document.getElementById('filterChecker').value;
@@ -964,13 +971,15 @@
 
       list = list.filter(function (s) {
         if (fStatus && s.status !== fStatus) return false;
+        var docSt = s.statusDokumen === 'Ready' ? 'Ready' : 'Draft';
+        if (fDocStatus && docSt !== fDocStatus) return false;
         if (fJalur && s.jalur !== fJalur) return false;
         if (fCust && s.namaCustomer !== fCust) return false;
         if (fCheck && s.dokumenChecker !== fCheck) return false;
         if (dFrom && (!s[dateField] || s[dateField] < dFrom)) return false;
         if (dTo && (!s[dateField] || s[dateField] > dTo)) return false;
         if (q) {
-          var hay = [s.kodeOs, s.dokumenChecker, s.kodeCustomer, s.kodeImportir, s.noBl, s.noAju, s.nopen, s.noCont, s.namaCustomer, s.ship, s.shipper].join(' ').toLowerCase();
+          var hay = [s.kodeOs, s.dokumenChecker, docSt, s.kodeCustomer, s.kodeImportir, s.noBl, s.noAju, s.nopen, s.noCont, s.namaCustomer, s.ship, s.shipper].join(' ').toLowerCase();
           if (hay.indexOf(q) === -1) return false;
         }
         return true;
@@ -994,8 +1003,9 @@
           (isOut ? '<th onclick="sortBy(\'dokumenChecker\')">Checker</th><th onclick="sortBy(\'kodeCustomer\')">Kode Customer</th><th onclick="sortBy(\'kodeImportir\')">Kode Importir</th>' : '') +
           '<th onclick="sortBy(\'namaCustomer\')">Nama Customer</th>' +
           '<th onclick="sortBy(\'noBl\')">No. BL</th>' +
-          '<th onclick="sortBy(\'eta\')">ETA</th>' +
+          '<th onclick="sortBy(\'eta\')">ETA / ETD</th>' +
           '<th onclick="sortBy(\'countDownEta\')">Count Down ETA</th>' +
+          '<th onclick="sortBy(\'statusDokumen\')">Status Dok</th>' +
           '<th onclick="sortBy(\'status\')">Status</th>' +
           '<th onclick="sortBy(\'jalur\')">Jalur</th>' +
           '<th onclick="sortBy(\'noAju\')">No. AJU</th>' +
@@ -1007,7 +1017,7 @@
       var tbody = document.getElementById('shipmentTbody');
       var mCards = document.getElementById('mobileCardList');
       if (list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="' + (isOut ? '13' : '10') + '" style="text-align:center;padding:32px;color:var(--muted);">Belum ada data shipment yang sesuai filter.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="' + (isOut ? '14' : '11') + '" style="text-align:center;padding:32px;color:var(--muted);">Belum ada data shipment yang sesuai filter.</td></tr>';
         mCards.innerHTML = '<div class="card" style="text-align:center;color:var(--muted);">Tidak ada data shipment.</div>';
         return;
       }
@@ -1015,13 +1025,18 @@
       var canEdit = canUserEditAnyPhase();
       tbody.innerHTML = list.map(function (s) {
         var urgent = isUrgentNoAju(s);
+        var docSt = s.statusDokumen === 'Ready' ? 'Ready' : 'Draft';
+        var docBadge = docSt === 'Ready'
+          ? '<span class="badge cd-green">Ready</span>'
+          : '<span class="badge cd-yellow">Draft</span>';
         return '<tr class="data-row ' + (urgent ? 'row-urgent' : '') + '" onclick="openDetail(\'' + s.kodeOs + '\')">' +
           '<td class="tabular"><strong>' + escapeHtml(s.kodeOs) + '</strong>' + (urgent ? '<div style="font-size:10.5px;color:#B91C1C;font-weight:600;">ETA &lt; 3h Tanpa AJU</div>' : '') + '</td>' +
           (isOut ? '<td>' + escapeHtml(s.dokumenChecker || '-') + '</td><td class="tabular">' + escapeHtml(s.kodeCustomer || '-') + '</td><td class="tabular">' + escapeHtml(s.kodeImportir || '-') + '</td>' : '') +
           '<td>' + escapeHtml(s.namaCustomer) + '</td>' +
           '<td class="tabular">' + escapeHtml(s.noBl) + '</td>' +
-          '<td class="tabular">' + escapeHtml(s.eta || '-') + '</td>' +
+          '<td class="tabular"><div>' + escapeHtml(s.eta || '-') + '</div><div style="font-size:10.5px;color:var(--muted);">ETD: ' + escapeHtml(s.etd || '-') + '</div></td>' +
           '<td>' + renderCountdownBadge(s.countDownEta) + '</td>' +
+          '<td>' + docBadge + '</td>' +
           '<td><span class="badge" style="background:#F1F5F9;color:#334155;">' + escapeHtml(s.status) + '</span></td>' +
           '<td>' + renderJalurBadge(s.jalur) + '</td>' +
           '<td class="tabular">' + escapeHtml(s.noAju || '-') + '</td>' +
@@ -1034,14 +1049,19 @@
 
       mCards.innerHTML = list.map(function (s) {
         var urgent = isUrgentNoAju(s);
+        var docSt = s.statusDokumen === 'Ready' ? 'Ready' : 'Draft';
+        var docBadge = docSt === 'Ready'
+          ? '<span class="badge cd-green">Ready</span>'
+          : '<span class="badge cd-yellow">Draft</span>';
         return '<div class="card" style="' + (urgent ? 'background:#FEF2F2;border-color:#FECACA;' : '') + '" onclick="openDetail(\'' + s.kodeOs + '\')">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
             '<strong>' + escapeHtml(s.kodeOs) + '</strong>' + renderCountdownBadge(s.countDownEta) +
           '</div>' +
           '<div style="font-weight:600;margin-bottom:4px;">' + escapeHtml(s.namaCustomer) + '</div>' +
           (isOut ? '<div style="font-size:12px;color:var(--muted);margin-bottom:4px;">Checker: ' + escapeHtml(s.dokumenChecker || '-') + ' &middot; Kode Cust: ' + escapeHtml(s.kodeCustomer || '-') + ' &middot; Kode Imp: ' + escapeHtml(s.kodeImportir || '-') + '</div>' : '') +
-          '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;">BL: ' + escapeHtml(s.noBl) + ' &middot; ETA: ' + escapeHtml(s.eta || '-') + '</div>' +
+          '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;">BL: ' + escapeHtml(s.noBl) + ' &middot; ETD: ' + escapeHtml(s.etd || '-') + ' &middot; ETA: ' + escapeHtml(s.eta || '-') + '</div>' +
           '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+            docBadge +
             '<span class="badge" style="background:#F1F5F9;color:#334155;">' + escapeHtml(s.status) + '</span>' +
             renderJalurBadge(s.jalur) +
           '</div>' +
@@ -1189,7 +1209,7 @@
       state.formPhase = isNew ? 1 : firstPhase;
       state.editingShipment = found ? JSON.parse(JSON.stringify(found)) : {
         kodeOs: '', ship: '', kodeCustomer: '', namaCustomer: '', tglTerimaDok: '',
-        terimaDok: { items: {}, catatan: '' }, noPackinglist: '', noBl: '',
+        terimaDok: { items: {}, catatan: '' }, noPackinglist: '', noBl: '', statusDokumen: 'Draft',
         etd: '', eta: '', noCont: '', noAju: '', tglAju: '', status: 'Dokumen Diterima',
         nopen: '', tglNopen: '', jalur: '', kodeImportir: '', shipper: '',
         description: '', negaraAsal: '', currency: 'USD', kurs: '', invoice: '',
@@ -1261,6 +1281,7 @@
 
       if (p === 1) {
         var dis = lockPhase1 ? 'disabled' : '';
+        var curDocSt = s.statusDokumen === 'Ready' ? 'Ready' : 'Draft';
         html += '<div class="form-grid">' +
           '<div><label class="field-label">Kode Customer *</label><input id="f_kodeCustomer" class="input" list="gasCustomerCodes" value="' + escapeHtml(s.kodeCustomer) + '" placeholder="Ketik Kode Customer (mis. CUST-001)" ' + dis + ' oninput="onCustomerPick(this.value)"><datalist id="gasCustomerCodes">' + custOpts + '</datalist></div>' +
           '<div><label class="field-label">Nama Customer</label><input id="f_namaCustomer" class="input" placeholder="Isi manual atau otomatis dari master" value="' + escapeHtml(s.namaCustomer) + '" ' + dis + '></div>' +
@@ -1268,6 +1289,7 @@
           '<div><label class="field-label">No. Packinglist</label><input id="f_noPackinglist" class="input" value="' + escapeHtml(s.noPackinglist) + '" ' + dis + '></div>' +
           '<div><label class="field-label">Tgl. Terima Dok</label><input id="f_tglTerimaDok" type="date" class="input" value="' + escapeHtml(s.tglTerimaDok) + '" ' + dis + '></div>' +
           '<div><label class="field-label">Dokumen Checker</label><input id="f_dokumenChecker" class="input" value="' + escapeHtml(s.dokumenChecker) + '" ' + dis + '></div>' +
+          '<div style="grid-column:1/-1;"><label class="field-label">Status Pembuatan Dokumen Checker</label><select id="f_statusDokumen" class="select" ' + dis + '><option value="Draft"' + (curDocSt === 'Draft' ? ' selected' : '') + '>Draft (Belum selesai / sedang dibuat Checker)</option><option value="Ready"' + (curDocSt === 'Ready' ? ' selected' : '') + '>Ready (Dokumen sudah selesai dibuat Checker)</option></select></div>' +
         '</div>' + renderChecklistEditor('terimaDok', 'Checklist Terima Dokumen', s.terimaDok, lockPhase1) + renderFormUploadSection(isNew);
       } else if (p === 2) {
         var dis2 = lockPhase2 ? 'disabled' : '';
@@ -1417,7 +1439,7 @@
     function syncFormInputsToState() {
       var s = state.editingShipment;
       if (!s) return;
-      var keys = ['kodeCustomer','namaCustomer','noBl','noPackinglist','tglTerimaDok','dokumenChecker','ship','etd','eta',
+      var keys = ['kodeCustomer','namaCustomer','noBl','noPackinglist','tglTerimaDok','dokumenChecker','statusDokumen','ship','etd','eta',
         'status','jalur','noAju','tglAju','nopen','tglNopen','kodeImportir','shipper','description','negaraAsal',
         'currency','kurs','invoice','bmPdri','sptnp','noSppb','tglSppb','noSptnp','tglSptnp','pfpb','tglPfpb','pfpd','tglPfpd','eslah','tglEslah'];
       keys.forEach(function (k) {

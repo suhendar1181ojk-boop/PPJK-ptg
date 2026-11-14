@@ -14,19 +14,26 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import type { CheckerSummary, PhasePermissions, Shipment, UserRole } from '../types/ppjk';
+import type {
+  CheckerSummary,
+  PhasePermissions,
+  Shipment,
+  StatusDokumenType,
+  UserRole,
+} from '../types/ppjk';
 import {
   canUserEditAnyPhase,
   computeCheckerSummaries,
   getStatusBadgeClass,
   isUrgentMissingAju,
+  normalizeStatusDokumen,
 } from '../utils/ppjkLogic';
 import {
   exportCheckerSummaryToCSV,
   exportCheckerSummaryToExcel,
   exportCheckerSummaryToPDF,
 } from '../utils/exportUtils';
-import { CountdownBadge, JalurBadge, StatusBadge } from './Badges';
+import { CountdownBadge, JalurBadge, StatusBadge, StatusDokumenBadge } from './Badges';
 
 interface CheckerSummaryViewProps {
   shipments: Shipment[];
@@ -79,6 +86,7 @@ export function CheckerSummaryView({
 }: CheckerSummaryViewProps) {
   const [search, setSearch] = useState('');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('');
+  const [selectedDocStatusFilter, setSelectedDocStatusFilter] = useState<'' | StatusDokumenType>('');
   const [conditionFilter, setConditionFilter] = useState<'all' | 'outstanding' | 'completed'>('all');
   const [selectedCheckerName, setSelectedCheckerName] = useState<string | null>(null);
   const drilldownRef = useRef<HTMLElement | null>(null);
@@ -104,11 +112,13 @@ export function CheckerSummaryView({
     return summary.checkers.filter((c) => {
       if (q && !c.checkerName.toLowerCase().includes(q)) return false;
       if (selectedStatusFilter && (c.byStatus[selectedStatusFilter] || 0) === 0) return false;
+      if (selectedDocStatusFilter === 'Draft' && c.draftCount === 0) return false;
+      if (selectedDocStatusFilter === 'Ready' && c.readyCount === 0) return false;
       if (conditionFilter === 'outstanding' && c.outstanding === 0) return false;
       if (conditionFilter === 'completed' && c.outstanding > 0) return false;
       return true;
     });
-  }, [summary.checkers, search, selectedStatusFilter, conditionFilter]);
+  }, [summary.checkers, search, selectedStatusFilter, selectedDocStatusFilter, conditionFilter]);
 
   const activeChecker: CheckerSummary | null = useMemo(() => {
     if (!selectedCheckerName) return null;
@@ -119,11 +129,19 @@ export function CheckerSummaryView({
 
   const activeCheckerShipments = useMemo(() => {
     if (!activeChecker) return [];
-    if (!selectedStatusFilter) return activeChecker.shipments;
-    return activeChecker.shipments.filter(
-      (s) => (s.status || 'Dokumen Diterima') === selectedStatusFilter
-    );
-  }, [activeChecker, selectedStatusFilter]);
+    return activeChecker.shipments.filter((s) => {
+      if (selectedStatusFilter && (s.status || 'Dokumen Diterima') !== selectedStatusFilter) {
+        return false;
+      }
+      if (
+        selectedDocStatusFilter &&
+        normalizeStatusDokumen(s.statusDokumen) !== selectedDocStatusFilter
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [activeChecker, selectedStatusFilter, selectedDocStatusFilter]);
 
   const canEdit = canUserEditAnyPhase({ role: userRole, phasePermissions });
   const overallCompletion =
@@ -173,6 +191,12 @@ export function CheckerSummaryView({
             </div>
             <div className="px-3 py-2 rounded-lg bg-orange-50 text-orange-800 border border-orange-200">
               Outstanding: <strong className="tabular-nums">{summary.totalOutstanding}</strong>
+            </div>
+            <div className="px-3 py-2 rounded-lg bg-amber-50 text-amber-800 border border-amber-200">
+              Dok. Draft: <strong className="tabular-nums">{summary.totalDraft}</strong>
+            </div>
+            <div className="px-3 py-2 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200">
+              Dok. Ready: <strong className="tabular-nums">{summary.totalReady}</strong>
             </div>
             <div className="px-3 py-2 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200">
               Selesai: <strong className="tabular-nums">{summary.totalCompleted}</strong> ({overallCompletion}%)
@@ -291,6 +315,19 @@ export function CheckerSummaryView({
           </select>
 
           <select
+            aria-label="Filter status dokumen draft atau ready"
+            value={selectedDocStatusFilter}
+            onChange={(e) =>
+              setSelectedDocStatusFilter(e.target.value as '' | StatusDokumenType)
+            }
+            className="px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:border-[#F28C28]"
+          >
+            <option value="">Status Dok: Semua</option>
+            <option value="Draft">Dokumen: Draft</option>
+            <option value="Ready">Dokumen: Ready</option>
+          </select>
+
+          <select
             aria-label="Filter kondisi outstanding checker"
             value={conditionFilter}
             onChange={(e) =>
@@ -303,12 +340,13 @@ export function CheckerSummaryView({
             <option value="completed">Sudah Selesai Semua</option>
           </select>
 
-          {(search || selectedStatusFilter || conditionFilter !== 'all') && (
+          {(search || selectedStatusFilter || selectedDocStatusFilter || conditionFilter !== 'all') && (
             <button
               type="button"
               onClick={() => {
                 setSearch('');
                 setSelectedStatusFilter('');
+                setSelectedDocStatusFilter('');
                 setConditionFilter('all');
               }}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-medium text-slate-700 cursor-pointer"
@@ -465,6 +503,17 @@ export function CheckerSummaryView({
                         </div>
                       </div>
 
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                          <span className="font-medium">Dok. Draft</span>
+                          <span className="font-bold tabular-nums">{checker.draftCount}</span>
+                        </div>
+                        <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-700">
+                          <span className="font-medium">Dok. Ready</span>
+                          <span className="font-bold tabular-nums">{checker.readyCount}</span>
+                        </div>
+                      </div>
+
                       <div>
                         <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
                           <span>Tingkat Penyelesaian OS</span>
@@ -612,6 +661,7 @@ export function CheckerSummaryView({
                       <th className="py-2.5 px-3 font-semibold">No. BL</th>
                       <th className="py-2.5 px-3 font-semibold">ETA</th>
                       <th className="py-2.5 px-3 font-semibold">Count Down ETA</th>
+                      <th className="py-2.5 px-3 font-semibold">Status Dok</th>
                       <th className="py-2.5 px-3 font-semibold">Status</th>
                       <th className="py-2.5 px-3 font-semibold">Jalur</th>
                       <th className="py-2.5 px-3 font-semibold text-right no-print">Aksi</th>
@@ -642,6 +692,9 @@ export function CheckerSummaryView({
                           </td>
                           <td className="py-2.5 px-3 whitespace-nowrap">
                             <CountdownBadge days={s.countDownEta} />
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <StatusDokumenBadge statusDokumen={s.statusDokumen} />
                           </td>
                           <td className="py-2.5 px-3 whitespace-nowrap">
                             <StatusBadge status={s.status} />
@@ -702,6 +755,7 @@ export function CheckerSummaryView({
                       <span className="tabular-nums">{s.eta || '-'}</span>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
+                      <StatusDokumenBadge statusDokumen={s.statusDokumen} />
                       <StatusBadge status={s.status} />
                       <JalurBadge jalur={s.jalur} />
                     </div>

@@ -10,19 +10,27 @@ import {
   RotateCcw,
   Search,
 } from 'lucide-react';
-import type { JalurType, PhasePermissions, Shipment, UserRole } from '../types/ppjk';
+import type {
+  JalurType,
+  PhasePermissions,
+  Shipment,
+  ShipmentDateFilterField,
+  StatusDokumenType,
+  UserRole,
+} from '../types/ppjk';
 import {
   canPerformAction,
   canUserEditAnyPhase,
-  isShipmentOutstanding,
+  filterShipments,
   isUrgentMissingAju,
+  normalizeStatusDokumen,
 } from '../utils/ppjkLogic';
 import {
   exportShipmentsToCSV,
   exportShipmentsToExcel,
   exportShipmentsToPDF,
 } from '../utils/exportUtils';
-import { CountdownBadge, JalurBadge, StatusBadge } from './Badges';
+import { CountdownBadge, JalurBadge, StatusBadge, StatusDokumenBadge } from './Badges';
 
 interface ShipmentTableViewProps {
   mode: 'all' | 'outstanding';
@@ -48,9 +56,17 @@ type SortKey =
   | 'eta'
   | 'countDownEta'
   | 'status'
+  | 'statusDokumen'
   | 'jalur'
   | 'noAju'
   | 'tglSppb';
+
+const DATE_FIELD_LABELS: Record<ShipmentDateFilterField, string> = {
+  eta: 'ETA',
+  etd: 'ETD',
+  tglTerimaDok: 'Tgl. Terima Dok',
+  tglSppb: 'Tgl. SPPB',
+};
 
 export function ShipmentTableView({
   mode,
@@ -67,10 +83,11 @@ export function ShipmentTableView({
 }: ShipmentTableViewProps) {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterStatusDokumen, setFilterStatusDokumen] = useState<'' | StatusDokumenType>('');
   const [filterJalur, setFilterJalur] = useState('');
   const [filterCustomer, setFilterCustomer] = useState('');
   const [filterChecker, setFilterChecker] = useState(initialCheckerFilter);
-  const [dateField, setDateField] = useState<'eta' | 'tglTerimaDok' | 'tglSppb'>('eta');
+  const [dateField, setDateField] = useState<ShipmentDateFilterField>('eta');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('kodeOs');
@@ -93,43 +110,29 @@ export function ShipmentTableView({
   );
 
   const filtered = useMemo(() => {
-    let list =
-      mode === 'outstanding'
-        ? shipments.filter((s) => isShipmentOutstanding(s, checklistItems))
-        : [...shipments];
-
-    const q = search.trim().toLowerCase();
-    list = list.filter((s) => {
-      if (filterStatus && s.status !== filterStatus) return false;
-      if (filterJalur && s.jalur !== filterJalur) return false;
-      if (filterCustomer && s.namaCustomer !== filterCustomer) return false;
-      if (filterChecker && s.dokumenChecker !== filterChecker) return false;
-      if (dateFrom && (!s[dateField] || s[dateField] < dateFrom)) return false;
-      if (dateTo && (!s[dateField] || s[dateField] > dateTo)) return false;
-
-      if (q) {
-        const hay = [
-          s.kodeOs,
-          s.dokumenChecker,
-          s.kodeCustomer,
-          s.kodeImportir,
-          s.noBl,
-          s.noAju,
-          s.nopen,
-          s.noCont,
-          s.namaCustomer,
-          s.ship,
-          s.shipper,
-          s.noSppb,
-        ]
-          .join(' ')
-          .toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
+    const list = filterShipments(
+      shipments,
+      {
+        mode,
+        search,
+        filterStatus,
+        filterStatusDokumen,
+        filterJalur,
+        filterCustomer,
+        filterChecker,
+        dateField,
+        dateFrom,
+        dateTo,
+      },
+      checklistItems
+    );
 
     list.sort((a, b) => {
+      if (sortKey === 'statusDokumen') {
+        const va = normalizeStatusDokumen(a.statusDokumen);
+        const vb = normalizeStatusDokumen(b.statusDokumen);
+        return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+      }
       let va: string | number = a[sortKey] ?? '';
       let vb: string | number = b[sortKey] ?? '';
       if (sortKey === 'countDownEta') {
@@ -149,6 +152,7 @@ export function ShipmentTableView({
     checklistItems,
     search,
     filterStatus,
+    filterStatusDokumen,
     filterJalur,
     filterCustomer,
     filterChecker,
@@ -170,9 +174,11 @@ export function ShipmentTableView({
   const resetFilters = () => {
     setSearch('');
     setFilterStatus('');
+    setFilterStatusDokumen('');
     setFilterJalur('');
     setFilterCustomer('');
     setFilterChecker('');
+    setDateField('eta');
     setDateFrom('');
     setDateTo('');
   };
@@ -191,8 +197,9 @@ export function ShipmentTableView({
       : []),
     { key: 'namaCustomer', label: 'Nama Customer' },
     { key: 'noBl', label: 'No. BL' },
-    { key: 'eta', label: 'ETA' },
+    { key: 'eta', label: 'ETA / ETD' },
     { key: 'countDownEta', label: 'Count Down ETA' },
+    { key: 'statusDokumen', label: 'Status Dok' },
     { key: 'status', label: 'Status' },
     { key: 'jalur', label: 'Jalur' },
     { key: 'noAju', label: 'No. AJU' },
@@ -281,7 +288,7 @@ export function ShipmentTableView({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
           <select
             aria-label="Filter Status"
             value={filterStatus}
@@ -294,6 +301,19 @@ export function ShipmentTableView({
                 {st}
               </option>
             ))}
+          </select>
+
+          <select
+            aria-label="Filter Status Dokumen Checker"
+            value={filterStatusDokumen}
+            onChange={(e) =>
+              setFilterStatusDokumen(e.target.value as '' | StatusDokumenType)
+            }
+            className="w-full min-w-0 px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white focus:outline-none focus:border-[#F28C28]"
+          >
+            <option value="">Status Dok: Semua</option>
+            <option value="Draft">Dokumen: Draft</option>
+            <option value="Ready">Dokumen: Ready</option>
           </select>
 
           <select
@@ -344,11 +364,12 @@ export function ShipmentTableView({
             aria-label="Jenis tanggal filter"
             value={dateField}
             onChange={(e) =>
-              setDateField(e.target.value as 'eta' | 'tglTerimaDok' | 'tglSppb')
+              setDateField(e.target.value as ShipmentDateFilterField)
             }
-            className="w-full sm:w-auto min-w-0 px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+            className="w-full sm:w-auto min-w-0 px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white font-medium text-slate-700"
           >
             <option value="eta">Filter Tgl: ETA</option>
+            <option value="etd">Filter Tgl: ETD</option>
             <option value="tglTerimaDok">Filter Tgl: Tgl Terima</option>
             <option value="tglSppb">Filter Tgl: Tgl SPPB</option>
           </select>
@@ -377,6 +398,16 @@ export function ShipmentTableView({
             <RotateCcw className="w-3.5 h-3.5" />
             <span>Reset</span>
           </button>
+
+          {(dateFrom || dateTo) && (
+            <span
+              data-testid="active-date-range-badge"
+              className="text-[11px] font-medium text-[#0B2545] bg-slate-100 border border-slate-200 rounded-md px-2.5 py-1.5 tabular-nums"
+            >
+              Memantau {DATE_FIELD_LABELS[dateField]}: {dateFrom || '...'} s/d{' '}
+              {dateTo || '...'} ({filtered.length} dokumen)
+            </span>
+          )}
         </div>
       </div>
 
@@ -489,10 +520,16 @@ export function ShipmentTableView({
                         {s.noBl}
                       </td>
                       <td className={`py-2.5 ${cellPx} tabular-nums whitespace-nowrap text-slate-700`}>
-                        {s.eta || '-'}
+                        <div>{s.eta || '-'}</div>
+                        <div className="text-[10.5px] text-slate-400">
+                          ETD: {s.etd || '-'}
+                        </div>
                       </td>
                       <td className={`py-2.5 ${cellPx} whitespace-nowrap`}>
                         <CountdownBadge days={s.countDownEta} />
+                      </td>
+                      <td className={`py-2.5 ${cellPx} whitespace-nowrap`}>
+                        <StatusDokumenBadge statusDokumen={s.statusDokumen} />
                       </td>
                       <td className={`py-2.5 ${cellPx} whitespace-nowrap`}>
                         <StatusBadge status={s.status} />
@@ -577,8 +614,11 @@ export function ShipmentTableView({
                       No. BL: <span className="font-mono-code text-slate-800">{s.noBl}</span>
                     </div>
                     <div>
-                      ETA: <span className="tabular-nums text-slate-800">{s.eta || '-'}</span> · AJU:{' '}
-                      <span className="font-mono-code text-slate-800">{s.noAju || '-'}</span>
+                      ETD: <span className="tabular-nums text-slate-800">{s.etd || '-'}</span> · ETA:{' '}
+                      <span className="tabular-nums text-slate-800">{s.eta || '-'}</span>
+                    </div>
+                    <div>
+                      AJU: <span className="font-mono-code text-slate-800">{s.noAju || '-'}</span>
                     </div>
                     <div>
                       Kontainer: {s.noCont || '-'}
@@ -598,6 +638,7 @@ export function ShipmentTableView({
                   )}
 
                   <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    <StatusDokumenBadge statusDokumen={s.statusDokumen} />
                     <StatusBadge status={s.status} />
                     <JalurBadge jalur={s.jalur} />
                   </div>

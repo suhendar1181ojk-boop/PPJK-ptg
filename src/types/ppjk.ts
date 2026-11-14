@@ -8,6 +8,10 @@ export type UserRole =
 
 export type JalurType = '' | 'Hijau' | 'Kuning' | 'Merah' | 'MITA';
 
+export type StatusDokumenType = 'Draft' | 'Ready';
+
+export type ShipmentDateFilterField = 'eta' | 'etd' | 'tglTerimaDok' | 'tglSppb';
+
 export interface ChecklistData {
   items: Record<string, boolean>;
   catatan: string;
@@ -21,7 +25,7 @@ export interface KontainerItem {
 }
 
 /**
- * 39 Kolom Utama Shipment + Metadata Audit
+ * 39 Kolom Utama Shipment + Status Dokumen Checker & Metadata Audit
  */
 export interface Shipment {
   // 1-8: Dokumen & Customer
@@ -33,6 +37,7 @@ export interface Shipment {
   terimaDok: ChecklistData; // 6. Terima Dok (Checklist + Catatan)
   noPackinglist: string;    // 7. No. Packinglist
   noBl: string;             // 8. No. BL
+  statusDokumen?: StatusDokumenType; // Status pembuatan dokumen oleh Checker (Draft / Ready)
 
   // 9-12: Pelayaran & Kontainer
   etd: string;              // 9. ETD (YYYY-MM-DD)
@@ -148,6 +153,9 @@ export interface DokumenItem {
   linkDrive: string;
   waktuUpload: string;
   user: string;
+  driveFileId?: string;
+  driveFolderId?: string;
+  source?: 'google-drive' | 'simulasi';
 }
 
 export interface PendingUploadFile {
@@ -155,6 +163,7 @@ export interface PendingUploadFile {
   jenisDokumen: string;
   namaFile: string;
   ukuranLabel?: string;
+  file?: File;
 }
 
 export interface Pengaturan {
@@ -169,6 +178,8 @@ export interface Pengaturan {
 export interface DashboardStats {
   total: number;
   outstanding: number;
+  draftCount: number;
+  readyCount: number;
   etaNext7Days: number;
   urgentMissingAju: number;
   byStatus: Record<string, number>;
@@ -182,6 +193,8 @@ export interface CheckerSummary {
   total: number;
   outstanding: number;
   completed: number;
+  draftCount: number;
+  readyCount: number;
   urgentMissingAju: number;
   etaNext7Days: number;
   completionRate: number;
@@ -194,6 +207,8 @@ export interface GlobalStatusSummary {
   totalDocuments: number;
   totalOutstanding: number;
   totalCompleted: number;
+  totalDraft: number;
+  totalReady: number;
   totalUrgent: number;
   totalCheckers: number;
   byStatus: Array<{ status: string; count: number; percentage: number }>;

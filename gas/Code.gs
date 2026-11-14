@@ -20,7 +20,7 @@ var SHIPMENT_HEADERS = [
   'BM/PDRI', 'SPTNP', 'No. SPPB', 'Tgl SPPB', 'Dokumen Checker',
   'No. SPTNP', 'Tgl. SPTNP', 'PFPB', 'Tgl. PFPB', 'PFPD',
   'Tgl. PFPD', 'ESLAH', 'Tgl. ESLAH', 'Dokumen OS',
-  'CreatedAt', 'CreatedBy', 'UpdatedAt', 'UpdatedBy'
+  'CreatedAt', 'CreatedBy', 'UpdatedAt', 'UpdatedBy', 'StatusDokumen'
 ];
 
 var DEFAULT_STATUS_LIST = [
@@ -53,6 +53,7 @@ var PHASE_1_KEYS_ = {
   terimaDok: true,
   noPackinglist: true,
   noBl: true,
+  statusDokumen: true,
   dokumenChecker: true
 };
 
@@ -1144,7 +1145,8 @@ function rowToShipment_(r) {
     createdAt: String(r[39] || ''),
     createdBy: String(r[40] || ''),
     updatedAt: String(r[41] || ''),
-    updatedBy: String(r[42] || '')
+    updatedBy: String(r[42] || ''),
+    statusDokumen: String(r[43] || '') === 'Ready' ? 'Ready' : 'Draft'
   };
 }
 
@@ -1192,7 +1194,8 @@ function shipmentToRow_(s) {
     s.createdAt || '',
     s.createdBy || '',
     s.updatedAt || '',
-    s.updatedBy || ''
+    s.updatedBy || '',
+    s.statusDokumen === 'Ready' ? 'Ready' : 'Draft'
   ];
 }
 

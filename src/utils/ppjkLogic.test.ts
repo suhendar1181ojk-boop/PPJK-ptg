@@ -12,13 +12,17 @@ import {
   createEmptyChecklist,
   DEFAULT_CHECKLIST_ITEMS,
   DEFAULT_STATUS_LIST,
+  filterShipments,
   formatContainerSummary,
   generateNextKodeOS,
   getAllowedFieldsForPermissions,
   getCountdownBadgeMeta,
   getDefaultPhasePermissions,
+  getStatusDokumenBadgeMeta,
   isShipmentOutstanding,
   isUrgentMissingAju,
+  normalizeStatusDokumen,
+  PHASE_1_FIELDS,
   resolveUserPhasePermissions,
   validateShipmentInput,
 } from './ppjkLogic';
@@ -224,16 +228,20 @@ test('computeDashboardStats aggregates totals accurately', () => {
     eta: '2026-11-15',
     jalur: 'Merah',
     noAju: '',
+    statusDokumen: 'Draft',
   });
   const s2 = makeShipment({
     kodeOs: 'OS-2611-0002',
     eta: '2026-11-25',
     jalur: 'Hijau',
     noAju: '00001',
+    statusDokumen: 'Ready',
   });
   const stats = computeDashboardStats([s1, s2], DEFAULT_CHECKLIST_ITEMS, ref);
   assert.equal(stats.total, 2);
   assert.equal(stats.outstanding, 2);
+  assert.equal(stats.draftCount, 1);
+  assert.equal(stats.readyCount, 1);
   assert.equal(stats.etaNext7Days, 1);
   assert.equal(stats.urgentMissingAju, 1);
   assert.equal(stats.byJalur.Merah, 1);
@@ -363,4 +371,89 @@ test('per-user manual phase toggle permissions override role defaults cleanly', 
     canUserEditPhase({ role: 'Manajer', phasePermissions: { phase1: false, phase2: true, phase3: false, phase4: false } }, 2),
     true
   );
+});
+
+test('Status Dokumen Checker (Draft/Ready) normalizes, summarizes per checker, and belongs to Phase 1', () => {
+  assert.equal(normalizeStatusDokumen(undefined), 'Draft');
+  assert.equal(normalizeStatusDokumen(''), 'Draft');
+  assert.equal(normalizeStatusDokumen('Draft'), 'Draft');
+  assert.equal(normalizeStatusDokumen('Ready'), 'Ready');
+
+  assert.equal(getStatusDokumenBadgeMeta(undefined).label, 'Draft');
+  assert.equal(getStatusDokumenBadgeMeta('Ready').label, 'Ready');
+  assert.ok(PHASE_1_FIELDS.includes('statusDokumen'));
+
+  const s1 = makeShipment({ kodeOs: 'OS-2611-0001', dokumenChecker: 'Rina', statusDokumen: 'Draft' });
+  const s2 = makeShipment({ kodeOs: 'OS-2611-0002', dokumenChecker: 'Rina', statusDokumen: 'Ready' });
+  const s3 = makeShipment({ kodeOs: 'OS-2611-0003', dokumenChecker: 'Dewi', statusDokumen: 'Ready' });
+
+  const summary = computeCheckerSummaries([s1, s2, s3], DEFAULT_STATUS_LIST, DEFAULT_CHECKLIST_ITEMS);
+  assert.equal(summary.totalDraft, 1);
+  assert.equal(summary.totalReady, 2);
+
+  const rina = summary.checkers.find((c) => c.checkerName === 'Rina');
+  assert.ok(rina);
+  assert.equal(rina.draftCount, 1);
+  assert.equal(rina.readyCount, 1);
+});
+
+test('filterShipments filters accurately by ETD/ETA date ranges and Draft/Ready statusDokumen', () => {
+  const s1 = makeShipment({
+    kodeOs: 'OS-2611-0001',
+    etd: '2026-11-01',
+    eta: '2026-11-12',
+    statusDokumen: 'Draft',
+  });
+  const s2 = makeShipment({
+    kodeOs: 'OS-2611-0002',
+    etd: '2026-11-08',
+    eta: '2026-11-20',
+    statusDokumen: 'Ready',
+  });
+  const s3 = makeShipment({
+    kodeOs: 'OS-2611-0003',
+    etd: '2026-11-15',
+    eta: '2026-11-28',
+    statusDokumen: 'Ready',
+  });
+
+  // Filter rentang ETD
+  const etdFiltered = filterShipments([s1, s2, s3], {
+    mode: 'all',
+    dateField: 'etd',
+    dateFrom: '2026-11-05',
+    dateTo: '2026-11-15',
+  });
+  assert.deepEqual(
+    etdFiltered.map((x) => x.kodeOs),
+    ['OS-2611-0002', 'OS-2611-0003']
+  );
+
+  // Filter rentang ETA
+  const etaFiltered = filterShipments([s1, s2, s3], {
+    mode: 'all',
+    dateField: 'eta',
+    dateFrom: '2026-11-10',
+    dateTo: '2026-11-22',
+  });
+  assert.deepEqual(
+    etaFiltered.map((x) => x.kodeOs),
+    ['OS-2611-0001', 'OS-2611-0002']
+  );
+
+  // Filter Status Dokumen Draft vs Ready
+  const draftOnly = filterShipments([s1, s2, s3], {
+    mode: 'all',
+    filterStatusDokumen: 'Draft',
+  });
+  assert.deepEqual(draftOnly.map((x) => x.kodeOs), ['OS-2611-0001']);
+
+  const readyAndEtd = filterShipments([s1, s2, s3], {
+    mode: 'all',
+    filterStatusDokumen: 'Ready',
+    dateField: 'etd',
+    dateFrom: '2026-11-01',
+    dateTo: '2026-11-10',
+  });
+  assert.deepEqual(readyAndEtd.map((x) => x.kodeOs), ['OS-2611-0002']);
 });

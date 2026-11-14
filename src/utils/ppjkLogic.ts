@@ -8,7 +8,9 @@ import type {
   Pengaturan,
   PhasePermissions,
   Shipment,
+  ShipmentDateFilterField,
   ShipmentPhase,
+  StatusDokumenType,
   UserRole,
 } from '../types/ppjk';
 
@@ -179,6 +181,39 @@ export function getStatusBadgeClass(status: string): string {
   }
 }
 
+export function normalizeStatusDokumen(val?: string | null): StatusDokumenType {
+  return val === 'Ready' ? 'Ready' : 'Draft';
+}
+
+export function getStatusDokumenBadgeMeta(val?: string | null): {
+  value: StatusDokumenType;
+  label: string;
+  description: string;
+  bgClass: string;
+  textClass: string;
+  dotClass: string;
+} {
+  const normalized = normalizeStatusDokumen(val);
+  if (normalized === 'Ready') {
+    return {
+      value: 'Ready',
+      label: 'Ready',
+      description: 'Dokumen sudah dibuat Checker',
+      bgClass: 'bg-emerald-50 border-emerald-200',
+      textClass: 'text-emerald-700',
+      dotClass: 'bg-emerald-500',
+    };
+  }
+  return {
+    value: 'Draft',
+    label: 'Draft',
+    description: 'Belum dibuat / masih Draft Checker',
+    bgClass: 'bg-amber-50 border-amber-200',
+    textClass: 'text-amber-800',
+    dotClass: 'bg-amber-500',
+  };
+}
+
 /**
  * Menentukan apakah shipment masih Outstanding:
  * - Status bukan 'Selesai'
@@ -346,6 +381,7 @@ export const CHECKER_ALLOWED_FIELDS: Array<keyof Shipment> = [
   'terimaDok',
   'noPackinglist',
   'noBl',
+  'statusDokumen',
   'dokumenChecker',
   'status',
   'noSptnp',
@@ -469,6 +505,7 @@ export const PHASE_1_FIELDS: Array<keyof Shipment> = [
   'terimaDok',
   'noPackinglist',
   'noBl',
+  'statusDokumen',
   'dokumenChecker',
 ];
 
@@ -613,6 +650,8 @@ export function computeDashboardStats(
   const customerMap: Record<string, number> = {};
 
   let outstanding = 0;
+  let draftCount = 0;
+  let readyCount = 0;
   let etaNext7Days = 0;
   let urgentMissingAju = 0;
 
@@ -622,6 +661,12 @@ export function computeDashboardStats(
 
     const jl = s.jalur || 'Belum Ada';
     byJalur[jl] = (byJalur[jl] || 0) + 1;
+
+    if (normalizeStatusDokumen(s.statusDokumen) === 'Ready') {
+      readyCount++;
+    } else {
+      draftCount++;
+    }
 
     if (isShipmentOutstanding(s, checklistItems)) {
       outstanding++;
@@ -662,6 +707,8 @@ export function computeDashboardStats(
   return {
     total: shipments.length,
     outstanding,
+    draftCount,
+    readyCount,
     etaNext7Days,
     urgentMissingAju,
     byStatus,
@@ -703,6 +750,8 @@ export function computeCheckerSummaries(
 
   let totalOutstanding = 0;
   let totalUrgent = 0;
+  let totalDraft = 0;
+  let totalReady = 0;
 
   const grouped: Record<string, Shipment[]> = {};
 
@@ -712,6 +761,10 @@ export function computeCheckerSummaries(
 
     const jl = s.jalur || 'Belum Ada';
     globalJalurCounts[jl] = (globalJalurCounts[jl] || 0) + 1;
+
+    const docStatus = normalizeStatusDokumen(s.statusDokumen);
+    if (docStatus === 'Ready') totalReady++;
+    else totalDraft++;
 
     if (isShipmentOutstanding(s, checklistItems)) {
       totalOutstanding++;
@@ -750,6 +803,8 @@ export function computeCheckerSummaries(
     let outstanding = 0;
     let urgentMissingAju = 0;
     let etaNext7Days = 0;
+    let draftCount = 0;
+    let readyCount = 0;
 
     for (const s of list) {
       const st = (s.status || '').trim() || 'Dokumen Diterima';
@@ -757,6 +812,10 @@ export function computeCheckerSummaries(
 
       const jl = s.jalur || 'Belum Ada';
       cJalur[jl] = (cJalur[jl] || 0) + 1;
+
+      const docStatus = normalizeStatusDokumen(s.statusDokumen);
+      if (docStatus === 'Ready') readyCount++;
+      else draftCount++;
 
       if (isShipmentOutstanding(s, checklistItems)) {
         outstanding++;
@@ -780,6 +839,8 @@ export function computeCheckerSummaries(
       total,
       outstanding,
       completed,
+      draftCount,
+      readyCount,
       urgentMissingAju,
       etaNext7Days,
       completionRate,
@@ -801,12 +862,86 @@ export function computeCheckerSummaries(
     totalDocuments,
     totalOutstanding,
     totalCompleted,
+    totalDraft,
+    totalReady,
     totalUrgent,
     totalCheckers: checkers.filter((c) => c.checkerName !== 'Belum Ditugaskan').length,
     byStatus,
     byJalur: globalJalurCounts,
     checkers,
   };
+}
+
+export interface ShipmentFilterCriteria {
+  mode: 'all' | 'outstanding';
+  search?: string;
+  filterStatus?: string;
+  filterStatusDokumen?: '' | StatusDokumenType;
+  filterJalur?: string;
+  filterCustomer?: string;
+  filterChecker?: string;
+  dateField?: ShipmentDateFilterField;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+/**
+ * Filter murni daftar shipment berdasarkan mode, pencarian, status dokumen checker (Draft/Ready),
+ * dan rentang tanggal (ETD / ETA / Tgl Terima / Tgl SPPB).
+ */
+export function filterShipments(
+  shipments: Shipment[],
+  criteria: ShipmentFilterCriteria,
+  checklistItems: string[] = DEFAULT_CHECKLIST_ITEMS
+): Shipment[] {
+  const baseList =
+    criteria.mode === 'outstanding'
+      ? shipments.filter((s) => isShipmentOutstanding(s, checklistItems))
+      : [...shipments];
+
+  const q = (criteria.search || '').trim().toLowerCase();
+  const dateField: ShipmentDateFilterField = criteria.dateField || 'eta';
+  const dateFrom = (criteria.dateFrom || '').trim();
+  const dateTo = (criteria.dateTo || '').trim();
+
+  return baseList.filter((s) => {
+    if (criteria.filterStatus && s.status !== criteria.filterStatus) return false;
+    if (
+      criteria.filterStatusDokumen &&
+      normalizeStatusDokumen(s.statusDokumen) !== criteria.filterStatusDokumen
+    ) {
+      return false;
+    }
+    if (criteria.filterJalur && s.jalur !== criteria.filterJalur) return false;
+    if (criteria.filterCustomer && s.namaCustomer !== criteria.filterCustomer) return false;
+    if (criteria.filterChecker && s.dokumenChecker !== criteria.filterChecker) return false;
+
+    const targetDate = s[dateField];
+    if (dateFrom && (!targetDate || targetDate < dateFrom)) return false;
+    if (dateTo && (!targetDate || targetDate > dateTo)) return false;
+
+    if (q) {
+      const hay = [
+        s.kodeOs,
+        s.dokumenChecker,
+        normalizeStatusDokumen(s.statusDokumen),
+        s.kodeCustomer,
+        s.kodeImportir,
+        s.noBl,
+        s.noAju,
+        s.nopen,
+        s.noCont,
+        s.namaCustomer,
+        s.ship,
+        s.shipper,
+        s.noSppb,
+      ]
+        .join(' ')
+        .toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
 }
 
 /**
