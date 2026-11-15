@@ -2644,7 +2644,7 @@ export function computeNopenRecapSummary(
     MITA: 0,
     'Belum Ada': 0,
   };
-  const currencyMap = new Map<string, number>();
+  let totalBmPdri = 0;
 
   const dayMap = new Map<
     string,
@@ -2663,7 +2663,7 @@ export function computeNopenRecapSummary(
       count: number;
       sppbCount: number;
       gateOutCount: number;
-      currencyMap: Map<string, number>;
+      bmPdriTotal: number;
     }
   >();
 
@@ -2686,11 +2686,9 @@ export function computeNopenRecapSummary(
     const jalurKey = s.jalur || 'Belum Ada';
     byJalur[jalurKey] = (byJalur[jalurKey] || 0) + 1;
 
-    const invVal = typeof s.invoice === 'number' ? s.invoice : Number(s.invoice);
-    const hasInv = s.invoice !== '' && Number.isFinite(invVal) && invVal > 0;
-    const cur = (s.currency || 'USD').trim().toUpperCase() || 'USD';
-    if (hasInv) {
-      currencyMap.set(cur, (currencyMap.get(cur) || 0) + invVal);
+    const bmVal = parseBmPdriAmount(s.bmPdri);
+    if (bmVal > 0) {
+      totalBmPdri += bmVal;
     }
 
     const dayKey =
@@ -2717,13 +2715,13 @@ export function computeNopenRecapSummary(
       count: 0,
       sppbCount: 0,
       gateOutCount: 0,
-      currencyMap: new Map<string, number>(),
+      bmPdriTotal: 0,
     };
     impEntry.count++;
     if (sppbOk) impEntry.sppbCount++;
     if (gateOutOk) impEntry.gateOutCount++;
-    if (hasInv) {
-      impEntry.currencyMap.set(cur, (impEntry.currencyMap.get(cur) || 0) + invVal);
+    if (bmVal > 0) {
+      impEntry.bmPdriTotal += bmVal;
     }
     impMap.set(impCode, impEntry);
   }
@@ -2759,14 +2757,8 @@ export function computeNopenRecapSummary(
       count: v.count,
       sppbCount: v.sppbCount,
       gateOutCount: v.gateOutCount,
-      invoiceTotalsByCurrency: Array.from(v.currencyMap.entries())
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([currency, amount]) => ({ currency, amount })),
+      bmPdriTotal: v.bmPdriTotal,
     }));
-
-  const invoiceTotalsByCurrency = Array.from(currencyMap.entries())
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([currency, amount]) => ({ currency, amount }));
 
   return {
     periodMode: criteria.periodMode,
@@ -2782,7 +2774,7 @@ export function computeNopenRecapSummary(
     totalOutstanding,
     totalSptnp,
     byJalur,
-    invoiceTotalsByCurrency,
+    totalBmPdri,
     byDay,
     byImportir,
   };

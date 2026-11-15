@@ -20,7 +20,7 @@ import {
   DEFAULT_JALUR_LIST,
   DEFAULT_STATUS_LIST,
   filterNopenRecapShipments,
-  formatCurrencyTotals,
+  formatRupiah,
   getCurrentMonthKey,
   getMonthDateBounds,
   getPreviousMonthKey,
@@ -575,15 +575,18 @@ export function NopenReportView({
         <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-4">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Total Nilai Invoice
+              Nilai BM/PDRI
             </span>
             <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
           </div>
-          <div className="text-sm sm:text-base font-bold text-slate-900 dark:text-white mt-2 tabular-nums leading-snug">
-            {formatCurrencyTotals(summary.invoiceTotalsByCurrency)}
+          <div
+            data-testid="nopen-kpi-bmpdri"
+            className="text-sm sm:text-base font-bold text-slate-900 dark:text-white mt-2 tabular-nums leading-snug"
+          >
+            {summary.totalBmPdri > 0 ? formatRupiah(summary.totalBmPdri) : '-'}
           </div>
           <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-            Akumulasi periode terpilih
+            Akumulasi BM/PDRI periode terpilih
           </div>
         </div>
       </div>
@@ -712,7 +715,7 @@ export function NopenReportView({
                     <th className="py-2 px-2.5 font-semibold text-center">Dok</th>
                     <th className="py-2 px-2.5 font-semibold text-center">SPPB</th>
                     <th className="py-2 px-2.5 font-semibold text-center">Gate-Out</th>
-                    <th className="py-2 px-3 font-semibold text-right">Nilai Invoice</th>
+                    <th className="py-2 px-3 font-semibold text-right">Nilai BM/PDRI</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-white/[0.05]">
@@ -752,8 +755,8 @@ export function NopenReportView({
                         <td className="py-2 px-2.5 text-center font-semibold text-sky-700 dark:text-sky-300 tabular-nums">
                           {imp.gateOutCount}
                         </td>
-                        <td className="py-2 px-3 text-right font-semibold text-slate-800 dark:text-slate-200 tabular-nums whitespace-nowrap">
-                          {formatCurrencyTotals(imp.invoiceTotalsByCurrency)}
+                        <td className="py-2 px-3 text-right font-mono-code font-semibold text-slate-800 dark:text-slate-200 tabular-nums whitespace-nowrap">
+                          {imp.bmPdriTotal > 0 ? formatRupiah(imp.bmPdriTotal) : '-'}
                         </td>
                       </tr>
                     );

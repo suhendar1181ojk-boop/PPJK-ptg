@@ -383,7 +383,7 @@ export interface NopenImportirRecapItem {
   count: number;
   sppbCount: number;
   gateOutCount: number;
-  invoiceTotalsByCurrency: Array<{ currency: string; amount: number }>;
+  bmPdriTotal: number;
 }
 
 export interface NopenRecapSummary {
@@ -400,7 +400,7 @@ export interface NopenRecapSummary {
   totalOutstanding: number;
   totalSptnp: number;
   byJalur: Record<string, number>;
-  invoiceTotalsByCurrency: Array<{ currency: string; amount: number }>;
+  totalBmPdri: number;
   byDay: NopenDailyRecapItem[];
   byImportir: NopenImportirRecapItem[];
 }

@@ -13,7 +13,6 @@ import {
   buildAutoBillingFields,
   calculateBillingTotals,
   DEFAULT_PENGATURAN,
-  formatCurrencyTotals,
   formatRupiah,
   generateSuratJalanNomor,
   getBillingEligibilityReason,
@@ -717,7 +716,7 @@ export function exportNopenRecapToExcel(
     'Jumlah NOPEN / Dok': i.count,
     'Terbit SPPB': i.sppbCount,
     'Sudah Gate-Out': i.gateOutCount,
-    'Total Nilai Invoice': formatCurrencyTotals(i.invoiceTotalsByCurrency),
+    'Nilai BM/PDRI': i.bmPdriTotal > 0 ? formatRupiah(i.bmPdriTotal) : '-',
   }));
 
   const wb = XLSX.utils.book_new();
@@ -827,7 +826,7 @@ export function exportNopenRecapToPDF(
   doc.setTextColor(226, 232, 240);
   doc.text(`Periode: ${summary.periodLabel}`, 32, 47);
   doc.text(
-    `Total Dok: ${summary.totalMatched} | Terbit NOPEN: ${summary.totalWithNopen} | SPPB: ${summary.totalSppb} | Gate-Out: ${summary.totalGateOut} | Nilai: ${formatCurrencyTotals(summary.invoiceTotalsByCurrency)}`,
+    `Total Dok: ${summary.totalMatched} | Terbit NOPEN: ${summary.totalWithNopen} | SPPB: ${summary.totalSppb} | Gate-Out: ${summary.totalGateOut} | Nilai BM/PDRI: ${summary.totalBmPdri > 0 ? formatRupiah(summary.totalBmPdri) : '-'}`,
     810,
     47,
     { align: 'right' }

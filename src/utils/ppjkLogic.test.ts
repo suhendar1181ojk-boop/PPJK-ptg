@@ -1372,6 +1372,7 @@ test('NOPEN / Nomor Pendaftaran PIB monthly & date-to-date recap filters and sum
     sptnp: 'Proses Verifikasi',
     currency: 'USD',
     invoice: 42150,
+    bmPdri: 'Rp 89.200.000',
   });
   const sNovB = makeShipment({
     kodeOs: 'OS-2611-0902',
@@ -1388,6 +1389,7 @@ test('NOPEN / Nomor Pendaftaran PIB monthly & date-to-date recap filters and sum
     sptnp: 'Tidak',
     currency: 'JPY',
     invoice: 8500000,
+    bmPdri: 'Rp 118.400.000',
   });
   const sNovC = makeShipment({
     kodeOs: 'OS-2611-0903',
@@ -1406,6 +1408,7 @@ test('NOPEN / Nomor Pendaftaran PIB monthly & date-to-date recap filters and sum
     sptnp: 'Tidak',
     currency: 'USD',
     invoice: 19500,
+    bmPdri: 'Rp 28.900.000',
   });
   const sNovNoNopen = makeShipment({
     kodeOs: 'OS-2611-0904',
@@ -1517,10 +1520,7 @@ test('NOPEN / Nomor Pendaftaran PIB monthly & date-to-date recap filters and sum
   assert.equal(novSummary.byJalur.Merah, 1);
   assert.equal(novSummary.byJalur.MITA, 1);
   assert.equal(novSummary.byJalur.Hijau, 1);
-  assert.deepEqual(novSummary.invoiceTotalsByCurrency, [
-    { currency: 'JPY', amount: 8500000 },
-    { currency: 'USD', amount: 61650 },
-  ]);
+  assert.equal(novSummary.totalBmPdri, 236500000);
   assert.equal(novSummary.byDay.length, 2);
   assert.equal(novSummary.byDay[0].date, '2026-11-13');
   assert.equal(novSummary.byDay[0].count, 2);
@@ -1531,6 +1531,9 @@ test('NOPEN / Nomor Pendaftaran PIB monthly & date-to-date recap filters and sum
   assert.equal(novSummary.byImportir.length, 2);
   assert.equal(novSummary.byImportir[0].kodeImportir, 'IMP-001');
   assert.equal(novSummary.byImportir[0].count, 2);
+  assert.equal(novSummary.byImportir[0].bmPdriTotal, 147300000);
+  assert.equal(novSummary.byImportir[1].kodeImportir, 'IMP-002');
+  assert.equal(novSummary.byImportir[1].bmPdriTotal, 89200000);
 });
 
 
