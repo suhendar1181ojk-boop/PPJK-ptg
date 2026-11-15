@@ -1,28 +1,65 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildAutoBillingFields,
+  buildAutoSuratJalanFields,
+  buildCustomerBillingMessage,
+  buildDefaultBillingItems,
+  buildOwnerBillingMessage,
+  calculateBillingTotals,
   calculateCountdownEta,
   canEditPhase,
   canPerformAction,
   canUserEditAnyPhase,
   canUserEditPhase,
+  computeBillingSummary,
   computeCheckerSummaries,
   computeDashboardStats,
+  computeDoReadinessSummary,
+  computeImportirSummaries,
   computeSha256Hex,
   createEmptyChecklist,
   DEFAULT_CHECKLIST_ITEMS,
+  DEFAULT_PENGATURAN,
   DEFAULT_STATUS_LIST,
+  filterBillingShipments,
+  filterDoShipments,
   filterShipments,
   formatContainerSummary,
+  formatCurrencyTotals,
+  formatRupiah,
   generateNextKodeOS,
+  generateSuratJalanNomor,
+  generateSuratPenagihanNomor,
   getAllowedFieldsForPermissions,
+  getBillingEligibilityReason,
   getCountdownBadgeMeta,
   getDefaultPhasePermissions,
+  getDoValidityMeta,
+  getShipmentProcessSignal,
   getStatusDokumenBadgeMeta,
+  getStatusDoPelayaranMeta,
+  getStatusGateOutMeta,
+  getStatusGatePassMeta,
+  getStatusPenagihanMeta,
+  getStatusSuratJalanMeta,
+  getStatusTruckingMeta,
+  isContainerGateOut,
+  isShipmentBillingEligible,
   isShipmentOutstanding,
   isUrgentMissingAju,
+  normalizeGatePassJenis,
   normalizeStatusDokumen,
+  normalizeStatusDoPelayaran,
+  normalizeStatusGateOut,
+  normalizeStatusGatePass,
+  normalizeStatusPenagihan,
+  normalizeStatusSuratJalan,
+  normalizeStatusTrucking,
+  normalizeWhatsAppNumber,
+  parseCustomerContact,
   PHASE_1_FIELDS,
+  PHASE_2_FIELDS,
   resolveUserPhasePermissions,
   validateShipmentInput,
 } from './ppjkLogic';
@@ -380,7 +417,9 @@ test('Status Dokumen Checker (Draft/Ready) normalizes, summarizes per checker, a
   assert.equal(normalizeStatusDokumen('Ready'), 'Ready');
 
   assert.equal(getStatusDokumenBadgeMeta(undefined).label, 'Draft');
+  assert.match(getStatusDokumenBadgeMeta('Draft').bgClass, /yellow/);
   assert.equal(getStatusDokumenBadgeMeta('Ready').label, 'Ready');
+  assert.match(getStatusDokumenBadgeMeta('Ready').bgClass, /emerald/);
   assert.ok(PHASE_1_FIELDS.includes('statusDokumen'));
 
   const s1 = makeShipment({ kodeOs: 'OS-2611-0001', dokumenChecker: 'Rina', statusDokumen: 'Draft' });
@@ -457,3 +496,778 @@ test('filterShipments filters accurately by ETD/ETA date ranges and Draft/Ready 
   });
   assert.deepEqual(readyAndEtd.map((x) => x.kodeOs), ['OS-2611-0002']);
 });
+
+test('getShipmentProcessSignal flags ETA Tiba and BC 1.1 Manifes Terbit and clears after SPPB/Selesai', () => {
+  const ref = new Date(2026, 10, 13); // 2026-11-13
+
+  // 1. ETA tiba (<= 0 hari) tanpa SPPB -> reason: 'eta'
+  const etaArrivedOnly = makeShipment({
+    kodeOs: 'OS-2611-0101',
+    eta: '2026-11-13',
+    status: 'Menunggu Jalur',
+    noSppb: '',
+    bc11Terbit: false,
+  });
+  const sigEta = getShipmentProcessSignal(etaArrivedOnly, ref);
+  assert.equal(sigEta.active, true);
+  assert.equal(sigEta.reason, 'eta');
+  assert.equal(sigEta.etaArrived, true);
+  assert.equal(sigEta.bc11Issued, false);
+
+  // 2. ETA masih jauh tapi BC 1.1 Manifes sudah terbit -> reason: 'bc11'
+  const bc11Only = makeShipment({
+    kodeOs: 'OS-2611-0102',
+    eta: '2026-11-20',
+    status: 'Proses PIB/AJU',
+    bc11Terbit: true,
+    noBc11: '004819',
+    tglBc11: '2026-11-13',
+  });
+  const sigBc11 = getShipmentProcessSignal(bc11Only, ref);
+  assert.equal(sigBc11.active, true);
+  assert.equal(sigBc11.reason, 'bc11');
+  assert.equal(sigBc11.bc11Issued, true);
+
+  // 3. No BC 1.1 terisi saja (tanpa boolean bc11Terbit) tetap terdeteksi terbit
+  const bc11ByNumber = makeShipment({
+    kodeOs: 'OS-2611-0103',
+    eta: '2026-11-22',
+    status: 'Dokumen Diterima',
+    noBc11: '005100',
+  });
+  assert.equal(getShipmentProcessSignal(bc11ByNumber, ref).reason, 'bc11');
+
+  // 4. ETA tiba + BC 1.1 terbit -> reason: 'both'
+  const bothActive = makeShipment({
+    kodeOs: 'OS-2611-0104',
+    eta: '2026-11-11',
+    status: 'Proses Pemeriksaan',
+    bc11Terbit: true,
+    noBc11: '004900',
+  });
+  const sigBoth = getShipmentProcessSignal(bothActive, ref);
+  assert.equal(sigBoth.active, true);
+  assert.equal(sigBoth.reason, 'both');
+
+  // 5. Sudah SPPB Terbit / Pasca-SPPB / Selesai / No SPPB terisi -> sinyal berhenti (false)
+  const sppbIssued = makeShipment({
+    kodeOs: 'OS-2611-0105',
+    eta: '2026-11-10',
+    bc11Terbit: true,
+    status: 'Pasca-SPPB',
+    noSppb: 'SPPB-9988',
+  });
+  assert.equal(getShipmentProcessSignal(sppbIssued, ref).active, false);
+
+  const completed = makeShipment({
+    kodeOs: 'OS-2611-0106',
+    eta: '2026-11-10',
+    bc11Terbit: true,
+    status: 'Selesai',
+  });
+  assert.equal(getShipmentProcessSignal(completed, ref).active, false);
+
+  // 6. ETA jauh dan BC 1.1 belum terbit -> sinyal tidak aktif
+  const calm = makeShipment({
+    kodeOs: 'OS-2611-0107',
+    eta: '2026-11-25',
+    bc11Terbit: false,
+    noBc11: '',
+  });
+  assert.equal(getShipmentProcessSignal(calm, ref).active, false);
+
+  // 7. Agregasi Dashboard & Checker summaries menghitung urgentProcessSignal & totalProcessSignal
+  const stats = computeDashboardStats([etaArrivedOnly, bc11Only, sppbIssued, calm], DEFAULT_CHECKLIST_ITEMS, ref);
+  assert.equal(stats.urgentProcessSignal, 2);
+
+  const summary = computeCheckerSummaries([etaArrivedOnly, bc11Only, sppbIssued, calm], DEFAULT_STATUS_LIST, DEFAULT_CHECKLIST_ITEMS, ref);
+  assert.equal(summary.totalProcessSignal, 2);
+});
+
+test('filterShipments supports onlyProcessSignal filter and search by No. BC 1.1', () => {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const sEtaNow = makeShipment({
+    kodeOs: 'OS-2611-0201',
+    eta: todayIso,
+    status: 'Dokumen Diterima',
+  });
+  const sBc11 = makeShipment({
+    kodeOs: 'OS-2611-0202',
+    eta: '2099-12-31',
+    status: 'Proses PIB/AJU',
+    bc11Terbit: true,
+    noBc11: 'BC11-887766',
+  });
+  const sDone = makeShipment({
+    kodeOs: 'OS-2611-0203',
+    eta: todayIso,
+    status: 'SPPB Terbit',
+    noSppb: 'SPPB-11',
+  });
+
+  const onlySignal = filterShipments([sEtaNow, sBc11, sDone], {
+    mode: 'all',
+    onlyProcessSignal: true,
+  });
+  assert.deepEqual(
+    onlySignal.map((x) => x.kodeOs),
+    ['OS-2611-0201', 'OS-2611-0202']
+  );
+
+  const searchBc11 = filterShipments([sEtaNow, sBc11, sDone], {
+    mode: 'all',
+    search: '887766',
+  });
+  assert.deepEqual(
+    searchBc11.map((x) => x.kodeOs),
+    ['OS-2611-0202']
+  );
+});
+
+test('D/O Pelayaran readiness normalizes Sedia/Belum, detects validity/extension warnings, and filters cleanly', () => {
+  const ref = new Date(2026, 10, 14); // 2026-11-14
+  assert.equal(normalizeStatusDoPelayaran(undefined), 'Belum');
+  assert.equal(normalizeStatusDoPelayaran('Sedia'), 'Sedia');
+  assert.match(getStatusDoPelayaranMeta('Sedia').bgClass, /emerald/);
+  assert.match(getStatusDoPelayaranMeta('Belum').bgClass, /amber/);
+  assert.ok(PHASE_2_FIELDS.includes('doPelayaranStatus'));
+  assert.ok(PHASE_2_FIELDS.includes('doBerlakuSampai'));
+  assert.ok(PHASE_2_FIELDS.includes('doCatatanPerpanjangan'));
+
+  const expiredValidity = getDoValidityMeta('2026-11-12', 'Pasca-SPPB', ref);
+  assert.equal(expiredValidity.state, 'expired');
+  assert.equal(expiredValidity.needsExtension, true);
+
+  const soonValidity = getDoValidityMeta('2026-11-16', 'SPPB Terbit', ref);
+  assert.equal(soonValidity.state, 'expiring_soon');
+  assert.equal(soonValidity.needsExtension, true);
+
+  const okValidity = getDoValidityMeta('2026-11-22', 'SPPB Terbit', ref);
+  assert.equal(okValidity.state, 'valid');
+  assert.equal(okValidity.needsExtension, false);
+
+  const doneValidity = getDoValidityMeta('2026-11-10', 'Selesai', ref);
+  assert.equal(doneValidity.state, 'completed');
+  assert.equal(doneValidity.needsExtension, false);
+
+  const sReadyGateOut = makeShipment({
+    kodeOs: 'OS-2611-0301',
+    status: 'SPPB Terbit',
+    noSppb: 'SPPB-301',
+    doPelayaranStatus: 'Sedia',
+    doBerlakuSampai: '2026-11-20',
+    doCatatanPerpanjangan: 'Perpanjangan D/O ke-1 aktif',
+  });
+  const sSppbBelumDo = makeShipment({
+    kodeOs: 'OS-2611-0302',
+    status: 'Pasca-SPPB',
+    noSppb: 'SPPB-302',
+    doPelayaranStatus: 'Belum',
+    doBerlakuSampai: '2026-11-15',
+    doCatatanPerpanjangan: 'Menunggu telex release OOCL',
+  });
+  const sExpired = makeShipment({
+    kodeOs: 'OS-2611-0303',
+    status: 'Proses Pemeriksaan',
+    doPelayaranStatus: 'Belum',
+    doBerlakuSampai: '2026-11-11',
+    doCatatanPerpanjangan: 'Free time habis, ajukan perpanjangan MSC',
+  });
+  const sDone = makeShipment({
+    kodeOs: 'OS-2611-0304',
+    status: 'Selesai',
+    noSppb: 'SPPB-304',
+    doPelayaranStatus: 'Sedia',
+    doBerlakuSampai: '2026-11-09',
+  });
+
+  const all = [sReadyGateOut, sSppbBelumDo, sExpired, sDone];
+  const sum = computeDoReadinessSummary(all, ref);
+  assert.equal(sum.total, 4);
+  assert.equal(sum.sediaCount, 2);
+  assert.equal(sum.belumCount, 2);
+  assert.equal(sum.siapKeluarCount, 2);
+  assert.equal(sum.sppbMenungguDoCount, 1);
+  assert.equal(sum.perluPerpanjanganCount, 2);
+
+  assert.deepEqual(
+    filterDoShipments(all, { condition: 'sppb_belum_do' }, ref).map((x) => x.kodeOs),
+    ['OS-2611-0302']
+  );
+  assert.deepEqual(
+    filterDoShipments(all, { condition: 'perlu_perpanjangan' }, ref).map((x) => x.kodeOs),
+    ['OS-2611-0302', 'OS-2611-0303']
+  );
+  assert.deepEqual(
+    filterDoShipments(all, { condition: 'siap_keluar' }, ref).map((x) => x.kodeOs),
+    ['OS-2611-0301', 'OS-2611-0304']
+  );
+  assert.deepEqual(
+    filterDoShipments(all, { search: 'telex release' }, ref).map((x) => x.kodeOs),
+    ['OS-2611-0302']
+  );
+});
+
+test('Eslah/TILA (Kartu Gate) & Trucking normalizers, Phase 2 permissions, summary, and filters work accurately', () => {
+  const ref = new Date(2026, 10, 14);
+
+  assert.equal(normalizeStatusGatePass(undefined), 'Belum');
+  assert.equal(normalizeStatusGatePass('Proses'), 'Proses');
+  assert.equal(normalizeStatusGatePass('Sedia'), 'Sedia');
+  assert.equal(normalizeGatePassJenis('Eslah'), 'Eslah');
+  assert.equal(normalizeGatePassJenis('invalid'), '');
+  assert.equal(normalizeStatusTrucking(undefined), 'Belum');
+  assert.equal(normalizeStatusTrucking('Sedia'), 'Sedia');
+
+  assert.match(getStatusGatePassMeta('Belum').bgClass, /amber/);
+  assert.match(getStatusGatePassMeta('Proses').bgClass, /sky/);
+  assert.match(getStatusGatePassMeta('Sedia').bgClass, /emerald/);
+  assert.match(getStatusTruckingMeta('Sedia').bgClass, /emerald/);
+  assert.match(getStatusTruckingMeta('Belum').bgClass, /amber/);
+
+  for (const field of [
+    'doGatePassStatus',
+    'doGatePassJenis',
+    'doGatePassNomor',
+    'truckingStatus',
+    'truckingNamaSupir',
+    'truckingNoPlat',
+    'truckingNoHpSupir',
+  ] as const) {
+    assert.ok(PHASE_2_FIELDS.includes(field), `Expected ${field} in PHASE_2_FIELDS`);
+  }
+
+  const sFullReady = makeShipment({
+    kodeOs: 'OS-2611-0401',
+    status: 'SPPB Terbit',
+    noSppb: 'SPPB-401',
+    doPelayaranStatus: 'Sedia',
+    doGatePassStatus: 'Sedia',
+    doGatePassJenis: 'TILA (Kartu Gate)',
+    doGatePassNomor: 'TILA-NPCT1-001',
+    truckingStatus: 'Sedia',
+    truckingNamaSupir: 'Agus Setiawan',
+    truckingNoPlat: 'B 9482 UYW',
+    truckingNoHpSupir: '0812-8890-1122',
+  });
+
+  const sProsesEslah = makeShipment({
+    kodeOs: 'OS-2611-0402',
+    status: 'SPPB Terbit',
+    noSppb: 'SPPB-402',
+    doPelayaranStatus: 'Sedia',
+    doGatePassStatus: 'Proses',
+    doGatePassJenis: 'Eslah',
+    doGatePassNomor: 'ESLAH-KOJA-002',
+    truckingStatus: 'Belum',
+    truckingNamaSupir: '',
+    truckingNoPlat: '',
+    truckingNoHpSupir: '',
+  });
+
+  const sBelumSemua = makeShipment({
+    kodeOs: 'OS-2611-0403',
+    status: 'Proses Pemeriksaan',
+    doPelayaranStatus: 'Belum',
+    doGatePassStatus: 'Belum',
+    truckingStatus: 'Belum',
+  });
+
+  const all = [sFullReady, sProsesEslah, sBelumSemua];
+  const summary = computeDoReadinessSummary(all, ref);
+  assert.equal(summary.gatePassSediaCount, 1);
+  assert.equal(summary.gatePassProsesCount, 1);
+  assert.equal(summary.gatePassBelumCount, 1);
+  assert.equal(summary.truckingSediaCount, 1);
+  assert.equal(summary.truckingBelumCount, 2);
+  assert.equal(summary.fullReadyGateOutCount, 1);
+
+  assert.deepEqual(
+    filterDoShipments(all, { gatePassStatus: 'Proses' }, ref).map((x) => x.kodeOs),
+    ['OS-2611-0402']
+  );
+  assert.deepEqual(
+    filterDoShipments(all, { truckingStatus: 'Sedia' }, ref).map((x) => x.kodeOs),
+    ['OS-2611-0401']
+  );
+  assert.deepEqual(
+    filterDoShipments(all, { condition: 'full_ready' }, ref).map((x) => x.kodeOs),
+    ['OS-2611-0401']
+  );
+  assert.deepEqual(
+    filterDoShipments(all, { condition: 'gatepass_belum' }, ref).map((x) => x.kodeOs),
+    ['OS-2611-0402', 'OS-2611-0403']
+  );
+  assert.deepEqual(
+    filterDoShipments(all, { search: 'B 9482 UYW' }, ref).map((x) => x.kodeOs),
+    ['OS-2611-0401']
+  );
+  assert.deepEqual(
+    filterDoShipments(all, { search: 'ESLAH-KOJA-002' }, ref).map((x) => x.kodeOs),
+    ['OS-2611-0402']
+  );
+});
+
+test('Pencatat D/O Draft/Ready & Gate-Out binding helpers, Phase 2 fields, summary counts, and filters work accurately', () => {
+  const ref = new Date(2026, 10, 14);
+
+  assert.equal(normalizeStatusGateOut(undefined, 'Dokumen Diterima'), 'Belum');
+  assert.equal(normalizeStatusGateOut(undefined, 'Selesai'), 'Sudah');
+  assert.equal(normalizeStatusGateOut('Sudah', 'SPPB Terbit'), 'Sudah');
+  assert.equal(normalizeStatusGateOut('Belum', 'SPPB Terbit'), 'Belum');
+
+  assert.equal(getStatusGateOutMeta('Sudah').label, 'Sudah Gate-Out');
+  assert.match(getStatusGateOutMeta('Sudah').bgClass, /emerald/);
+  assert.equal(getStatusGateOutMeta('Belum').label, 'Belum Gate-Out');
+  assert.match(getStatusGateOutMeta('Belum').bgClass, /slate/);
+
+  for (const field of ['gateOutStatus', 'gateOutTanggal', 'gateOutCatatan'] as const) {
+    assert.ok(PHASE_2_FIELDS.includes(field), `Expected ${field} in PHASE_2_FIELDS`);
+  }
+
+  const sDraftGateOutBelum = makeShipment({
+    kodeOs: 'OS-2611-0501',
+    statusDokumen: 'Draft',
+    status: 'Dokumen Diterima',
+    doPelayaranStatus: 'Belum',
+    gateOutStatus: 'Belum',
+  });
+
+  const sReadyGateOutBelum = makeShipment({
+    kodeOs: 'OS-2611-0502',
+    statusDokumen: 'Ready',
+    status: 'SPPB Terbit',
+    noSppb: 'SPPB-502',
+    doPelayaranStatus: 'Sedia',
+    gateOutStatus: 'Belum',
+  });
+
+  const sReadyGateOutSudah = makeShipment({
+    kodeOs: 'OS-2611-0503',
+    statusDokumen: 'Ready',
+    status: 'Selesai',
+    noSppb: 'SPPB-503',
+    doPelayaranStatus: 'Sedia',
+    gateOutStatus: 'Sudah',
+    gateOutTanggal: '2026-11-14',
+    gateOutCatatan: 'Keluar pelabuhan JICT & terikat Dokumen Selesai',
+  });
+
+  assert.equal(isContainerGateOut(sDraftGateOutBelum), false);
+  assert.equal(isContainerGateOut(sReadyGateOutSudah), true);
+
+  const list = [sDraftGateOutBelum, sReadyGateOutBelum, sReadyGateOutSudah];
+  const summary = computeDoReadinessSummary(list, ref);
+  assert.equal(summary.draftDokCount, 1);
+  assert.equal(summary.readyDokCount, 2);
+  assert.equal(summary.gateOutSudahCount, 1);
+  assert.equal(summary.gateOutBelumCount, 2);
+  assert.equal(summary.dokumenSelesaiCount, 1);
+
+  assert.deepEqual(
+    filterDoShipments(list, { statusDokumen: 'Draft' }, ref).map((x) => x.kodeOs),
+    ['OS-2611-0501']
+  );
+  assert.deepEqual(
+    filterDoShipments(list, { statusDokumen: 'Ready' }, ref).map((x) => x.kodeOs),
+    ['OS-2611-0502', 'OS-2611-0503']
+  );
+  assert.deepEqual(
+    filterDoShipments(list, { gateOutStatus: 'Sudah' }, ref).map((x) => x.kodeOs),
+    ['OS-2611-0503']
+  );
+  assert.deepEqual(
+    filterDoShipments(list, { condition: 'gateout_sudah' }, ref).map((x) => x.kodeOs),
+    ['OS-2611-0503']
+  );
+  assert.deepEqual(
+    filterDoShipments(list, { condition: 'gateout_belum' }, ref).map((x) => x.kodeOs),
+    ['OS-2611-0501', 'OS-2611-0502']
+  );
+  assert.deepEqual(
+    filterDoShipments(list, { search: 'terikat Dokumen Selesai' }, ref).map((x) => x.kodeOs),
+    ['OS-2611-0503']
+  );
+});
+
+test('Surat Jalan auto-generates on Gate-Out, tracks 3-stage delivery status, validates Phase 2 fields, and filters accurately', () => {
+  const ref = new Date(2026, 10, 15);
+
+  assert.equal(generateSuratJalanNomor('OS-2611-0007', ref), 'SJ-2611-0007');
+  assert.equal(generateSuratJalanNomor('CUSTOM-88', ref), 'SJ-2611-OM88');
+
+  assert.equal(normalizeStatusSuratJalan(undefined, 'Belum', 'SPPB Terbit'), 'Belum');
+  assert.equal(normalizeStatusSuratJalan(undefined, 'Sudah', 'Selesai'), 'Terbit');
+  assert.equal(normalizeStatusSuratJalan('Dalam Pengiriman', 'Sudah', 'Selesai'), 'Dalam Pengiriman');
+  assert.equal(normalizeStatusSuratJalan('Tiba di Tujuan', 'Sudah', 'Selesai'), 'Tiba di Tujuan');
+
+  assert.equal(getStatusSuratJalanMeta(undefined, 'Belum', 'SPPB Terbit').label, 'Belum Terbit');
+  assert.match(getStatusSuratJalanMeta('Terbit', 'Sudah', 'Selesai').bgClass, /sky/);
+  assert.match(getStatusSuratJalanMeta('Dalam Pengiriman', 'Sudah', 'Selesai').bgClass, /amber/);
+  assert.match(getStatusSuratJalanMeta('Tiba di Tujuan', 'Sudah', 'Selesai').bgClass, /emerald/);
+
+  for (const field of [
+    'suratJalanNomor',
+    'suratJalanTanggal',
+    'suratJalanStatus',
+    'suratJalanTujuan',
+    'suratJalanPenerima',
+    'suratJalanCatatan',
+    'suratJalanUpdatedAt',
+  ] as const) {
+    assert.ok(PHASE_2_FIELDS.includes(field), `Expected ${field} in PHASE_2_FIELDS`);
+  }
+
+  const auto = buildAutoSuratJalanFields(
+    {
+      kodeOs: 'OS-2611-0007',
+      namaCustomer: 'PT Cahaya Abadi',
+      gateOutTanggal: '2026-11-15',
+    },
+    '2026-11-15',
+    '2026-11-15T08:00:00.000Z'
+  );
+  assert.equal(auto.suratJalanNomor, 'SJ-2611-0007');
+  assert.equal(auto.suratJalanTanggal, '2026-11-15');
+  assert.equal(auto.suratJalanStatus, 'Terbit');
+  assert.equal(auto.suratJalanTujuan, 'Gudang PT Cahaya Abadi');
+
+  const sBelum = makeShipment({ kodeOs: 'OS-2611-0601', gateOutStatus: 'Belum', status: 'SPPB Terbit' });
+  const sTerbit = makeShipment({
+    kodeOs: 'OS-2611-0602',
+    gateOutStatus: 'Sudah',
+    status: 'Selesai',
+    suratJalanNomor: 'SJ-2611-0602',
+    suratJalanStatus: 'Terbit',
+    suratJalanTujuan: 'Gudang Bekasi',
+  });
+  const sKirim = makeShipment({
+    kodeOs: 'OS-2611-0603',
+    gateOutStatus: 'Sudah',
+    status: 'Selesai',
+    suratJalanNomor: 'SJ-2611-0603',
+    suratJalanStatus: 'Dalam Pengiriman',
+    suratJalanTujuan: 'Gudang Karawang',
+  });
+  const sTiba = makeShipment({
+    kodeOs: 'OS-2611-0604',
+    gateOutStatus: 'Sudah',
+    status: 'Selesai',
+    suratJalanNomor: 'SJ-2611-0604',
+    suratJalanStatus: 'Tiba di Tujuan',
+    suratJalanTujuan: 'Gudang Cikarang',
+  });
+
+  const sum = computeDoReadinessSummary([sBelum, sTerbit, sKirim, sTiba], ref);
+  assert.equal(sum.suratJalanTerbitCount, 1);
+  assert.equal(sum.suratJalanDalamPengirimanCount, 1);
+  assert.equal(sum.suratJalanTibaCount, 1);
+
+  assert.deepEqual(
+    filterDoShipments([sBelum, sTerbit, sKirim, sTiba], { suratJalanStatus: 'Dalam Pengiriman' }, ref).map(
+      (x) => x.kodeOs
+    ),
+    ['OS-2611-0603']
+  );
+  assert.deepEqual(
+    filterDoShipments([sBelum, sTerbit, sKirim, sTiba], { search: 'SJ-2611-0604' }, ref).map(
+      (x) => x.kodeOs
+    ),
+    ['OS-2611-0604']
+  );
+
+  const badDate = validateShipmentInput({
+    kodeCustomer: 'CUST-001',
+    noBl: 'BL-123',
+    eta: '2026-11-20',
+    suratJalanTanggal: '15-11-2026',
+  });
+  assert.equal(badDate.valid, false);
+  assert.ok(badDate.errors.suratJalanTanggal);
+});
+
+test('Owner WA/Email notification & Admin Auto Surat Penagihan helpers work accurately on SPPB Terbit & Gate-Out', () => {
+  const ref = new Date(2026, 10, 15);
+
+  const sNotReady = makeShipment({
+    kodeOs: 'OS-2611-0701',
+    status: 'Dokumen Diterima',
+    noSppb: '',
+    gateOutStatus: 'Belum',
+  });
+  const sSppb = makeShipment({
+    kodeOs: 'OS-2611-0702',
+    namaCustomer: 'PT Cahaya Nusantara',
+    kodeCustomer: 'CUST-002',
+    status: 'SPPB Terbit',
+    noSppb: 'SPPB-702',
+    tglSppb: '2026-11-15',
+    jalur: 'Merah',
+    noCont: 'MSCU1112223 (40HC), MSCU4445556 (40HC)',
+  });
+  const sGateOut = makeShipment({
+    kodeOs: 'OS-2611-0703',
+    namaCustomer: 'PT Sinar Logistik',
+    kodeCustomer: 'CUST-003',
+    status: 'Selesai',
+    noSppb: 'SPPB-703',
+    tglSppb: '2026-11-14',
+    gateOutStatus: 'Sudah',
+    gateOutTanggal: '2026-11-15',
+    suratJalanNomor: 'SJ-2611-0703',
+    billingStatus: 'Info Owner Terkirim',
+  });
+  const sTerkirim = makeShipment({
+    kodeOs: 'OS-2611-0704',
+    status: 'Selesai',
+    noSppb: 'SPPB-704',
+    gateOutStatus: 'Sudah',
+    billingStatus: 'Terkirim ke Customer',
+    billingNomor: 'INV-2611-0704',
+    billingTotal: 5550000,
+    billingItems: [
+      { id: '1', deskripsi: 'Jasa PPJK', qty: 1, satuan: 'Dok', hargaSatuan: 5000000 },
+    ],
+    billingPpnPersen: 11,
+  });
+
+  // Eligibility & reasons
+  assert.equal(isShipmentBillingEligible(sNotReady), false);
+  assert.equal(isShipmentBillingEligible(sSppb), true);
+  assert.equal(isShipmentBillingEligible(sGateOut), true);
+  assert.equal(getBillingEligibilityReason(sNotReady), 'Menunggu SPPB / Gate-Out');
+  assert.equal(getBillingEligibilityReason(sSppb), 'Dokumen SPPB Terbit');
+  assert.equal(getBillingEligibilityReason(sGateOut), 'SPPB Terbit & Sudah Gate-Out');
+
+  // Invoice numbering & statuses
+  assert.equal(generateSuratPenagihanNomor('OS-2611-0702', ref), 'INV-2611-0702');
+  assert.equal(generateSuratPenagihanNomor('EXT-99', ref), 'INV-2611-XT99');
+  assert.equal(normalizeStatusPenagihan(undefined, sNotReady), 'Belum');
+  assert.equal(normalizeStatusPenagihan(undefined, sSppb), 'Siap Info Owner');
+  assert.equal(normalizeStatusPenagihan('Info Owner Terkirim', sGateOut), 'Info Owner Terkirim');
+  assert.match(getStatusPenagihanMeta('Siap Info Owner', sSppb).bgClass, /amber/);
+  assert.match(getStatusPenagihanMeta('Info Owner Terkirim', sGateOut).bgClass, /violet/);
+  assert.match(getStatusPenagihanMeta('Penagihan Terbit', sGateOut).bgClass, /sky/);
+  assert.match(getStatusPenagihanMeta('Terkirim ke Customer', sTerkirim).bgClass, /indigo/);
+  assert.match(getStatusPenagihanMeta('Lunas', sTerkirim).bgClass, /emerald/);
+
+  // Phone normalization & customer contact parsing
+  assert.equal(normalizeWhatsAppNumber('0811-8880-900'), '628118880900');
+  assert.equal(normalizeWhatsAppNumber('+62 812-3456-7890'), '6281234567890');
+  assert.equal(normalizeWhatsAppNumber(''), '');
+
+  const parsedContact = parseCustomerContact('021-5551234 / 0812-9999-1111 (import@cahaya.co.id)');
+  assert.equal(parsedContact.email, 'import@cahaya.co.id');
+  assert.equal(parsedContact.whatsappDigits, '62215551234');
+
+  // Default items & PPN 11% calculation (Merah 2 containers: 3.5jt + 2*1.25jt + 2*2.75jt + 0.5jt = 12jt; +11% = 13.32jt)
+  const items = buildDefaultBillingItems(sSppb);
+  assert.equal(items.length, 4);
+  const totals = calculateBillingTotals(items, 11);
+  assert.equal(totals.subtotal, 12000000);
+  assert.equal(totals.ppnNominal, 1320000);
+  assert.equal(totals.total, 13320000);
+  assert.match(formatRupiah(totals.total), /13\.320\.000/);
+
+  // Auto billing fields
+  const auto = buildAutoBillingFields(sSppb, '2026-11-15');
+  assert.equal(auto.billingStatus, 'Siap Info Owner');
+  assert.equal(auto.billingNomor, 'INV-2611-0702');
+  assert.equal(auto.billingTanggal, '2026-11-15');
+  assert.equal(auto.billingJatuhTempo, '2026-11-29');
+  assert.equal(auto.billingTotal, 13320000);
+
+  // Owner & Customer message builders (WA + Email links)
+  const ownerMsg = buildOwnerBillingMessage(sGateOut, DEFAULT_PENGATURAN);
+  assert.match(ownerMsg.subject, /OS-2611-0703/);
+  assert.match(ownerMsg.message, /SJ-2611-0703/);
+  assert.match(ownerMsg.message, /Hendra Wijaya/);
+  assert.ok(ownerMsg.whatsappUrl.startsWith('https://wa.me/628118880900?text='));
+  assert.ok(ownerMsg.mailtoUrl.startsWith('mailto:owner%40ptg-ppjk.co.id?subject='));
+
+  const custMsg = buildCustomerBillingMessage(
+    sSppb,
+    {
+      kodeCustomer: 'CUST-002',
+      namaCustomer: 'PT Cahaya Nusantara',
+      kontak: '0813-7777-8888 / ap@cahayanusantara.co.id',
+    },
+    DEFAULT_PENGATURAN
+  );
+  assert.equal(custMsg.customerEmail, 'ap@cahayanusantara.co.id');
+  assert.ok(custMsg.whatsappUrl.startsWith('https://wa.me/6281377778888?text='));
+  assert.ok(custMsg.mailtoUrl.startsWith('mailto:ap%40cahayanusantara.co.id?subject='));
+  assert.match(custMsg.message, /INV-2611-0702/);
+  assert.match(custMsg.message, /Bank Mandiri/);
+
+  // Summary & Filter
+  const all = [sNotReady, sSppb, sGateOut, sTerkirim];
+  const summary = computeBillingSummary(all);
+  assert.equal(summary.eligibleCount, 3);
+  assert.equal(summary.siapInfoOwnerCount, 1);
+  assert.equal(summary.ownerNotifiedCount, 1);
+  assert.equal(summary.terkirimCustomerCount, 1);
+
+  assert.deepEqual(
+    filterBillingShipments(all, { status: 'Siap Info Owner' }).map((x) => x.kodeOs),
+    ['OS-2611-0702']
+  );
+  assert.deepEqual(
+    filterBillingShipments(all, { search: 'INV-2611-0704' }).map((x) => x.kodeOs),
+    ['OS-2611-0704']
+  );
+
+  // Billing date validation
+  const badBillingDates = validateShipmentInput({
+    kodeCustomer: 'CUST-002',
+    noBl: 'BL-702',
+    eta: '2026-11-20',
+    billingTanggal: '15/11/2026',
+    billingJatuhTempo: '29/11/2026',
+  });
+  assert.equal(badBillingDates.valid, false);
+  assert.ok(badBillingDates.errors.billingTanggal);
+  assert.ok(badBillingDates.errors.billingJatuhTempo);
+});
+
+test('computeImportirSummaries, formatCurrencyTotals, and filterShipments by importir work accurately', () => {
+  const ref = new Date(2026, 10, 15);
+  const fullOs = {
+    items: Object.fromEntries(DEFAULT_CHECKLIST_ITEMS.map((i) => [i, true])),
+    catatan: 'Lengkap',
+  };
+
+  assert.equal(formatCurrencyTotals([]), '-');
+  assert.equal(
+    formatCurrencyTotals([
+      { currency: 'EUR', amount: 12500 },
+      { currency: 'USD', amount: 45000.5 },
+    ]),
+    'EUR 12,500 · USD 45,000.5'
+  );
+
+  const s1 = makeShipment({
+    kodeOs: 'OS-2611-0801',
+    kodeImportir: 'IMP-001',
+    namaCustomer: 'PT Maju Jaya',
+    statusDokumen: 'Ready',
+    status: 'SPPB Terbit',
+    jalur: 'Hijau',
+    noSppb: 'SPPB-801',
+    tglSppb: '2026-11-15',
+    currency: 'USD',
+    invoice: 30000,
+    noPackinglist: 'PL-ALPHA-801',
+    description: 'Mesin CNC Presisi',
+    negaraAsal: 'Jepang',
+  });
+  const s2 = makeShipment({
+    kodeOs: 'OS-2611-0802',
+    kodeImportir: 'IMP-001',
+    namaCustomer: 'PT Cahaya Nusantara',
+    statusDokumen: 'Ready',
+    status: 'Selesai',
+    jalur: 'MITA',
+    noSppb: 'SPPB-802',
+    tglSppb: '2026-11-15',
+    gateOutStatus: 'Sudah',
+    suratJalanNomor: 'SJ-2611-0802',
+    dokumenOs: fullOs,
+    currency: 'USD',
+    invoice: 20000,
+  });
+  const s3 = makeShipment({
+    kodeOs: 'OS-2611-0803',
+    kodeImportir: 'IMP-002',
+    namaCustomer: 'PT Sinar Logistik',
+    statusDokumen: 'Draft',
+    status: 'Dokumen Diterima',
+    jalur: 'Merah',
+    currency: 'EUR',
+    invoice: 15000,
+  });
+  const s4 = makeShipment({
+    kodeOs: 'OS-2611-0804',
+    kodeImportir: '',
+    namaCustomer: 'PT Global Mandiri',
+    statusDokumen: 'Draft',
+    status: 'Dokumen Diterima',
+    jalur: '',
+    currency: 'USD',
+    invoice: '',
+  });
+
+  const importirs = [
+    { kodeImportir: 'IMP-001', namaImportir: 'PT Importir Utama Sejahtera' },
+    { kodeImportir: 'IMP-002', namaImportir: 'PT Samudera Niaga Abadi' },
+  ];
+
+  const summary = computeImportirSummaries([s1, s2, s3, s4], importirs, DEFAULT_CHECKLIST_ITEMS, ref);
+
+  assert.equal(summary.totalImportirs, 2);
+  assert.equal(summary.totalShipments, 4);
+  assert.equal(summary.totalDraft, 2);
+  assert.equal(summary.totalReady, 2);
+  assert.equal(summary.totalOutstanding, 3);
+  assert.equal(summary.totalCompleted, 1);
+  assert.equal(summary.totalSppb, 2);
+  assert.equal(summary.totalGateOut, 1);
+  assert.deepEqual(summary.invoiceTotalsByCurrency, [
+    { currency: 'EUR', amount: 15000 },
+    { currency: 'USD', amount: 50000 },
+  ]);
+
+  // Sorted by total desc, with 'Belum Diisi' always last
+  assert.deepEqual(
+    summary.items.map((x) => x.kodeImportir),
+    ['IMP-001', 'IMP-002', 'Belum Diisi']
+  );
+
+  const imp1 = summary.items[0];
+  assert.equal(imp1.namaImportir, 'PT Importir Utama Sejahtera');
+  assert.equal(imp1.total, 2);
+  assert.equal(imp1.readyCount, 2);
+  assert.equal(imp1.draftCount, 0);
+  assert.equal(imp1.outstanding, 1);
+  assert.equal(imp1.completed, 1);
+  assert.equal(imp1.sppbCount, 2);
+  assert.equal(imp1.gateOutCount, 1);
+  assert.equal(imp1.byJalur.Hijau, 1);
+  assert.equal(imp1.byJalur.MITA, 1);
+  assert.deepEqual(imp1.customerNames, ['PT Cahaya Nusantara', 'PT Maju Jaya']);
+  assert.deepEqual(imp1.invoiceTotalsByCurrency, [{ currency: 'USD', amount: 50000 }]);
+
+  const impEmpty = summary.items[2];
+  assert.equal(impEmpty.namaImportir, 'Kode Importir Belum Diisi');
+  assert.equal(impEmpty.byJalur['Belum Ada'], 1);
+
+  // Filter by importir & extended search fields
+  const all = [s1, s2, s3, s4];
+  assert.deepEqual(
+    filterShipments(all, { mode: 'all', filterImportir: 'IMP-001' }).map((x) => x.kodeOs),
+    ['OS-2611-0801', 'OS-2611-0802']
+  );
+  assert.deepEqual(
+    filterShipments(all, { mode: 'all', filterImportir: 'Belum Diisi' }).map((x) => x.kodeOs),
+    ['OS-2611-0804']
+  );
+  assert.deepEqual(
+    filterShipments(all, { mode: 'all', search: 'PL-ALPHA-801' }).map((x) => x.kodeOs),
+    ['OS-2611-0801']
+  );
+  assert.deepEqual(
+    filterShipments(all, { mode: 'all', search: 'Mesin CNC' }).map((x) => x.kodeOs),
+    ['OS-2611-0801']
+  );
+  assert.deepEqual(
+    filterShipments(all, { mode: 'all', search: 'SJ-2611-0802' }).map((x) => x.kodeOs),
+    ['OS-2611-0802']
+  );
+});
+
+
+
+
+
+
+

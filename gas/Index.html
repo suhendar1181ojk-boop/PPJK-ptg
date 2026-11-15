@@ -678,6 +678,17 @@
       return s.countDownEta !== null && s.countDownEta < 3;
     }
 
+    function getProcessSignal(s) {
+      var hasSppb = Boolean((s.noSppb && s.noSppb.trim()) || (s.tglSppb && s.tglSppb.trim()));
+      var done = s.status === 'Selesai' || s.status === 'SPPB Terbit' || s.status === 'Pasca-SPPB' || hasSppb;
+      var etaArrived = s.countDownEta !== null && s.countDownEta !== undefined && Number(s.countDownEta) <= 0;
+      var bc11Issued = Boolean(s.bc11Terbit || (s.noBc11 && s.noBc11.trim()) || (s.tglBc11 && s.tglBc11.trim()));
+      if (done || (!etaArrived && !bc11Issued)) return { active: false, label: '' };
+      if (etaArrived && bc11Issued) return { active: true, label: 'Segera Proses · ETA Tiba & BC 1.1' };
+      if (bc11Issued) return { active: true, label: 'Segera Proses · BC 1.1 Terbit' };
+      return { active: true, label: 'Segera Proses · ETA Tiba' };
+    }
+
     function renderDashboard() {
       var list = state.data.shipments || [];
       var outCount = 0, eta7 = 0, urgent = 0;
@@ -1025,15 +1036,19 @@
       var canEdit = canUserEditAnyPhase();
       tbody.innerHTML = list.map(function (s) {
         var urgent = isUrgentNoAju(s);
+        var sig = getProcessSignal(s);
         var docSt = s.statusDokumen === 'Ready' ? 'Ready' : 'Draft';
         var docBadge = docSt === 'Ready'
           ? '<span class="badge cd-green">Ready</span>'
           : '<span class="badge cd-yellow">Draft</span>';
-        return '<tr class="data-row ' + (urgent ? 'row-urgent' : '') + '" onclick="openDetail(\'' + s.kodeOs + '\')">' +
-          '<td class="tabular"><strong>' + escapeHtml(s.kodeOs) + '</strong>' + (urgent ? '<div style="font-size:10.5px;color:#B91C1C;font-weight:600;">ETA &lt; 3h Tanpa AJU</div>' : '') + '</td>' +
+        var sigBadge = sig.active
+          ? '<div style="margin-top:4px;"><span class="badge cd-red">● ' + escapeHtml(sig.label) + '</span></div>'
+          : '';
+        return '<tr class="data-row ' + ((urgent || sig.active) ? 'row-urgent' : '') + '" onclick="openDetail(\'' + s.kodeOs + '\')">' +
+          '<td class="tabular"><strong>' + escapeHtml(s.kodeOs) + '</strong>' + sigBadge + (urgent ? '<div style="font-size:10.5px;color:#B91C1C;font-weight:600;">ETA &lt; 3h Tanpa AJU</div>' : '') + '</td>' +
           (isOut ? '<td>' + escapeHtml(s.dokumenChecker || '-') + '</td><td class="tabular">' + escapeHtml(s.kodeCustomer || '-') + '</td><td class="tabular">' + escapeHtml(s.kodeImportir || '-') + '</td>' : '') +
           '<td>' + escapeHtml(s.namaCustomer) + '</td>' +
-          '<td class="tabular">' + escapeHtml(s.noBl) + '</td>' +
+          '<td class="tabular"><div>' + escapeHtml(s.noBl) + '</div>' + (s.noBc11 ? '<div style="font-size:10.5px;color:#B91C1C;">BC11: ' + escapeHtml(s.noBc11) + '</div>' : '') + '</td>' +
           '<td class="tabular"><div>' + escapeHtml(s.eta || '-') + '</div><div style="font-size:10.5px;color:var(--muted);">ETD: ' + escapeHtml(s.etd || '-') + '</div></td>' +
           '<td>' + renderCountdownBadge(s.countDownEta) + '</td>' +
           '<td>' + docBadge + '</td>' +
@@ -1298,6 +1313,15 @@
           '<div><label class="field-label">ETD</label><input id="f_etd" type="date" class="input" value="' + escapeHtml(s.etd) + '" ' + dis2 + '></div>' +
           '<div><label class="field-label">ETA *</label><input id="f_eta" type="date" class="input" value="' + escapeHtml(s.eta) + '" ' + dis2 + '></div>' +
         '</div>' +
+        '<div style="margin-top:14px;padding:12px;border-radius:10px;background:#FEF2F2;border:1px solid #FECACA;">' +
+          '<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:#991B1B;margin-bottom:8px;">' +
+            '<input id="f_bc11Terbit" type="checkbox" ' + (s.bc11Terbit ? 'checked' : '') + ' ' + dis2 + '> BC 1.1 Manifes Sudah Terbit (Aktifkan Sinyal Segera Proses)' +
+          '</label>' +
+          '<div class="form-grid">' +
+            '<div><label class="field-label">No. BC 1.1</label><input id="f_noBc11" class="input" placeholder="cth. 004819" value="' + escapeHtml(s.noBc11 || '') + '" ' + dis2 + '></div>' +
+            '<div><label class="field-label">Tgl. BC 1.1</label><input id="f_tglBc11" type="date" class="input" value="' + escapeHtml(s.tglBc11 || '') + '" ' + dis2 + '></div>' +
+          '</div>' +
+        '</div>' +
         '<div style="margin-top:14px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><label class="field-label" style="margin:0;">Daftar Kontainer</label>' + (!lockPhase2 ? '<button type="button" class="btn btn-outline btn-sm" onclick="addContainerRow(' + isNew + ')">+ Tambah Kontainer</button>' : '') + '</div>' +
         state.editingContainers.map(function (c, idx) {
           return '<div style="display:flex;gap:8px;margin-bottom:8px;"><input class="input cont-no" data-idx="' + idx + '" placeholder="No. Kontainer" value="' + escapeHtml(c.noCont) + '" ' + dis2 + '><input class="input cont-size" data-idx="' + idx + '" style="width:140px;" placeholder="Ukuran/Tipe" value="' + escapeHtml(c.ukuranTipe) + '" ' + dis2 + '>' + (!lockPhase2 ? '<button type="button" class="btn btn-danger btn-sm" onclick="removeContainerRow(' + idx + ',' + isNew + ')">Hapus</button>' : '') + '</div>';
@@ -1439,13 +1463,15 @@
     function syncFormInputsToState() {
       var s = state.editingShipment;
       if (!s) return;
-      var keys = ['kodeCustomer','namaCustomer','noBl','noPackinglist','tglTerimaDok','dokumenChecker','statusDokumen','ship','etd','eta',
+      var keys = ['kodeCustomer','namaCustomer','noBl','noPackinglist','tglTerimaDok','dokumenChecker','statusDokumen','ship','etd','eta','noBc11','tglBc11',
         'status','jalur','noAju','tglAju','nopen','tglNopen','kodeImportir','shipper','description','negaraAsal',
         'currency','kurs','invoice','bmPdri','sptnp','noSppb','tglSppb','noSptnp','tglSptnp','pfpb','tglPfpb','pfpd','tglPfpd','eslah','tglEslah'];
       keys.forEach(function (k) {
         var el = document.getElementById('f_' + k);
         if (el) s[k] = el.value;
       });
+      var bcEl = document.getElementById('f_bc11Terbit');
+      if (bcEl) s.bc11Terbit = bcEl.checked;
       ['terimaDok', 'dokumenOs'].forEach(function (ck) {
         var boxes = document.querySelectorAll('.chk-' + ck);
         if (boxes.length > 0) {

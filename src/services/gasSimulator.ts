@@ -1,7 +1,9 @@
 import type {
+  BillingItem,
   Catatan,
   Customer,
   DokumenItem,
+  GatePassJenisType,
   Importir,
   KontainerItem,
   LogPerubahan,
@@ -11,10 +13,18 @@ import type {
   Shipment,
   Shipper,
   StatusDokumenType,
+  StatusDoPelayaranType,
+  StatusGateOutType,
+  StatusGatePassType,
+  StatusPenagihanType,
+  StatusSuratJalanType,
   UserAccount,
   UserRole,
 } from '../types/ppjk';
 import {
+  buildAutoBillingFields,
+  buildAutoSuratJalanFields,
+  calculateBillingTotals,
   calculateCountdownEta,
   canPerformAction,
   canUserEditAnyPhase,
@@ -26,7 +36,15 @@ import {
   formatContainerSummary,
   generateNextKodeOS,
   getAllowedFieldsForPermissions,
+  isShipmentBillingEligible,
+  normalizeGatePassJenis,
   normalizeStatusDokumen,
+  normalizeStatusDoPelayaran,
+  normalizeStatusGateOut,
+  normalizeStatusGatePass,
+  normalizeStatusPenagihan,
+  normalizeStatusSuratJalan,
+  normalizeStatusTrucking,
   resolveUserPhasePermissions,
   validateShipmentInput,
 } from '../utils/ppjkLogic';
@@ -139,6 +157,19 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
       eta: formatDateOffset(2),
       countDownEta: 2,
       noCont: 'EGHU9012345 (40HC), EGHU9012346 (40HC)',
+      doPelayaranStatus: 'Belum',
+      doBerlakuSampai: '',
+      doCatatanPerpanjangan: 'Menunggu kedatangan kapal & penebusan D/O Evergreen.',
+      doGatePassStatus: 'Belum',
+      doGatePassJenis: '',
+      doGatePassNomor: '',
+      truckingStatus: 'Belum',
+      truckingNamaSupir: '',
+      truckingNoPlat: '',
+      truckingNoHpSupir: '',
+      gateOutStatus: 'Belum',
+      gateOutTanggal: '',
+      gateOutCatatan: '',
       noAju: '',
       tglAju: '',
       status: 'Dokumen Diterima',
@@ -185,6 +216,19 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
       eta: formatDateOffset(-1),
       countDownEta: -1,
       noCont: 'MSCU4455661 (20FT)',
+      doPelayaranStatus: 'Belum',
+      doBerlakuSampai: formatDateOffset(-1),
+      doCatatanPerpanjangan: 'Free time pelayaran habis; wajib ajukan perpanjangan D/O MSC setelah jalur merah selesai.',
+      doGatePassStatus: 'Proses',
+      doGatePassJenis: 'Eslah',
+      doGatePassNomor: 'ESLAH-KOJA-261102',
+      truckingStatus: 'Belum',
+      truckingNamaSupir: '',
+      truckingNoPlat: '',
+      truckingNoHpSupir: '',
+      gateOutStatus: 'Belum',
+      gateOutTanggal: '',
+      gateOutCatatan: '',
       noAju: '000020-010234-20261110-001122',
       tglAju: formatDateOffset(-3),
       status: 'Proses Pemeriksaan',
@@ -231,6 +275,19 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
       eta: formatDateOffset(5),
       countDownEta: 5,
       noCont: 'CMAU7788990 (40GP)',
+      doPelayaranStatus: 'Belum',
+      doBerlakuSampai: '',
+      doCatatanPerpanjangan: '',
+      doGatePassStatus: 'Belum',
+      doGatePassJenis: '',
+      doGatePassNomor: '',
+      truckingStatus: 'Belum',
+      truckingNamaSupir: '',
+      truckingNoPlat: '',
+      truckingNoHpSupir: '',
+      gateOutStatus: 'Belum',
+      gateOutTanggal: '',
+      gateOutCatatan: '',
       noAju: '000020-010234-20261112-004411',
       tglAju: formatDateOffset(-1),
       status: 'Menunggu Jalur',
@@ -277,6 +334,19 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
       eta: formatDateOffset(10),
       countDownEta: 10,
       noCont: 'OOLU3322114 (40HC)',
+      doPelayaranStatus: 'Belum',
+      doBerlakuSampai: formatDateOffset(2),
+      doCatatanPerpanjangan: 'SPPB sudah terbit; menunggu telex release & pelunasan biaya D/O OOCL.',
+      doGatePassStatus: 'Proses',
+      doGatePassJenis: 'TILA (Kartu Gate)',
+      doGatePassNomor: 'TILA-JICT-261104',
+      truckingStatus: 'Sedia',
+      truckingNamaSupir: 'Agus Setiawan',
+      truckingNoPlat: 'B 9412 UIX',
+      truckingNoHpSupir: '0812-8841-2094',
+      gateOutStatus: 'Belum',
+      gateOutTanggal: '',
+      gateOutCatatan: 'Menunggu D/O OOCL & TILA JICT selesai sebelum gate-out.',
       noAju: '000020-010234-20261111-002290',
       tglAju: formatDateOffset(-2),
       status: 'SPPB Terbit',
@@ -323,6 +393,39 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
       eta: formatDateOffset(-5),
       countDownEta: -5,
       noCont: 'TEMU5566778 (20FT)',
+      doPelayaranStatus: 'Sedia',
+      doBerlakuSampai: formatDateOffset(-6),
+      doCatatanPerpanjangan: 'D/O awal Maersk sedia, kontainer sudah keluar pelabuhan.',
+      doGatePassStatus: 'Sedia',
+      doGatePassJenis: 'TILA (Kartu Gate)',
+      doGatePassNomor: 'TILA-TPK-261105',
+      truckingStatus: 'Sedia',
+      truckingNamaSupir: 'Dedi Kurniawan',
+      truckingNoPlat: 'B 9088 TEU',
+      truckingNoHpSupir: '0813-7720-4511',
+      gateOutStatus: 'Sudah',
+      gateOutTanggal: formatDateOffset(-4),
+      gateOutCatatan: 'Kontainer keluar gate TPK Koja & dokumen OS selesai.',
+      suratJalanNomor: `SJ-${monthKey}-0005`,
+      suratJalanTanggal: formatDateOffset(-4),
+      suratJalanStatus: 'Tiba di Tujuan',
+      suratJalanTujuan: 'Gudang PT Agro Pangan Sejahtera — Kawasan Industri Jababeka, Cikarang',
+      suratJalanPenerima: 'Hendra (Kepala Gudang)',
+      suratJalanCatatan: 'Kontainer TEMU5566778 tiba di gudang dalam kondisi segel utuh.',
+      suratJalanUpdatedAt: new Date(Date.now() - 86400000 * 3).toISOString(),
+      billingStatus: 'Terkirim ke Customer',
+      billingNomor: `INV-${monthKey}-0005`,
+      billingTanggal: formatDateOffset(-4),
+      billingJatuhTempo: formatDateOffset(10),
+      billingPpnPersen: 11,
+      billingTotal: 7770000,
+      billingOwnerNotifiedAt: new Date(Date.now() - 86400000 * 4).toISOString(),
+      billingOwnerNotifiedVia: 'WhatsApp',
+      billingOwnerNotifiedBy: 'ops1',
+      billingCustomerSentAt: new Date(Date.now() - 86400000 * 3).toISOString(),
+      billingCustomerSentVia: 'Email',
+      billingCreatedBy: 'Hendra Wijaya (Admin)',
+      billingCatatan: 'Surat Penagihan diterbitkan otomatis setelah Gate-Out & dikirim ke Finance PT Agro Pangan Sejahtera.',
       noAju: '000020-010234-20261102-000811',
       tglAju: formatDateOffset(-10),
       status: 'Selesai',
@@ -369,6 +472,22 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
       eta: formatDateOffset(4),
       countDownEta: 4,
       noCont: 'HLXU7744112 (40HC)',
+      bc11Terbit: true,
+      noBc11: '004819',
+      tglBc11: formatDateOffset(0),
+      doPelayaranStatus: 'Belum',
+      doBerlakuSampai: formatDateOffset(5),
+      doCatatanPerpanjangan: 'BC 1.1 terbit, konfirmasi tagihan D/O Hapag-Lloyd.',
+      doGatePassStatus: 'Belum',
+      doGatePassJenis: 'Eslah & TILA',
+      doGatePassNomor: '',
+      truckingStatus: 'Belum',
+      truckingNamaSupir: '',
+      truckingNoPlat: '',
+      truckingNoHpSupir: '',
+      gateOutStatus: 'Belum',
+      gateOutTanggal: '',
+      gateOutCatatan: '',
       noAju: '000020-010234-20261113-005501',
       tglAju: formatDateOffset(0),
       status: 'Proses PIB/AJU',
@@ -415,6 +534,19 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
       eta: formatDateOffset(-2),
       countDownEta: -2,
       noCont: 'ONEU8833220 (40GP)',
+      doPelayaranStatus: 'Sedia',
+      doBerlakuSampai: formatDateOffset(1),
+      doCatatanPerpanjangan: 'Perpanjangan D/O ke-1 aktif dari pelayaran ONE; jadwalkan trucking keluar hari ini.',
+      doGatePassStatus: 'Sedia',
+      doGatePassJenis: 'Eslah & TILA',
+      doGatePassNomor: 'TILA-NPCT1-261107',
+      truckingStatus: 'Sedia',
+      truckingNamaSupir: 'Slamet Riyadi',
+      truckingNoPlat: 'B 9721 BEV',
+      truckingNoHpSupir: '0811-9034-8821',
+      gateOutStatus: 'Belum',
+      gateOutTanggal: '',
+      gateOutCatatan: 'D/O, TILA NPCT1 & Trucking siap; tinggal proses Gate-Out hari ini.',
       noAju: '000020-010234-20261105-001890',
       tglAju: formatDateOffset(-8),
       status: 'Pasca-SPPB',
@@ -584,15 +716,59 @@ export async function ensureDbInitialized(): Promise<DatabaseState> {
         changed = true;
       }
     }
+    if (!existing.pengaturan.ownerWhatsapp || !existing.pengaturan.ownerEmail || !existing.pengaturan.billingBankInfo) {
+      existing.pengaturan = {
+        ...DEFAULT_PENGATURAN,
+        ...existing.pengaturan,
+        ownerName: existing.pengaturan.ownerName || DEFAULT_PENGATURAN.ownerName,
+        ownerWhatsapp: existing.pengaturan.ownerWhatsapp || DEFAULT_PENGATURAN.ownerWhatsapp,
+        ownerEmail: existing.pengaturan.ownerEmail || DEFAULT_PENGATURAN.ownerEmail,
+        adminName: existing.pengaturan.adminName || DEFAULT_PENGATURAN.adminName,
+        adminWhatsapp: existing.pengaturan.adminWhatsapp || DEFAULT_PENGATURAN.adminWhatsapp,
+        adminEmail: existing.pengaturan.adminEmail || DEFAULT_PENGATURAN.adminEmail,
+        billingBankInfo: existing.pengaturan.billingBankInfo || DEFAULT_PENGATURAN.billingBankInfo,
+      };
+      changed = true;
+    }
     if (changed) {
       writeDbToStorage(existing);
     }
-    // Recalculate dynamic countdown ETA and normalize statusDokumen on read
-    existing.shipments = existing.shipments.map((s) => ({
-      ...s,
-      statusDokumen: normalizeStatusDokumen(s.statusDokumen),
-      countDownEta: calculateCountdownEta(s.eta),
-    }));
+    // Recalculate dynamic countdown ETA and normalize statusDokumen/D/O/Surat Jalan/Billing fields on read
+    existing.shipments = existing.shipments.map((s) => {
+      const normalizedGateOut = normalizeStatusGateOut(s.gateOutStatus, s.status);
+      const sjPatch =
+        normalizedGateOut === 'Sudah'
+          ? buildAutoSuratJalanFields(s, s.gateOutTanggal || formatDateOffset(0), s.updatedAt)
+          : {
+              suratJalanNomor: s.suratJalanNomor || '',
+              suratJalanTanggal: s.suratJalanTanggal || '',
+              suratJalanStatus: normalizeStatusSuratJalan(s.suratJalanStatus, normalizedGateOut, s.status),
+              suratJalanTujuan: s.suratJalanTujuan || '',
+              suratJalanUpdatedAt: s.suratJalanUpdatedAt || '',
+            };
+      const normalizedBase: Shipment = {
+        ...s,
+        statusDokumen: normalizeStatusDokumen(s.statusDokumen),
+        doPelayaranStatus: normalizeStatusDoPelayaran(s.doPelayaranStatus),
+        doGatePassStatus: normalizeStatusGatePass(s.doGatePassStatus),
+        doGatePassJenis: normalizeGatePassJenis(s.doGatePassJenis),
+        truckingStatus: normalizeStatusTrucking(s.truckingStatus),
+        gateOutStatus: normalizedGateOut,
+        ...sjPatch,
+        countDownEta: calculateCountdownEta(s.eta),
+      };
+      if (isShipmentBillingEligible(normalizedBase)) {
+        const autoBill = buildAutoBillingFields(normalizedBase, formatDateOffset(0));
+        return {
+          ...normalizedBase,
+          ...autoBill,
+        };
+      }
+      return {
+        ...normalizedBase,
+        billingStatus: normalizeStatusPenagihan(s.billingStatus, normalizedBase),
+      };
+    });
     return existing;
   }
   const users = await createSeedUsers();
@@ -827,7 +1003,41 @@ export async function saveShipmentRecord(
 
   merged.noCont = formatContainerSummary(validContainers);
   merged.statusDokumen = normalizeStatusDokumen(merged.statusDokumen);
+  merged.doPelayaranStatus = normalizeStatusDoPelayaran(merged.doPelayaranStatus);
+  merged.doGatePassStatus = normalizeStatusGatePass(merged.doGatePassStatus);
+  merged.doGatePassJenis = normalizeGatePassJenis(merged.doGatePassJenis);
+  merged.truckingStatus = normalizeStatusTrucking(merged.truckingStatus);
+  merged.gateOutStatus = normalizeStatusGateOut(merged.gateOutStatus, merged.status);
+  if (merged.gateOutStatus === 'Sudah') {
+    if (!merged.gateOutTanggal) {
+      merged.gateOutTanggal = nowIso.slice(0, 10);
+    }
+    const autoSj = buildAutoSuratJalanFields(merged, merged.gateOutTanggal, nowIso);
+    merged.suratJalanNomor = autoSj.suratJalanNomor;
+    merged.suratJalanTanggal = autoSj.suratJalanTanggal;
+    merged.suratJalanStatus = autoSj.suratJalanStatus;
+    merged.suratJalanTujuan = autoSj.suratJalanTujuan;
+    merged.suratJalanUpdatedAt = autoSj.suratJalanUpdatedAt;
+  } else {
+    merged.suratJalanStatus = normalizeStatusSuratJalan(
+      merged.suratJalanStatus,
+      merged.gateOutStatus,
+      merged.status
+    );
+  }
   merged.countDownEta = calculateCountdownEta(merged.eta);
+  if (isShipmentBillingEligible(merged)) {
+    const autoBill = buildAutoBillingFields(merged, nowIso.slice(0, 10));
+    merged.billingStatus = autoBill.billingStatus;
+    merged.billingNomor = autoBill.billingNomor;
+    merged.billingTanggal = autoBill.billingTanggal;
+    merged.billingJatuhTempo = autoBill.billingJatuhTempo;
+    merged.billingItems = autoBill.billingItems;
+    merged.billingPpnPersen = autoBill.billingPpnPersen;
+    merged.billingTotal = autoBill.billingTotal;
+  } else {
+    merged.billingStatus = normalizeStatusPenagihan(merged.billingStatus, merged);
+  }
   merged.updatedAt = nowIso;
   merged.updatedBy = session.username;
 
@@ -896,6 +1106,494 @@ export async function updateShipmentStatusDokumen(
     nilaiLama: oldVal,
     nilaiBaru: newVal,
   });
+  writeDbToStorage(db);
+  return db;
+}
+
+export async function updateShipmentBc11(
+  session: SessionUser,
+  kodeOs: string,
+  bc11Terbit: boolean,
+  noBc11?: string,
+  tglBc11?: string
+): Promise<DatabaseState> {
+  const db = await ensureDbInitialized();
+  const activeUser = assertSessionActive(db, session);
+  const activePerms = resolveUserPhasePermissions(
+    activeUser.role,
+    activeUser.phasePermissions
+  );
+  if (!canUserEditPhase({ role: activeUser.role, phasePermissions: activePerms }, 2)) {
+    throw new Error(
+      'Akses ditolak: Anda tidak memiliki izin mengubah data Pelayaran / BC 1.1 (Fase 2).'
+    );
+  }
+  const idx = db.shipments.findIndex((s) => s.kodeOs === kodeOs);
+  if (idx === -1) throw new Error(`Shipment ${kodeOs} tidak ditemukan.`);
+
+  const target = db.shipments[idx];
+  const oldState = Boolean(target.bc11Terbit || target.noBc11?.trim() || target.tglBc11?.trim());
+  const nextNo = noBc11 !== undefined ? noBc11.trim() : target.noBc11 || '';
+  const nextTgl =
+    tglBc11 !== undefined
+      ? tglBc11.trim()
+      : bc11Terbit && !target.tglBc11
+      ? new Date().toISOString().slice(0, 10)
+      : target.tglBc11 || '';
+  const nextFlag = Boolean(bc11Terbit || nextNo || nextTgl);
+
+  const nowIso = new Date().toISOString();
+  db.shipments[idx] = {
+    ...target,
+    bc11Terbit: nextFlag,
+    noBc11: nextNo,
+    tglBc11: nextTgl,
+    updatedAt: nowIso,
+    updatedBy: activeUser.username,
+  };
+  if (oldState !== nextFlag || nextNo !== (target.noBc11 || '')) {
+    db.logs.unshift({
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      waktu: nowIso,
+      user: activeUser.username,
+      kodeOs,
+      kolom: 'bc11Terbit',
+      nilaiLama: oldState ? `Terbit (${target.noBc11 || '-'})` : 'Belum Terbit',
+      nilaiBaru: nextFlag ? `Terbit (${nextNo || '-'})` : 'Belum Terbit',
+    });
+  }
+  writeDbToStorage(db);
+  return db;
+}
+
+export async function updateShipmentDoPelayaran(
+  session: SessionUser,
+  kodeOs: string,
+  payload: {
+    statusDokumen?: StatusDokumenType;
+    doPelayaranStatus?: StatusDoPelayaranType;
+    doBerlakuSampai?: string;
+    doCatatanPerpanjangan?: string;
+    doGatePassStatus?: StatusGatePassType;
+    doGatePassJenis?: GatePassJenisType;
+    doGatePassNomor?: string;
+    truckingStatus?: StatusDoPelayaranType;
+    truckingNamaSupir?: string;
+    truckingNoPlat?: string;
+    truckingNoHpSupir?: string;
+    gateOutStatus?: StatusGateOutType;
+    gateOutTanggal?: string;
+    gateOutCatatan?: string;
+    bindDokumenSelesai?: boolean;
+    suratJalanNomor?: string;
+    suratJalanTanggal?: string;
+    suratJalanStatus?: StatusSuratJalanType;
+    suratJalanTujuan?: string;
+    suratJalanPenerima?: string;
+    suratJalanCatatan?: string;
+  }
+): Promise<DatabaseState> {
+  const db = await ensureDbInitialized();
+  const activeUser = assertSessionActive(db, session);
+  const activePerms = resolveUserPhasePermissions(
+    activeUser.role,
+    activeUser.phasePermissions
+  );
+  if (!canUserEditPhase({ role: activeUser.role, phasePermissions: activePerms }, 2)) {
+    throw new Error(
+      'Akses ditolak: Anda tidak memiliki izin mengubah kesiapan D/O Pelayaran (Fase 2).'
+    );
+  }
+  const idx = db.shipments.findIndex((s) => s.kodeOs === kodeOs);
+  if (idx === -1) throw new Error(`Shipment ${kodeOs} tidak ditemukan.`);
+
+  const target = db.shipments[idx];
+  const oldDokStatus = normalizeStatusDokumen(target.statusDokumen);
+  const nextDokStatus =
+    payload.statusDokumen !== undefined && activePerms.phase1
+      ? normalizeStatusDokumen(payload.statusDokumen)
+      : oldDokStatus;
+
+  const oldStatus = normalizeStatusDoPelayaran(target.doPelayaranStatus);
+  const nextStatus =
+    payload.doPelayaranStatus !== undefined
+      ? normalizeStatusDoPelayaran(payload.doPelayaranStatus)
+      : oldStatus;
+  const oldExp = target.doBerlakuSampai || '';
+  const nextExp =
+    payload.doBerlakuSampai !== undefined ? payload.doBerlakuSampai.trim() : oldExp;
+  const oldNote = target.doCatatanPerpanjangan || '';
+  const nextNote =
+    payload.doCatatanPerpanjangan !== undefined
+      ? payload.doCatatanPerpanjangan.trim()
+      : oldNote;
+
+  const oldGateStatus = normalizeStatusGatePass(target.doGatePassStatus);
+  const nextGateStatus =
+    payload.doGatePassStatus !== undefined
+      ? normalizeStatusGatePass(payload.doGatePassStatus)
+      : oldGateStatus;
+  const oldGateJenis = normalizeGatePassJenis(target.doGatePassJenis);
+  const nextGateJenis =
+    payload.doGatePassJenis !== undefined
+      ? normalizeGatePassJenis(payload.doGatePassJenis)
+      : oldGateJenis;
+  const oldGateNomor = target.doGatePassNomor || '';
+  const nextGateNomor =
+    payload.doGatePassNomor !== undefined ? payload.doGatePassNomor.trim() : oldGateNomor;
+
+  const oldTruckStatus = normalizeStatusTrucking(target.truckingStatus);
+  const nextTruckStatus =
+    payload.truckingStatus !== undefined
+      ? normalizeStatusTrucking(payload.truckingStatus)
+      : oldTruckStatus;
+  const oldSupir = target.truckingNamaSupir || '';
+  const nextSupir =
+    payload.truckingNamaSupir !== undefined ? payload.truckingNamaSupir.trim() : oldSupir;
+  const oldPlat = target.truckingNoPlat || '';
+  const nextPlat =
+    payload.truckingNoPlat !== undefined ? payload.truckingNoPlat.trim().toUpperCase() : oldPlat;
+  const oldHp = target.truckingNoHpSupir || '';
+  const nextHp =
+    payload.truckingNoHpSupir !== undefined ? payload.truckingNoHpSupir.trim() : oldHp;
+
+  const oldGateOutStatus = normalizeStatusGateOut(target.gateOutStatus, target.status);
+  const nextGateOutStatus =
+    payload.gateOutStatus !== undefined
+      ? normalizeStatusGateOut(payload.gateOutStatus)
+      : oldGateOutStatus;
+  const oldGateOutTanggal = target.gateOutTanggal || '';
+  let nextGateOutTanggal =
+    payload.gateOutTanggal !== undefined ? payload.gateOutTanggal.trim() : oldGateOutTanggal;
+  if (nextGateOutStatus === 'Sudah' && !nextGateOutTanggal) {
+    nextGateOutTanggal = new Date().toISOString().slice(0, 10);
+  }
+  const oldGateOutCatatan = target.gateOutCatatan || '';
+  const nextGateOutCatatan =
+    payload.gateOutCatatan !== undefined ? payload.gateOutCatatan.trim() : oldGateOutCatatan;
+
+  const shouldBindSelesai =
+    nextGateOutStatus === 'Sudah' &&
+    payload.bindDokumenSelesai !== false &&
+    (payload.bindDokumenSelesai === true || oldGateOutStatus !== 'Sudah');
+
+  const oldShipmentStatus = target.status;
+  const nextShipmentStatus = shouldBindSelesai ? 'Selesai' : oldShipmentStatus;
+  let nextDokumenOs = target.dokumenOs;
+  let dokumenOsCompletedNow = false;
+
+  if (shouldBindSelesai) {
+    const checklistItems = db.pengaturan.checklistItems || DEFAULT_CHECKLIST_ITEMS;
+    const prevItems = target.dokumenOs?.items || {};
+    const anyMissing = checklistItems.some((item) => !prevItems[item]);
+    if (anyMissing) {
+      const completedItems: Record<string, boolean> = { ...prevItems };
+      for (const item of checklistItems) completedItems[item] = true;
+      nextDokumenOs = {
+        items: completedItems,
+        catatan:
+          target.dokumenOs?.catatan?.trim() ||
+          `Otomatis dilengkapi via Gate-Out (${nextGateOutTanggal}).`,
+      };
+      dokumenOsCompletedNow = true;
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+  const oldSjNomor = target.suratJalanNomor || '';
+  const oldSjTanggal = target.suratJalanTanggal || '';
+  const oldSjStatus = normalizeStatusSuratJalan(
+    target.suratJalanStatus,
+    oldGateOutStatus,
+    oldShipmentStatus
+  );
+  const oldSjTujuan = target.suratJalanTujuan || '';
+  const oldSjPenerima = target.suratJalanPenerima || '';
+  const oldSjCatatan = target.suratJalanCatatan || '';
+
+  let nextSjNomor =
+    payload.suratJalanNomor !== undefined ? payload.suratJalanNomor.trim().toUpperCase() : oldSjNomor;
+  let nextSjTanggal =
+    payload.suratJalanTanggal !== undefined ? payload.suratJalanTanggal.trim() : oldSjTanggal;
+  let nextSjStatus: StatusSuratJalanType =
+    payload.suratJalanStatus !== undefined
+      ? normalizeStatusSuratJalan(payload.suratJalanStatus, nextGateOutStatus, nextShipmentStatus)
+      : normalizeStatusSuratJalan(target.suratJalanStatus, nextGateOutStatus, nextShipmentStatus);
+  let nextSjTujuan =
+    payload.suratJalanTujuan !== undefined ? payload.suratJalanTujuan.trim() : oldSjTujuan;
+  const nextSjPenerima =
+    payload.suratJalanPenerima !== undefined ? payload.suratJalanPenerima.trim() : oldSjPenerima;
+  const nextSjCatatan =
+    payload.suratJalanCatatan !== undefined ? payload.suratJalanCatatan.trim() : oldSjCatatan;
+  let nextSjUpdatedAt = target.suratJalanUpdatedAt || '';
+
+  if (nextGateOutStatus === 'Sudah') {
+    const autoSj = buildAutoSuratJalanFields(
+      {
+        kodeOs,
+        namaCustomer: target.namaCustomer,
+        gateOutTanggal: nextGateOutTanggal,
+        suratJalanNomor: nextSjNomor,
+        suratJalanTanggal: nextSjTanggal,
+        suratJalanStatus: nextSjStatus,
+        suratJalanTujuan: nextSjTujuan,
+        suratJalanUpdatedAt: nextSjUpdatedAt,
+      },
+      nextGateOutTanggal,
+      nowIso
+    );
+    nextSjNomor = autoSj.suratJalanNomor;
+    nextSjTanggal = autoSj.suratJalanTanggal;
+    nextSjStatus = autoSj.suratJalanStatus;
+    nextSjTujuan = autoSj.suratJalanTujuan;
+    nextSjUpdatedAt = autoSj.suratJalanUpdatedAt;
+  }
+
+  const changes: Array<[string, string, string]> = [];
+  if (oldDokStatus !== nextDokStatus) changes.push(['statusDokumen', oldDokStatus, nextDokStatus]);
+  if (oldStatus !== nextStatus) changes.push(['doPelayaranStatus', oldStatus, nextStatus]);
+  if (oldExp !== nextExp) changes.push(['doBerlakuSampai', oldExp || '-', nextExp || '-']);
+  if (oldNote !== nextNote) changes.push(['doCatatanPerpanjangan', oldNote || '-', nextNote || '-']);
+  if (oldGateStatus !== nextGateStatus) changes.push(['doGatePassStatus', oldGateStatus, nextGateStatus]);
+  if (oldGateJenis !== nextGateJenis) changes.push(['doGatePassJenis', oldGateJenis || '-', nextGateJenis || '-']);
+  if (oldGateNomor !== nextGateNomor) changes.push(['doGatePassNomor', oldGateNomor || '-', nextGateNomor || '-']);
+  if (oldTruckStatus !== nextTruckStatus) changes.push(['truckingStatus', oldTruckStatus, nextTruckStatus]);
+  if (oldSupir !== nextSupir) changes.push(['truckingNamaSupir', oldSupir || '-', nextSupir || '-']);
+  if (oldPlat !== nextPlat) changes.push(['truckingNoPlat', oldPlat || '-', nextPlat || '-']);
+  if (oldHp !== nextHp) changes.push(['truckingNoHpSupir', oldHp || '-', nextHp || '-']);
+  if (oldGateOutStatus !== nextGateOutStatus) changes.push(['gateOutStatus', oldGateOutStatus, nextGateOutStatus]);
+  if (oldGateOutTanggal !== nextGateOutTanggal) changes.push(['gateOutTanggal', oldGateOutTanggal || '-', nextGateOutTanggal || '-']);
+  if (oldGateOutCatatan !== nextGateOutCatatan) changes.push(['gateOutCatatan', oldGateOutCatatan || '-', nextGateOutCatatan || '-']);
+  if (oldSjNomor !== nextSjNomor) changes.push(['suratJalanNomor', oldSjNomor || '-', nextSjNomor || '-']);
+  if (oldSjStatus !== nextSjStatus) changes.push(['suratJalanStatus', oldSjStatus, nextSjStatus]);
+  if (oldSjTujuan !== nextSjTujuan) changes.push(['suratJalanTujuan', oldSjTujuan || '-', nextSjTujuan || '-']);
+  if (oldSjPenerima !== nextSjPenerima) changes.push(['suratJalanPenerima', oldSjPenerima || '-', nextSjPenerima || '-']);
+  if (oldSjCatatan !== nextSjCatatan) changes.push(['suratJalanCatatan', oldSjCatatan || '-', nextSjCatatan || '-']);
+  if (oldShipmentStatus !== nextShipmentStatus) {
+    changes.push(['status', oldShipmentStatus, `${nextShipmentStatus} (Ikatan Gate-Out)`]);
+  }
+  if (dokumenOsCompletedNow) {
+    changes.push(['dokumenOs', 'Belum lengkap', 'Lengkap (Ikatan Gate-Out Selesai)']);
+  }
+
+  if (changes.length === 0) {
+    return db;
+  }
+
+  if (
+    oldSjNomor !== nextSjNomor ||
+    oldSjStatus !== nextSjStatus ||
+    oldSjTujuan !== nextSjTujuan ||
+    oldSjPenerima !== nextSjPenerima ||
+    oldSjCatatan !== nextSjCatatan
+  ) {
+    nextSjUpdatedAt = nowIso;
+  }
+
+  const draftShipment: Shipment = {
+    ...target,
+    statusDokumen: nextDokStatus,
+    doPelayaranStatus: nextStatus,
+    doBerlakuSampai: nextExp,
+    doCatatanPerpanjangan: nextNote,
+    doGatePassStatus: nextGateStatus,
+    doGatePassJenis: nextGateJenis,
+    doGatePassNomor: nextGateNomor,
+    truckingStatus: nextTruckStatus,
+    truckingNamaSupir: nextSupir,
+    truckingNoPlat: nextPlat,
+    truckingNoHpSupir: nextHp,
+    gateOutStatus: nextGateOutStatus,
+    gateOutTanggal: nextGateOutTanggal,
+    gateOutCatatan: nextGateOutCatatan,
+    suratJalanNomor: nextSjNomor,
+    suratJalanTanggal: nextSjTanggal,
+    suratJalanStatus: nextSjStatus,
+    suratJalanTujuan: nextSjTujuan,
+    suratJalanPenerima: nextSjPenerima,
+    suratJalanCatatan: nextSjCatatan,
+    suratJalanUpdatedAt: nextSjUpdatedAt,
+    status: nextShipmentStatus,
+    dokumenOs: nextDokumenOs,
+    updatedAt: nowIso,
+    updatedBy: activeUser.username,
+  };
+
+  if (isShipmentBillingEligible(draftShipment)) {
+    const prevBillingStatus = normalizeStatusPenagihan(target.billingStatus, target);
+    const autoBill = buildAutoBillingFields(draftShipment, nowIso.slice(0, 10));
+    draftShipment.billingStatus = autoBill.billingStatus;
+    draftShipment.billingNomor = autoBill.billingNomor;
+    draftShipment.billingTanggal = autoBill.billingTanggal;
+    draftShipment.billingJatuhTempo = autoBill.billingJatuhTempo;
+    draftShipment.billingItems = autoBill.billingItems;
+    draftShipment.billingPpnPersen = autoBill.billingPpnPersen;
+    draftShipment.billingTotal = autoBill.billingTotal;
+    if (prevBillingStatus === 'Belum') {
+      changes.push([
+        'billingStatus',
+        'Belum',
+        `${autoBill.billingStatus} (${autoBill.billingNomor})`,
+      ]);
+    }
+  }
+
+  db.shipments[idx] = draftShipment;
+
+  for (const [kolom, nilaiLama, nilaiBaru] of changes) {
+    db.logs.unshift({
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      waktu: nowIso,
+      user: activeUser.username,
+      kodeOs,
+      kolom,
+      nilaiLama,
+      nilaiBaru,
+    });
+  }
+
+  writeDbToStorage(db);
+  return db;
+}
+
+export async function updateShipmentBilling(
+  session: SessionUser,
+  kodeOs: string,
+  payload: {
+    action: 'notify_owner' | 'save_invoice';
+    via?: 'WhatsApp' | 'Email' | 'WA & Email';
+    billingNomor?: string;
+    billingTanggal?: string;
+    billingJatuhTempo?: string;
+    billingItems?: BillingItem[];
+    billingPpnPersen?: number;
+    billingCatatan?: string;
+    billingStatus?: StatusPenagihanType;
+    customerSentVia?: 'WhatsApp' | 'Email' | 'WA & Email' | '';
+  }
+): Promise<DatabaseState> {
+  const db = await ensureDbInitialized();
+  const activeUser = assertSessionActive(db, session);
+
+  if (activeUser.role === 'Manajer') {
+    throw new Error('Akses ditolak: Mode Manajer hanya dapat melihat/ekspor laporan.');
+  }
+  if (payload.action === 'save_invoice' && activeUser.role !== 'Admin') {
+    throw new Error(
+      'Khusus Admin yang dapat menerbitkan atau mengubah Surat Penagihan resmi untuk customer.'
+    );
+  }
+
+  const idx = db.shipments.findIndex((s) => s.kodeOs === kodeOs);
+  if (idx === -1) throw new Error(`Shipment ${kodeOs} tidak ditemukan.`);
+
+  const target = db.shipments[idx];
+  const nowIso = new Date().toISOString();
+  const autoBase = buildAutoBillingFields(target, nowIso.slice(0, 10));
+  const oldStatus = normalizeStatusPenagihan(target.billingStatus, target);
+
+  let nextShipment: Shipment = { ...target, ...autoBase };
+  const logEntries: Array<[string, string, string]> = [];
+
+  if (payload.action === 'notify_owner') {
+    const via = payload.via || 'WhatsApp';
+    const nextStatus: StatusPenagihanType =
+      oldStatus === 'Belum' || oldStatus === 'Siap Info Owner'
+        ? 'Info Owner Terkirim'
+        : oldStatus;
+    nextShipment = {
+      ...nextShipment,
+      billingStatus: nextStatus,
+      billingOwnerNotifiedAt: nowIso,
+      billingOwnerNotifiedVia: via,
+      billingOwnerNotifiedBy: activeUser.nama,
+      updatedAt: nowIso,
+      updatedBy: activeUser.username,
+    };
+    logEntries.push([
+      'Info Owner Penagihan',
+      oldStatus,
+      `${nextStatus} via ${via} (${autoBase.billingNomor})`,
+    ]);
+  } else {
+    const nextItems =
+      Array.isArray(payload.billingItems) && payload.billingItems.length > 0
+        ? payload.billingItems.map((it, i) => ({
+            id: it.id || `${kodeOs}_item_${i + 1}`,
+            deskripsi: it.deskripsi.trim() || 'Biaya Jasa PPJK',
+            qty: Math.max(0, Number(it.qty) || 0),
+            satuan: it.satuan.trim() || 'Paket',
+            hargaSatuan: Math.max(0, Number(it.hargaSatuan) || 0),
+          }))
+        : autoBase.billingItems;
+    const nextPpn =
+      typeof payload.billingPpnPersen === 'number'
+        ? Math.max(0, payload.billingPpnPersen)
+        : autoBase.billingPpnPersen;
+    const totals = calculateBillingTotals(nextItems, nextPpn);
+    const nextStatus: StatusPenagihanType =
+      payload.billingStatus && payload.billingStatus !== 'Belum'
+        ? payload.billingStatus
+        : 'Penagihan Terbit';
+    const nextNomor = (payload.billingNomor || '').trim().toUpperCase() || autoBase.billingNomor;
+    const nextTanggal = (payload.billingTanggal || '').trim() || autoBase.billingTanggal;
+    const nextJatuhTempo =
+      (payload.billingJatuhTempo || '').trim() || autoBase.billingJatuhTempo;
+    const nextCatatan =
+      payload.billingCatatan !== undefined
+        ? payload.billingCatatan.trim()
+        : target.billingCatatan || '';
+
+    const customerSent: {
+      billingCustomerSentAt: string;
+      billingCustomerSentVia: Shipment['billingCustomerSentVia'];
+    } =
+      nextStatus === 'Terkirim ke Customer' || nextStatus === 'Lunas'
+        ? {
+            billingCustomerSentAt: target.billingCustomerSentAt || nowIso,
+            billingCustomerSentVia:
+              payload.customerSentVia || target.billingCustomerSentVia || 'WhatsApp',
+          }
+        : {
+            billingCustomerSentAt: target.billingCustomerSentAt || '',
+            billingCustomerSentVia: target.billingCustomerSentVia || '',
+          };
+
+    nextShipment = {
+      ...nextShipment,
+      billingNomor: nextNomor,
+      billingTanggal: nextTanggal,
+      billingJatuhTempo: nextJatuhTempo,
+      billingItems: nextItems,
+      billingPpnPersen: nextPpn,
+      billingTotal: totals.total,
+      billingCatatan: nextCatatan,
+      billingStatus: nextStatus,
+      billingCreatedBy: activeUser.nama,
+      ...customerSent,
+      updatedAt: nowIso,
+      updatedBy: activeUser.username,
+    };
+    logEntries.push([
+      'Surat Penagihan Admin',
+      `${oldStatus} (${target.billingNomor || '-'})`,
+      `${nextStatus} (${nextNomor})`,
+    ]);
+  }
+
+  db.shipments[idx] = nextShipment;
+  for (const [kolom, nilaiLama, nilaiBaru] of logEntries) {
+    db.logs.unshift({
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      waktu: nowIso,
+      user: activeUser.username,
+      kodeOs,
+      kolom,
+      nilaiLama,
+      nilaiBaru,
+    });
+  }
+
   writeDbToStorage(db);
   return db;
 }

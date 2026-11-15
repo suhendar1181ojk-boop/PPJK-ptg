@@ -12,6 +12,7 @@ import type {
 import {
   arePhasePermissionsEqual,
   canPerformAction,
+  DEFAULT_PENGATURAN,
   getDefaultPhasePermissions,
   PHASE_META,
   resolveUserPhasePermissions,
@@ -107,6 +108,27 @@ export function MasterSettingsView({
   const [emailsText, setEmailsText] = useState(pengaturan.notificationEmails.join(', '));
   const [statusText, setStatusText] = useState(pengaturan.statusList.join(', '));
   const [checklistText, setChecklistText] = useState(pengaturan.checklistItems.join(', '));
+  const [ownerName, setOwnerName] = useState(
+    pengaturan.ownerName || DEFAULT_PENGATURAN.ownerName || ''
+  );
+  const [ownerWhatsapp, setOwnerWhatsapp] = useState(
+    pengaturan.ownerWhatsapp || DEFAULT_PENGATURAN.ownerWhatsapp || ''
+  );
+  const [ownerEmail, setOwnerEmail] = useState(
+    pengaturan.ownerEmail || DEFAULT_PENGATURAN.ownerEmail || ''
+  );
+  const [adminName, setAdminName] = useState(
+    pengaturan.adminName || DEFAULT_PENGATURAN.adminName || ''
+  );
+  const [adminWhatsapp, setAdminWhatsapp] = useState(
+    pengaturan.adminWhatsapp || DEFAULT_PENGATURAN.adminWhatsapp || ''
+  );
+  const [adminEmail, setAdminEmail] = useState(
+    pengaturan.adminEmail || DEFAULT_PENGATURAN.adminEmail || ''
+  );
+  const [billingBankInfo, setBillingBankInfo] = useState(
+    pengaturan.billingBankInfo || DEFAULT_PENGATURAN.billingBankInfo || ''
+  );
   const [feedback, setFeedback] = useState('');
 
   const notify = (msg: string) => {
@@ -260,68 +282,45 @@ export function MasterSettingsView({
       notificationEmails: splitCsv(emailsText),
       statusList: splitCsv(statusText),
       checklistItems: splitCsv(checklistText),
+      ownerName: ownerName.trim(),
+      ownerWhatsapp: ownerWhatsapp.trim(),
+      ownerEmail: ownerEmail.trim(),
+      adminName: adminName.trim(),
+      adminWhatsapp: adminWhatsapp.trim(),
+      adminEmail: adminEmail.trim(),
+      billingBankInfo: billingBankInfo.trim(),
     });
-    notify('Pengaturan sistem diperbarui.');
+    notify('Pengaturan sistem & kontak penagihan Owner/Admin diperbarui.');
   };
+
+  const tabBtnCls = (active: boolean) =>
+    `px-3.5 py-2 rounded-xl text-xs font-semibold border cursor-pointer transition-colors ${
+      active
+        ? 'bg-[#0B2545] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] text-white border-[#0B2545] dark:border-transparent'
+        : 'bg-white dark:bg-[#131926] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-white/[0.08] hover:bg-slate-50 dark:hover:bg-[#182032]'
+    }`;
+
+  const inputCls =
+    'px-3 py-2 rounded-lg border border-slate-300 dark:border-white/10 text-xs bg-white dark:bg-[#182032] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 disabled:bg-slate-100 dark:disabled:bg-[#111625] focus:outline-none focus:ring-2 focus:ring-[#F28C28]/40 dark:focus:ring-violet-500/40';
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setTab('customer')}
-          className={`px-3.5 py-2 rounded-lg text-xs font-semibold border cursor-pointer ${
-            tab === 'customer'
-              ? 'bg-[#0B2545] text-white border-[#0B2545]'
-              : 'bg-white text-slate-700 border-slate-200'
-          }`}
-        >
+        <button type="button" onClick={() => setTab('customer')} className={tabBtnCls(tab === 'customer')}>
           Master Customer ({customers.length})
         </button>
-        <button
-          type="button"
-          onClick={() => setTab('importir')}
-          className={`px-3.5 py-2 rounded-lg text-xs font-semibold border cursor-pointer ${
-            tab === 'importir'
-              ? 'bg-[#0B2545] text-white border-[#0B2545]'
-              : 'bg-white text-slate-700 border-slate-200'
-          }`}
-        >
+        <button type="button" onClick={() => setTab('importir')} className={tabBtnCls(tab === 'importir')}>
           Master Importir ({importirs.length})
         </button>
-        <button
-          type="button"
-          onClick={() => setTab('shipper')}
-          className={`px-3.5 py-2 rounded-lg text-xs font-semibold border cursor-pointer ${
-            tab === 'shipper'
-              ? 'bg-[#0B2545] text-white border-[#0B2545]'
-              : 'bg-white text-slate-700 border-slate-200'
-          }`}
-        >
+        <button type="button" onClick={() => setTab('shipper')} className={tabBtnCls(tab === 'shipper')}>
           Master Shipper ({shippers.length})
         </button>
         {isAdmin && (
           <>
-            <button
-              type="button"
-              onClick={() => setTab('users')}
-              className={`px-3.5 py-2 rounded-lg text-xs font-semibold border cursor-pointer ${
-                tab === 'users'
-                  ? 'bg-[#0B2545] text-white border-[#0B2545]'
-                  : 'bg-white text-slate-700 border-slate-200'
-              }`}
-            >
+            <button type="button" onClick={() => setTab('users')} className={tabBtnCls(tab === 'users')}>
               Manajemen User ({users.length})
             </button>
-            <button
-              type="button"
-              onClick={() => setTab('settings')}
-              className={`px-3.5 py-2 rounded-lg text-xs font-semibold border cursor-pointer ${
-                tab === 'settings'
-                  ? 'bg-[#0B2545] text-white border-[#0B2545]'
-                  : 'bg-white text-slate-700 border-slate-200'
-              }`}
-            >
+            <button type="button" onClick={() => setTab('settings')} className={tabBtnCls(tab === 'settings')}>
               Pengaturan Sistem
             </button>
           </>
@@ -329,22 +328,22 @@ export function MasterSettingsView({
       </div>
 
       {feedback && (
-        <div className="px-4 py-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-700">
+        <div className="px-4 py-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/15 border border-emerald-200 dark:border-emerald-500/35 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
           {feedback}
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-slate-200 p-5">
+      <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-5">
         {tab === 'customer' && (
           <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-[#0B2545]">Master Customer</h3>
+            <h3 className="text-sm font-semibold text-[#0B2545] dark:text-white">Master Customer</h3>
             <form onSubmit={handleCustSubmit} className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
               <input
                 type="text"
                 placeholder="Kode (CUST-005)"
                 value={custForm.kodeCustomer}
                 onChange={(e) => setCustForm({ ...custForm, kodeCustomer: e.target.value })}
-                className="px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                className={inputCls}
                 required
               />
               <input
@@ -352,7 +351,7 @@ export function MasterSettingsView({
                 placeholder="Nama Customer"
                 value={custForm.namaCustomer}
                 onChange={(e) => setCustForm({ ...custForm, namaCustomer: e.target.value })}
-                className="px-3 py-2 rounded-lg border border-slate-300 text-xs sm:col-span-2"
+                className={`${inputCls} sm:col-span-2`}
                 required
               />
               <div className="flex gap-2">
@@ -361,29 +360,29 @@ export function MasterSettingsView({
                   placeholder="Kontak"
                   value={custForm.kontak}
                   onChange={(e) => setCustForm({ ...custForm, kontak: e.target.value })}
-                  className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                  className={`flex-1 ${inputCls}`}
                 />
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-lg bg-[#F28C28] text-white text-xs font-semibold cursor-pointer"
+                  className="px-4 py-2 rounded-lg bg-[#F28C28] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] text-white text-xs font-semibold cursor-pointer"
                 >
                   Simpan
                 </button>
               </div>
             </form>
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-slate-100 dark:divide-white/[0.06]">
               {customers.map((c) => (
                 <div key={c.kodeCustomer} className="py-2.5 flex items-center justify-between text-xs">
                   <div>
-                    <span className="font-mono-code font-semibold text-[#0B2545]">{c.kodeCustomer}</span>{' '}
-                    — <span className="font-medium text-slate-900">{c.namaCustomer}</span>{' '}
-                    <span className="text-slate-500">({c.kontak || '-'})</span>
+                    <span className="font-mono-code font-semibold text-[#0B2545] dark:text-violet-300">{c.kodeCustomer}</span>{' '}
+                    — <span className="font-medium text-slate-900 dark:text-white">{c.namaCustomer}</span>{' '}
+                    <span className="text-slate-500 dark:text-slate-400">({c.kontak || '-'})</span>
                   </div>
                   <button
                     type="button"
                     onClick={() => onDeleteCustomer(c.kodeCustomer)}
                     aria-label={`Hapus customer ${c.kodeCustomer}`}
-                    className="p-1.5 text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                    className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15 rounded cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -395,14 +394,14 @@ export function MasterSettingsView({
 
         {tab === 'importir' && (
           <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-[#0B2545]">Master Importir</h3>
+            <h3 className="text-sm font-semibold text-[#0B2545] dark:text-white">Master Importir</h3>
             <form onSubmit={handleImpSubmit} className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <input
                 type="text"
                 placeholder="Kode Importir"
                 value={impForm.kodeImportir}
                 onChange={(e) => setImpForm({ ...impForm, kodeImportir: e.target.value })}
-                className="px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                className={inputCls}
                 required
               />
               <input
@@ -410,28 +409,28 @@ export function MasterSettingsView({
                 placeholder="Nama Importir"
                 value={impForm.namaImportir}
                 onChange={(e) => setImpForm({ ...impForm, namaImportir: e.target.value })}
-                className="px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                className={inputCls}
                 required
               />
               <button
                 type="submit"
-                className="px-4 py-2 rounded-lg bg-[#F28C28] text-white text-xs font-semibold cursor-pointer"
+                className="px-4 py-2 rounded-lg bg-[#F28C28] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] text-white text-xs font-semibold cursor-pointer"
               >
                 Simpan Importir
               </button>
             </form>
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-slate-100 dark:divide-white/[0.06]">
               {importirs.map((i) => (
                 <div key={i.kodeImportir} className="py-2.5 flex items-center justify-between text-xs">
                   <div>
-                    <span className="font-mono-code font-semibold text-[#0B2545]">{i.kodeImportir}</span>{' '}
-                    — {i.namaImportir}
+                    <span className="font-mono-code font-semibold text-[#0B2545] dark:text-violet-300">{i.kodeImportir}</span>{' '}
+                    — <span className="text-slate-900 dark:text-white">{i.namaImportir}</span>
                   </div>
                   <button
                     type="button"
                     onClick={() => onDeleteImportir(i.kodeImportir)}
                     aria-label={`Hapus importir ${i.kodeImportir}`}
-                    className="p-1.5 text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                    className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15 rounded cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -443,14 +442,14 @@ export function MasterSettingsView({
 
         {tab === 'shipper' && (
           <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-[#0B2545]">Master Shipper</h3>
+            <h3 className="text-sm font-semibold text-[#0B2545] dark:text-white">Master Shipper</h3>
             <form onSubmit={handleShipSubmit} className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <input
                 type="text"
                 placeholder="Nama Shipper"
                 value={shipForm.namaShipper}
                 onChange={(e) => setShipForm({ ...shipForm, namaShipper: e.target.value })}
-                className="px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                className={inputCls}
                 required
               />
               <input
@@ -458,27 +457,27 @@ export function MasterSettingsView({
                 placeholder="Negara"
                 value={shipForm.negara}
                 onChange={(e) => setShipForm({ ...shipForm, negara: e.target.value })}
-                className="px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                className={inputCls}
               />
               <button
                 type="submit"
-                className="px-4 py-2 rounded-lg bg-[#F28C28] text-white text-xs font-semibold cursor-pointer"
+                className="px-4 py-2 rounded-lg bg-[#F28C28] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] text-white text-xs font-semibold cursor-pointer"
               >
                 Simpan Shipper
               </button>
             </form>
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-slate-100 dark:divide-white/[0.06]">
               {shippers.map((sh) => (
                 <div key={sh.namaShipper} className="py-2.5 flex items-center justify-between text-xs">
                   <div>
-                    <span className="font-semibold text-slate-900">{sh.namaShipper}</span>{' '}
-                    <span className="text-slate-500">({sh.negara || '-'})</span>
+                    <span className="font-semibold text-slate-900 dark:text-white">{sh.namaShipper}</span>{' '}
+                    <span className="text-slate-500 dark:text-slate-400">({sh.negara || '-'})</span>
                   </div>
                   <button
                     type="button"
                     onClick={() => onDeleteShipper(sh.namaShipper)}
                     aria-label={`Hapus shipper ${sh.namaShipper}`}
-                    className="p-1.5 text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                    className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15 rounded cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -492,10 +491,10 @@ export function MasterSettingsView({
           <div className="space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h3 className="text-sm font-semibold text-[#0B2545]">
+                <h3 className="text-sm font-semibold text-[#0B2545] dark:text-white">
                   Manajemen User &amp; Batasan Hak Akses
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   Buat akun baru untuk Admin, Checker, Drafter, Operasional, atau Manajer beserta kontrol status aktif.
                 </p>
               </div>
@@ -515,14 +514,14 @@ export function MasterSettingsView({
                       phasePermissions: getDefaultPhasePermissions('Checker'),
                     });
                   }}
-                  className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-slate-700 cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/15 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
                 >
                   Batal Edit ({editingUsername})
                 </button>
               )}
             </div>
 
-            <form onSubmit={handleUserSubmit} className="space-y-3 p-4 rounded-xl bg-slate-50 border border-slate-200">
+            <form onSubmit={handleUserSubmit} className="space-y-3 p-4 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08]">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
                 <input
                   type="text"
@@ -531,7 +530,7 @@ export function MasterSettingsView({
                   disabled={Boolean(editingUsername)}
                   value={userForm.username}
                   onChange={(e) => setUserForm({ ...userForm, username: e.target.value })}
-                  className="px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white disabled:bg-slate-100"
+                  className={inputCls}
                   required
                 />
                 <input
@@ -540,7 +539,7 @@ export function MasterSettingsView({
                   placeholder="Nama Lengkap"
                   value={userForm.nama}
                   onChange={(e) => setUserForm({ ...userForm, nama: e.target.value })}
-                  className="px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+                  className={inputCls}
                   required
                 />
                 <select
@@ -556,7 +555,7 @@ export function MasterSettingsView({
                         : getDefaultPhasePermissions(nextRole),
                     }));
                   }}
-                  className="px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white font-medium"
+                  className={`${inputCls} font-medium`}
                 >
                   <option value="Admin">Admin</option>
                   <option value="Checker">Checker</option>
@@ -570,12 +569,12 @@ export function MasterSettingsView({
                   placeholder={editingUsername ? 'Password baru (opsional)' : 'Password (min. 6)'}
                   value={userForm.password}
                   onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
-                  className="px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+                  className={inputCls}
                   required={!editingUsername}
                 />
                 <button
                   type="submit"
-                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-[#F28C28] hover:bg-[#D97719] text-white text-xs font-semibold cursor-pointer"
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-[#F28C28] hover:bg-[#D97719] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] text-white text-xs font-semibold cursor-pointer"
                 >
                   <UserPlus className="w-3.5 h-3.5" />
                   <span>{editingUsername ? 'Perbarui User' : 'Tambah User'}</span>
@@ -583,9 +582,9 @@ export function MasterSettingsView({
               </div>
 
               {/* Pengaturan Toggle Edit Fase pada Form User */}
-              <div className="pt-2 border-t border-slate-200/80 space-y-2">
+              <div className="pt-2 border-t border-slate-200/80 dark:border-white/[0.08] space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-[11px] font-semibold text-[#0B2545] uppercase tracking-wide">
+                  <span className="text-[11px] font-semibold text-[#0B2545] dark:text-violet-300 uppercase tracking-wide">
                     Pengaturan Edit Fase (Toggle Aktif / Tidak)
                   </span>
                   <button
@@ -596,7 +595,7 @@ export function MasterSettingsView({
                         phasePermissions: getDefaultPhasePermissions(prev.role),
                       }))
                     }
-                    className="text-[11px] font-semibold text-slate-600 hover:text-[#0B2545] inline-flex items-center gap-1 cursor-pointer"
+                    className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 hover:text-[#0B2545] dark:hover:text-white inline-flex items-center gap-1 cursor-pointer"
                   >
                     <RotateCcw className="w-3 h-3" />
                     <span>Samakan Default {userForm.role}</span>
@@ -623,8 +622,8 @@ export function MasterSettingsView({
                         }
                         className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
                           enabled
-                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
-                            : 'bg-white border-slate-200 text-slate-500'
+                            ? 'bg-emerald-50 dark:bg-emerald-500/15 border-emerald-300 dark:border-emerald-500/40 text-emerald-900 dark:text-emerald-200'
+                            : 'bg-white dark:bg-[#182032] border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400'
                         }`}
                       >
                         <span className="truncate">{ph.label}</span>
@@ -634,7 +633,7 @@ export function MasterSettingsView({
                           </span>
                           <span
                             className={`w-7 h-4 rounded-full p-0.5 flex items-center transition-colors ${
-                              enabled ? 'bg-emerald-600 justify-end' : 'bg-slate-300 justify-start'
+                              enabled ? 'bg-emerald-600 dark:bg-emerald-500 justify-end' : 'bg-slate-300 dark:bg-slate-600 justify-start'
                             }`}
                           >
                             <span className="w-3 h-3 rounded-full bg-white shadow-xs" />
@@ -646,13 +645,13 @@ export function MasterSettingsView({
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-4 text-xs text-slate-700 pt-1">
+              <div className="flex flex-wrap items-center gap-4 text-xs text-slate-700 dark:text-slate-300 pt-1">
                 <label className="inline-flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={userForm.aktif}
                     onChange={(e) => setUserForm({ ...userForm, aktif: e.target.checked })}
-                    className="rounded border-slate-300"
+                    className="rounded border-slate-300 dark:border-white/20"
                   />
                   <span>Akun Aktif</span>
                 </label>
@@ -663,20 +662,20 @@ export function MasterSettingsView({
                     onChange={(e) =>
                       setUserForm({ ...userForm, mustChangePassword: e.target.checked })
                     }
-                    className="rounded border-slate-300"
+                    className="rounded border-slate-300 dark:border-white/20"
                   />
                   <span>Wajib ganti password saat login pertama</span>
                 </label>
               </div>
               {userError && (
-                <div role="alert" className="text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                <div role="alert" className="text-xs font-medium text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-500/15 border border-red-200 dark:border-red-500/35 rounded-lg px-3 py-2">
                   {userError}
                 </div>
               )}
             </form>
 
             {/* Daftar User + Toggle Manual Fase Edit per User */}
-            <div className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden">
+            <div className="divide-y divide-slate-200 dark:divide-white/[0.08] border border-slate-200 dark:border-white/[0.08] rounded-xl overflow-hidden">
               {users.map((u) => {
                 const isSelf = u.username.toLowerCase() === currentUsername.toLowerCase();
                 const resolvedPerms = resolveUserPhasePermissions(u.role, u.phasePermissions);
@@ -688,25 +687,25 @@ export function MasterSettingsView({
                   <div
                     key={u.username}
                     data-testid={`user-row-${u.username}`}
-                    className="p-4 space-y-3 text-xs bg-white"
+                    className="p-4 space-y-3 text-xs bg-white dark:bg-[#131926]"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-mono-code font-semibold text-[#0B2545]">
+                          <span className="font-mono-code font-semibold text-[#0B2545] dark:text-violet-300">
                             {u.username}
                           </span>
-                          <span className="font-medium text-slate-900">{u.nama}</span>
-                          <span className="px-2 py-0.5 rounded bg-slate-100 text-[#0B2545] font-semibold text-[11px]">
+                          <span className="font-medium text-slate-900 dark:text-white">{u.nama}</span>
+                          <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-[#182032] text-[#0B2545] dark:text-slate-200 font-semibold text-[11px]">
                             {u.role}
                           </span>
                           {isCustom && (
-                            <span className="px-1.5 py-0.5 rounded bg-orange-50 text-[#D97719] border border-orange-200 text-[10px] font-semibold">
+                            <span className="px-1.5 py-0.5 rounded bg-orange-50 dark:bg-amber-500/15 text-[#D97719] dark:text-amber-300 border border-orange-200 dark:border-amber-500/35 text-[10px] font-semibold">
                               Fase Custom
                             </span>
                           )}
                           {isSelf && (
-                            <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold">
+                            <span className="px-1.5 py-0.5 rounded bg-amber-50 dark:bg-violet-500/15 text-amber-800 dark:text-violet-300 border border-amber-200 dark:border-violet-500/35 text-[10px] font-semibold">
                               Sedang Login
                             </span>
                           )}
@@ -716,8 +715,8 @@ export function MasterSettingsView({
                         <span
                           className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
                             u.aktif
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : 'bg-red-50 text-red-700 border border-red-200'
+                              ? 'bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30'
+                              : 'bg-red-50 dark:bg-red-500/15 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-500/30'
                           }`}
                         >
                           {u.aktif ? 'Aktif' : 'Nonaktif'}
@@ -726,7 +725,7 @@ export function MasterSettingsView({
                           type="button"
                           onClick={() => startEditUser(u)}
                           aria-label={`Edit user ${u.username}`}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-[11px] font-semibold text-slate-700 cursor-pointer"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-[#1F2940] text-[11px] font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
                         >
                           <Pencil className="w-3 h-3" />
                           <span>Edit</span>
@@ -738,8 +737,8 @@ export function MasterSettingsView({
                             aria-label={`${u.aktif ? 'Nonaktifkan' : 'Aktifkan'} user ${u.username}`}
                             className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold cursor-pointer ${
                               u.aktif
-                                ? 'bg-red-50 hover:bg-red-100 text-red-700'
-                                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700'
+                                ? 'bg-red-50 dark:bg-red-500/15 hover:bg-red-100 dark:hover:bg-red-500/25 text-red-700 dark:text-red-300'
+                                : 'bg-emerald-50 dark:bg-emerald-500/15 hover:bg-emerald-100 dark:hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300'
                             }`}
                           >
                             <Power className="w-3 h-3" />
@@ -750,9 +749,9 @@ export function MasterSettingsView({
                     </div>
 
                     {/* Panel Toggle Fase Edit Manual per User */}
-                    <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200/80 space-y-2">
+                    <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-[#161D2F] border border-slate-200/80 dark:border-white/[0.06] space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-[11px] font-semibold text-slate-600">
+                        <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
                           Akses Edit Fase Manual:
                         </span>
                         {isCustom && !lockSelfAdminToggles && (
@@ -760,7 +759,7 @@ export function MasterSettingsView({
                             type="button"
                             onClick={() => handleResetUserPhasesToDefault(u)}
                             aria-label={`Reset fase default ${u.username}`}
-                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0B2545] hover:text-[#F28C28] cursor-pointer"
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0B2545] dark:text-violet-300 hover:text-[#F28C28] dark:hover:text-violet-200 cursor-pointer"
                           >
                             <RotateCcw className="w-3 h-3" />
                             <span>Reset Default</span>
@@ -791,15 +790,15 @@ export function MasterSettingsView({
                                   : 'cursor-pointer'
                               } ${
                                 enabled
-                                  ? 'bg-emerald-50 border-emerald-300 text-emerald-900 hover:bg-emerald-100/70'
-                                  : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100'
+                                  ? 'bg-emerald-50 dark:bg-emerald-500/15 border-emerald-300 dark:border-emerald-500/40 text-emerald-900 dark:text-emerald-200 hover:bg-emerald-100/70 dark:hover:bg-emerald-500/25'
+                                  : 'bg-white dark:bg-[#182032] border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#1F2940]'
                               }`}
                             >
                               <span className="truncate">{ph.label}</span>
                               <span className="inline-flex items-center gap-1 shrink-0">
                                 <span
                                   className={`text-[10px] font-bold ${
-                                    enabled ? 'text-emerald-700' : 'text-slate-400'
+                                    enabled ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-400 dark:text-slate-500'
                                   }`}
                                 >
                                   {enabled ? 'Aktif' : 'Tidak'}
@@ -807,8 +806,8 @@ export function MasterSettingsView({
                                 <span
                                   className={`w-7 h-4 rounded-full p-0.5 flex items-center transition-colors ${
                                     enabled
-                                      ? 'bg-emerald-600 justify-end'
-                                      : 'bg-slate-300 justify-start'
+                                      ? 'bg-emerald-600 dark:bg-emerald-500 justify-end'
+                                      : 'bg-slate-300 dark:bg-slate-600 justify-start'
                                   }`}
                                 >
                                   <span className="w-3 h-3 rounded-full bg-white shadow-xs" />
@@ -826,8 +825,8 @@ export function MasterSettingsView({
 
             {/* Ringkasan Batasan Peran Aplikasi */}
             <div className="space-y-2.5">
-              <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#0B2545]">
-                <ShieldCheck className="w-4 h-4 text-[#F28C28]" />
+              <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#0B2545] dark:text-violet-300">
+                <ShieldCheck className="w-4 h-4 text-[#F28C28] dark:text-violet-400" />
                 <span>Matriks Batasan Pengguna Aplikasi</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -836,11 +835,11 @@ export function MasterSettingsView({
                   return (
                     <div
                       key={roleKey}
-                      className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-1.5"
+                      className="p-3.5 rounded-xl border border-slate-200 dark:border-white/[0.07] bg-slate-50/70 dark:bg-[#161D2F] space-y-1.5"
                     >
-                      <div className="text-xs font-bold text-[#0B2545]">{info.title}</div>
-                      <p className="text-[11px] text-slate-700 leading-relaxed">{info.summary}</p>
-                      <p className="text-[11px] text-amber-800 leading-relaxed">
+                      <div className="text-xs font-bold text-[#0B2545] dark:text-white">{info.title}</div>
+                      <p className="text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed">{info.summary}</p>
+                      <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
                         <strong>Batasan:</strong> {info.restrictions}
                       </p>
                     </div>
@@ -853,68 +852,192 @@ export function MasterSettingsView({
 
         {tab === 'settings' && isAdmin && (
           <div className="space-y-5">
-            <h3 className="text-sm font-semibold text-[#0B2545]">Pengaturan Sistem</h3>
+            <h3 className="text-sm font-semibold text-[#0B2545] dark:text-white">Pengaturan Sistem</h3>
             <form onSubmit={handleSettingsSubmit} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     ID Folder Induk Google Drive
                   </label>
                   <input
                     type="text"
                     value={driveId}
                     onChange={(e) => setDriveId(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-mono-code"
+                    className={`w-full ${inputCls} font-mono-code`}
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Email Penerima Notifikasi Harian (pisahkan koma)
                   </label>
                   <input
                     type="text"
                     value={emailsText}
                     onChange={(e) => setEmailsText(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                    className={`w-full ${inputCls}`}
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Daftar Status Shipment (pisahkan koma)
                   </label>
                   <textarea
                     rows={3}
                     value={statusText}
                     onChange={(e) => setStatusText(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                    className={`w-full ${inputCls}`}
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Item Checklist Dokumen (pisahkan koma)
                   </label>
                   <textarea
                     rows={3}
                     value={checklistText}
                     onChange={(e) => setChecklistText(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                    className={`w-full ${inputCls}`}
                   />
                 </div>
               </div>
+
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08] space-y-3">
+                <div>
+                  <h4 className="text-xs font-bold text-[#0B2545] dark:text-violet-300 uppercase tracking-wide">
+                    Kontak Owner, Admin &amp; Rekening Penagihan Customer
+                  </h4>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    Digunakan sebagai tujuan otomatis pesan WhatsApp / Email Owner saat dokumen berstatus SPPB Terbit atau Gate-Out, serta penandatangan Surat Penagihan Admin.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label
+                      htmlFor="settingOwnerName"
+                      className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1"
+                    >
+                      Nama Owner Perusahaan
+                    </label>
+                    <input
+                      id="settingOwnerName"
+                      type="text"
+                      value={ownerName}
+                      onChange={(e) => setOwnerName(e.target.value)}
+                      className={`w-full ${inputCls}`}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="settingOwnerWhatsapp"
+                      className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1"
+                    >
+                      No. WhatsApp Owner
+                    </label>
+                    <input
+                      id="settingOwnerWhatsapp"
+                      type="text"
+                      value={ownerWhatsapp}
+                      onChange={(e) => setOwnerWhatsapp(e.target.value)}
+                      placeholder="081199887766"
+                      className={`w-full ${inputCls} font-mono-code`}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="settingOwnerEmail"
+                      className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1"
+                    >
+                      Email Owner
+                    </label>
+                    <input
+                      id="settingOwnerEmail"
+                      type="email"
+                      value={ownerEmail}
+                      onChange={(e) => setOwnerEmail(e.target.value)}
+                      placeholder="owner@ptg-ppjk.co.id"
+                      className={`w-full ${inputCls}`}
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="settingAdminName"
+                      className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1"
+                    >
+                      Nama Admin Penagihan
+                    </label>
+                    <input
+                      id="settingAdminName"
+                      type="text"
+                      value={adminName}
+                      onChange={(e) => setAdminName(e.target.value)}
+                      className={`w-full ${inputCls}`}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="settingAdminWhatsapp"
+                      className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1"
+                    >
+                      No. WhatsApp Admin
+                    </label>
+                    <input
+                      id="settingAdminWhatsapp"
+                      type="text"
+                      value={adminWhatsapp}
+                      onChange={(e) => setAdminWhatsapp(e.target.value)}
+                      className={`w-full ${inputCls} font-mono-code`}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="settingAdminEmail"
+                      className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1"
+                    >
+                      Email Admin Penagihan
+                    </label>
+                    <input
+                      id="settingAdminEmail"
+                      type="email"
+                      value={adminEmail}
+                      onChange={(e) => setAdminEmail(e.target.value)}
+                      className={`w-full ${inputCls}`}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="settingBillingBankInfo"
+                    className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1"
+                  >
+                    Info Rekening Transfer Surat Penagihan
+                  </label>
+                  <input
+                    id="settingBillingBankInfo"
+                    type="text"
+                    value={billingBankInfo}
+                    onChange={(e) => setBillingBankInfo(e.target.value)}
+                    className={`w-full ${inputCls}`}
+                  />
+                </div>
+              </div>
+
               <button
                 type="submit"
-                className="px-5 py-2.5 rounded-lg bg-[#F28C28] hover:bg-[#D97719] text-white text-xs font-semibold cursor-pointer"
+                className="px-5 py-2.5 rounded-xl bg-[#F28C28] hover:bg-[#D97719] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] text-white text-xs font-semibold cursor-pointer"
               >
                 Simpan Pengaturan
               </button>
             </form>
 
-            <div className="pt-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
+            <div className="pt-4 border-t border-slate-200 dark:border-white/[0.08] flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="text-xs font-semibold text-slate-800">
+                <div className="text-xs font-semibold text-slate-800 dark:text-white">
                   Reset Data Simulasi Lokal
                 </div>
-                <div className="text-[11px] text-slate-500">
+                <div className="text-[11px] text-slate-500 dark:text-slate-400">
                   Mulai dari nol tanpa data contoh atau muat ulang data simulasi PTG.
                 </div>
               </div>
@@ -922,14 +1045,14 @@ export function MasterSettingsView({
                 <button
                   type="button"
                   onClick={() => onResetDatabase('empty')}
-                  className="px-3.5 py-2 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-xs font-semibold text-red-700 cursor-pointer"
+                  className="px-3.5 py-2 rounded-lg border border-red-200 dark:border-red-500/35 bg-red-50 dark:bg-red-500/15 hover:bg-red-100 dark:hover:bg-red-500/25 text-xs font-semibold text-red-700 dark:text-red-300 cursor-pointer"
                 >
                   Kosongkan Data (Mulai dari Nol)
                 </button>
                 <button
                   type="button"
                   onClick={() => onResetDatabase('seed')}
-                  className="px-3.5 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 text-xs font-semibold text-slate-800 cursor-pointer"
+                  className="px-3.5 py-2 rounded-lg bg-slate-200 dark:bg-white/10 hover:bg-slate-300 dark:hover:bg-white/15 text-xs font-semibold text-slate-800 dark:text-white cursor-pointer"
                 >
                   Muat Data Contoh
                 </button>

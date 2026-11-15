@@ -10,6 +10,32 @@ export type JalurType = '' | 'Hijau' | 'Kuning' | 'Merah' | 'MITA';
 
 export type StatusDokumenType = 'Draft' | 'Ready';
 
+export type StatusDoPelayaranType = 'Sedia' | 'Belum';
+
+export type StatusGatePassType = 'Belum' | 'Proses' | 'Sedia';
+
+export type GatePassJenisType = '' | 'TILA (Kartu Gate)' | 'Eslah' | 'Eslah & TILA';
+
+export type StatusGateOutType = 'Belum' | 'Sudah';
+
+export type StatusSuratJalanType = 'Belum' | 'Terbit' | 'Dalam Pengiriman' | 'Tiba di Tujuan';
+
+export type StatusPenagihanType =
+  | 'Belum'
+  | 'Siap Info Owner'
+  | 'Info Owner Terkirim'
+  | 'Penagihan Terbit'
+  | 'Terkirim ke Customer'
+  | 'Lunas';
+
+export interface BillingItem {
+  id: string;
+  deskripsi: string;
+  qty: number;
+  satuan: string;
+  hargaSatuan: number;
+}
+
 export type ShipmentDateFilterField = 'eta' | 'etd' | 'tglTerimaDok' | 'tglSppb';
 
 export interface ChecklistData {
@@ -44,6 +70,45 @@ export interface Shipment {
   eta: string;              // 10. ETA (YYYY-MM-DD)
   countDownEta: number | null; // 11. Count Down ETA (auto-calculated)
   noCont: string;           // 12. No. Cont (ringkasan semua kontainer)
+  bc11Terbit?: boolean;     // Penanda BC 1.1 / Manifes sudah terbit
+  noBc11?: string;          // Nomor BC 1.1 / Manifes
+  tglBc11?: string;         // Tanggal terbit BC 1.1 (YYYY-MM-DD)
+  doPelayaranStatus?: StatusDoPelayaranType; // Status kesiapan D/O Pelayaran (Sedia / Belum)
+  doBerlakuSampai?: string; // Tanggal masa berlaku / batas perpanjangan D/O (YYYY-MM-DD)
+  doCatatanPerpanjangan?: string; // Catatan masa berlaku & perpanjangan D/O Pelayaran
+  doGatePassStatus?: StatusGatePassType; // Status pengurusan Eslah / TILA (Kartu Gate) pelabuhan setempat
+  doGatePassJenis?: GatePassJenisType; // Jenis pengurusan (TILA / Eslah / Eslah & TILA)
+  doGatePassNomor?: string; // Nomor Eslah / TILA (Kartu Gate) pelabuhan setempat
+  truckingStatus?: StatusDoPelayaranType; // Kesediaan armada trucking (Sedia / Belum)
+  truckingNamaSupir?: string; // Nama supir truk
+  truckingNoPlat?: string; // Nomor plat polisi truk
+  truckingNoHpSupir?: string; // Nomor HP supir truk
+  gateOutStatus?: StatusGateOutType; // Status Gate-Out kontainer keluar pelabuhan (Belum / Sudah)
+  gateOutTanggal?: string; // Tanggal aktual Gate-Out kontainer (YYYY-MM-DD)
+  gateOutCatatan?: string; // Catatan Gate-Out & ikatan proses dokumen selesai
+  suratJalanNomor?: string; // Nomor Surat Jalan tracking pengiriman kontainer (otomatis saat Gate-Out)
+  suratJalanTanggal?: string; // Tanggal penerbitan Surat Jalan (YYYY-MM-DD)
+  suratJalanStatus?: StatusSuratJalanType; // Status tracking pengiriman Surat Jalan
+  suratJalanTujuan?: string; // Alamat / gudang tujuan pengiriman
+  suratJalanPenerima?: string; // Nama penerima / PIC di tujuan
+  suratJalanCatatan?: string; // Catatan tracking / no. segel kontainer
+  suratJalanUpdatedAt?: string; // Timestamp update terakhir tracking Surat Jalan
+
+  // Penagihan & Info Owner -> Admin -> Customer
+  billingStatus?: StatusPenagihanType;
+  billingNomor?: string; // Nomor Surat Penagihan otomatis (INV-YYMM-NNNN)
+  billingTanggal?: string; // Tanggal Surat Penagihan (YYYY-MM-DD)
+  billingJatuhTempo?: string; // Tanggal Jatuh Tempo (YYYY-MM-DD)
+  billingItems?: BillingItem[]; // Rincian biaya jasa & reimburse PPJK
+  billingPpnPersen?: number; // Tarif PPN % (mis. 11 atau 0)
+  billingTotal?: number; // Total tagihan final (Rp)
+  billingCatatan?: string; // Catatan / keterangan surat penagihan
+  billingOwnerNotifiedAt?: string; // Timestamp info pesan WA/Email dikirim ke Owner
+  billingOwnerNotifiedVia?: 'WhatsApp' | 'Email' | 'WA & Email' | '';
+  billingOwnerNotifiedBy?: string;
+  billingCustomerSentAt?: string; // Timestamp surat penagihan dikirim ke Customer
+  billingCustomerSentVia?: 'WhatsApp' | 'Email' | 'WA & Email' | '';
+  billingCreatedBy?: string; // Nama Admin penerbit surat penagihan
 
   // 13-29: Customs & Nilai
   noAju: string;            // 13. No. AJU
@@ -173,6 +238,13 @@ export interface Pengaturan {
   jalurList: JalurType[];
   checklistItems: string[];
   notificationEmails: string[];
+  ownerName?: string;
+  ownerWhatsapp?: string;
+  ownerEmail?: string;
+  adminName?: string;
+  adminWhatsapp?: string;
+  adminEmail?: string;
+  billingBankInfo?: string;
 }
 
 export interface DashboardStats {
@@ -182,6 +254,7 @@ export interface DashboardStats {
   readyCount: number;
   etaNext7Days: number;
   urgentMissingAju: number;
+  urgentProcessSignal: number;
   byStatus: Record<string, number>;
   byJalur: Record<string, number>;
   byMonth: Array<{ month: string; count: number }>;
@@ -196,6 +269,7 @@ export interface CheckerSummary {
   draftCount: number;
   readyCount: number;
   urgentMissingAju: number;
+  processSignalCount: number;
   etaNext7Days: number;
   completionRate: number;
   byStatus: Record<string, number>;
@@ -210,11 +284,85 @@ export interface GlobalStatusSummary {
   totalDraft: number;
   totalReady: number;
   totalUrgent: number;
+  totalProcessSignal: number;
   totalCheckers: number;
   byStatus: Array<{ status: string; count: number; percentage: number }>;
   byJalur: Record<string, number>;
   checkers: CheckerSummary[];
 }
 
-export type AppView = 'dashboard' | 'checker' | 'shipments' | 'outstanding' | 'master' | 'gas';
+export interface DoReadinessSummary {
+  total: number;
+  draftDokCount: number;
+  readyDokCount: number;
+  sediaCount: number;
+  belumCount: number;
+  siapKeluarCount: number;
+  sppbMenungguDoCount: number;
+  perluPerpanjanganCount: number;
+  gatePassSediaCount: number;
+  gatePassProsesCount: number;
+  gatePassBelumCount: number;
+  truckingSediaCount: number;
+  truckingBelumCount: number;
+  fullReadyGateOutCount: number;
+  gateOutSudahCount: number;
+  gateOutBelumCount: number;
+  dokumenSelesaiCount: number;
+  suratJalanTerbitCount: number;
+  suratJalanDalamPengirimanCount: number;
+  suratJalanTibaCount: number;
+}
+
+export interface BillingSummary {
+  eligibleCount: number;
+  siapInfoOwnerCount: number;
+  ownerNotifiedCount: number;
+  terbitCount: number;
+  terkirimCustomerCount: number;
+  lunasCount: number;
+  totalNominal: number;
+  totalLunasNominal: number;
+}
+
+export interface ImportirSummaryItem {
+  kodeImportir: string;
+  namaImportir: string;
+  total: number;
+  draftCount: number;
+  readyCount: number;
+  outstanding: number;
+  completed: number;
+  sppbCount: number;
+  gateOutCount: number;
+  processSignalCount: number;
+  byJalur: Record<string, number>;
+  invoiceTotalsByCurrency: Array<{ currency: string; amount: number }>;
+  customerNames: string[];
+}
+
+export interface ImportirGlobalSummary {
+  totalImportirs: number;
+  totalShipments: number;
+  totalDraft: number;
+  totalReady: number;
+  totalOutstanding: number;
+  totalCompleted: number;
+  totalSppb: number;
+  totalGateOut: number;
+  totalProcessSignal: number;
+  invoiceTotalsByCurrency: Array<{ currency: string; amount: number }>;
+  items: ImportirSummaryItem[];
+}
+
+export type AppView =
+  | 'dashboard'
+  | 'checker'
+  | 'do'
+  | 'surat-jalan'
+  | 'penagihan'
+  | 'shipments'
+  | 'outstanding'
+  | 'master'
+  | 'gas';
 export type ShipmentPhase = 1 | 2 | 3 | 4;

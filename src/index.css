@@ -1,10 +1,13 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
+  html.dark {
+    color-scheme: dark;
+  }
+
   body {
     font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background-color: #F5F7FA;
-    color: #0F172A;
   }
 
   .font-mono-code {
@@ -28,12 +31,16 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(15, 23, 42, 0.18);
+  background: rgba(100, 116, 139, 0.28);
   border-radius: 3px;
 }
 
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.22);
+}
+
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(15, 23, 42, 0.32);
+  background: rgba(100, 116, 139, 0.45);
 }
 
 /* Print Stylesheet for Reports */
@@ -71,6 +78,7 @@
     border: 1px solid #cbd5e1 !important;
     padding: 4px 6px !important;
     font-size: 8.5pt !important;
+    color: #000000 !important;
   }
 }
 
@@ -105,6 +113,12 @@
   width: auto;
   display: inline-flex;
   align-items: center;
+}
+
+.dark .gsi-material-button {
+  background-color: #171e30;
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #e2e8f0;
 }
 
 .gsi-material-button .gsi-material-button-icon {
@@ -143,9 +157,7 @@
 
 .gsi-material-button:disabled {
   cursor: default;
-  background-color: #ffffff99;
-  border-color: #1f1f1f1f;
-  opacity: 0.7;
+  opacity: 0.6;
 }
 
 .gsi-material-button:not(:disabled):hover {
@@ -153,7 +165,6 @@
 }
 
 .gsi-material-button:not(:disabled):hover .gsi-material-button-state {
-  background-color: #303030;
-  opacity: 0.06;
+  background-color: #ffffff;
+  opacity: 0.08;
 }
-

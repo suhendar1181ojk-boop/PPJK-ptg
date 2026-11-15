@@ -20,7 +20,8 @@ var SHIPMENT_HEADERS = [
   'BM/PDRI', 'SPTNP', 'No. SPPB', 'Tgl SPPB', 'Dokumen Checker',
   'No. SPTNP', 'Tgl. SPTNP', 'PFPB', 'Tgl. PFPB', 'PFPD',
   'Tgl. PFPD', 'ESLAH', 'Tgl. ESLAH', 'Dokumen OS',
-  'CreatedAt', 'CreatedBy', 'UpdatedAt', 'UpdatedBy', 'StatusDokumen'
+  'CreatedAt', 'CreatedBy', 'UpdatedAt', 'UpdatedBy', 'StatusDokumen',
+  'Bc11Terbit', 'NoBc11', 'TglBc11'
 ];
 
 var DEFAULT_STATUS_LIST = [
@@ -61,7 +62,10 @@ var PHASE_2_KEYS_ = {
   ship: true,
   etd: true,
   eta: true,
-  noCont: true
+  noCont: true,
+  bc11Terbit: true,
+  noBc11: true,
+  tglBc11: true
 };
 
 var PHASE_3_KEYS_ = {
@@ -1146,7 +1150,10 @@ function rowToShipment_(r) {
     createdBy: String(r[40] || ''),
     updatedAt: String(r[41] || ''),
     updatedBy: String(r[42] || ''),
-    statusDokumen: String(r[43] || '') === 'Ready' ? 'Ready' : 'Draft'
+    statusDokumen: String(r[43] || '') === 'Ready' ? 'Ready' : 'Draft',
+    bc11Terbit: String(r[44] || '').toLowerCase() === 'true' || r[44] === true,
+    noBc11: String(r[45] || ''),
+    tglBc11: formatDateCell_(r[46])
   };
 }
 
@@ -1195,7 +1202,10 @@ function shipmentToRow_(s) {
     s.createdBy || '',
     s.updatedAt || '',
     s.updatedBy || '',
-    s.statusDokumen === 'Ready' ? 'Ready' : 'Draft'
+    s.statusDokumen === 'Ready' ? 'Ready' : 'Draft',
+    s.bc11Terbit ? 'true' : 'false',
+    s.noBc11 || '',
+    s.tglBc11 || ''
   ];
 }
 
