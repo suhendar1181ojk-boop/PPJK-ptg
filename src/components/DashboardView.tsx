@@ -13,6 +13,7 @@ import {
   Database,
   FileCheck2,
   FileSpreadsheet,
+  FileText,
   History,
   PackageCheck,
   Receipt,
@@ -409,6 +410,14 @@ export function DashboardView({
       subtitle: `${stats.total} total B/L`,
       icon: FileSpreadsheet,
       iconBoxClass: 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/25',
+      visible: true,
+    },
+    {
+      id: 'report-nopen',
+      label: 'Report NOPEN (PIB)',
+      subtitle: 'Rekap 1 bulan & tanggal',
+      icon: FileText,
+      iconBoxClass: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/25',
       visible: true,
     },
     {

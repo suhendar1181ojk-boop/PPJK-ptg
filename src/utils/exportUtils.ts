@@ -1,16 +1,27 @@
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import type { CheckerSummary, Customer, Pengaturan, Shipment } from '../types/ppjk';
+import type {
+  CheckerSummary,
+  Customer,
+  Importir,
+  NopenRecapSummary,
+  Pengaturan,
+  Shipment,
+} from '../types/ppjk';
 import {
   buildAutoBillingFields,
   calculateBillingTotals,
   DEFAULT_PENGATURAN,
+  formatCurrencyTotals,
   formatRupiah,
   generateSuratJalanNomor,
   getBillingEligibilityReason,
   getDoValidityMeta,
   getShipmentProcessSignal,
+  hasSptnpIssue,
+  isContainerGateOut,
+  isSppbReadyForGateOut,
   normalizeStatusDokumen,
   normalizeStatusDoPelayaran,
   normalizeStatusGateOut,
@@ -648,3 +659,236 @@ export function exportBillingSummaryToExcel(
   XLSX.utils.book_append_sheet(wb, ws, 'Penagihan');
   XLSX.writeFile(wb, filename);
 }
+
+export function exportNopenRecapToExcel(
+  rows: Shipment[],
+  summary: NopenRecapSummary,
+  importirs: Importir[] = [],
+  filename?: string
+): void {
+  const impMap = new Map(
+    importirs.map((i) => [(i.kodeImportir || '').trim().toUpperCase(), i.namaImportir])
+  );
+
+  const mainRows = rows.map((s, idx) => {
+    const impName =
+      impMap.get((s.kodeImportir || '').trim().toUpperCase()) || (s.kodeImportir ? 'Non-Master' : '-');
+    return {
+      'No.': idx + 1,
+      'No. NOPEN': s.nopen || '(Belum Terbit)',
+      'Tgl. NOPEN': s.tglNopen || '-',
+      'No. AJU': s.noAju || '-',
+      'Tgl. AJU': s.tglAju || '-',
+      'Kode OS': s.kodeOs,
+      'Customer': s.namaCustomer,
+      'Kode Importir': s.kodeImportir || '-',
+      'Nama Importir': impName,
+      'Shipper': s.shipper || '-',
+      'No. B/L': s.noBl || '-',
+      'No. Kontainer': s.noCont || '-',
+      'Jalur': s.jalur || 'Belum Ada',
+      'Status PIB / OS': s.status || '-',
+      'No. SPPB': s.noSppb || '-',
+      'Tgl. SPPB': s.tglSppb || '-',
+      'Status Gate-Out': isContainerGateOut(s) ? 'Sudah Gate-Out' : 'Belum',
+      'Currency': s.currency || '-',
+      'Nilai Invoice': s.invoice !== '' ? Number(s.invoice) : 0,
+      'BM / PDRI': s.bmPdri || '-',
+      'SPTNP': hasSptnpIssue(s) ? `${s.sptnp || 'Ada'}${s.noSptnp ? ` (${s.noSptnp})` : ''}` : 'Tidak',
+      'Checker': s.dokumenChecker || '-',
+    };
+  });
+
+  const dailyRows = summary.byDay.map((d) => ({
+    'Tanggal NOPEN': d.date,
+    'Jumlah Dokumen': d.count,
+    'Terbit SPPB': d.sppbCount,
+    'Sudah Gate-Out': d.gateOutCount,
+    'Ada SPTNP': d.sptnpCount,
+    'Jalur Hijau': d.byJalur.Hijau || 0,
+    'Jalur Kuning': d.byJalur.Kuning || 0,
+    'Jalur Merah': d.byJalur.Merah || 0,
+    'Jalur MITA': d.byJalur.MITA || 0,
+  }));
+
+  const importirRows = summary.byImportir.map((i) => ({
+    'Kode Importir': i.kodeImportir,
+    'Nama Importir': i.namaImportir,
+    'Jumlah NOPEN / Dok': i.count,
+    'Terbit SPPB': i.sppbCount,
+    'Sudah Gate-Out': i.gateOutCount,
+    'Total Nilai Invoice': formatCurrencyTotals(i.invoiceTotalsByCurrency),
+  }));
+
+  const wb = XLSX.utils.book_new();
+  const wsMain = XLSX.utils.json_to_sheet(mainRows);
+  const wsDaily = XLSX.utils.json_to_sheet(dailyRows);
+  const wsImp = XLSX.utils.json_to_sheet(importirRows);
+  XLSX.utils.book_append_sheet(wb, wsMain, 'Rekap NOPEN');
+  XLSX.utils.book_append_sheet(wb, wsDaily, 'Rekap Harian');
+  XLSX.utils.book_append_sheet(wb, wsImp, 'Rekap Importir');
+
+  const safePeriod = (summary.dateFrom || summary.dateTo || 'All').replace(/[^0-9_-]/g, '');
+  XLSX.writeFile(wb, filename || `PTG_PPJK_Rekap_NOPEN_${safePeriod}.xlsx`);
+}
+
+export function exportNopenRecapToCSV(
+  rows: Shipment[],
+  summary: NopenRecapSummary,
+  importirs: Importir[] = [],
+  filename?: string
+): void {
+  const impMap = new Map(
+    importirs.map((i) => [(i.kodeImportir || '').trim().toUpperCase(), i.namaImportir])
+  );
+  const headers = [
+    'No',
+    'No NOPEN',
+    'Tgl NOPEN',
+    'No AJU',
+    'Tgl AJU',
+    'Kode OS',
+    'Customer',
+    'Kode Importir',
+    'Nama Importir',
+    'No BL',
+    'Jalur',
+    'Status',
+    'No SPPB',
+    'Tgl SPPB',
+    'Gate-Out',
+    'Currency',
+    'Nilai Invoice',
+    'BM/PDRI',
+    'SPTNP',
+    'Checker',
+  ];
+  const csvEscape = (v: unknown) => {
+    const s = String(v ?? '');
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [
+    headers.map(csvEscape).join(','),
+    ...rows.map((s, idx) =>
+      [
+        idx + 1,
+        s.nopen || '(Belum Terbit)',
+        s.tglNopen || '-',
+        s.noAju || '-',
+        s.tglAju || '-',
+        s.kodeOs,
+        s.namaCustomer,
+        s.kodeImportir || '-',
+        impMap.get((s.kodeImportir || '').trim().toUpperCase()) || '-',
+        s.noBl || '-',
+        s.jalur || 'Belum Ada',
+        s.status || '-',
+        s.noSppb || '-',
+        s.tglSppb || '-',
+        isContainerGateOut(s) ? 'Sudah' : 'Belum',
+        s.currency || '-',
+        s.invoice !== '' ? s.invoice : 0,
+        s.bmPdri || '-',
+        hasSptnpIssue(s) ? s.noSptnp || s.sptnp || 'Ada' : 'Tidak',
+        s.dokumenChecker || '-',
+      ]
+        .map(csvEscape)
+        .join(',')
+    ),
+  ];
+
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const safePeriod = (summary.dateFrom || summary.dateTo || 'All').replace(/[^0-9_-]/g, '');
+  a.download = filename || `PTG_PPJK_Rekap_NOPEN_${safePeriod}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function exportNopenRecapToPDF(
+  rows: Shipment[],
+  summary: NopenRecapSummary,
+  importirs: Importir[] = [],
+  filename?: string
+): void {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+  const impMap = new Map(
+    importirs.map((i) => [(i.kodeImportir || '').trim().toUpperCase(), i.namaImportir])
+  );
+
+  doc.setFillColor(11, 37, 69);
+  doc.rect(0, 0, 842, 66, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(14);
+  doc.text('LAPORAN REKAPAN DOKUMEN BERDASARKAN NO. NOPEN (PIB)', 32, 28);
+  doc.setFontSize(9.5);
+  doc.setTextColor(226, 232, 240);
+  doc.text(`Periode: ${summary.periodLabel}`, 32, 47);
+  doc.text(
+    `Total Dok: ${summary.totalMatched} | Terbit NOPEN: ${summary.totalWithNopen} | SPPB: ${summary.totalSppb} | Gate-Out: ${summary.totalGateOut} | Nilai: ${formatCurrencyTotals(summary.invoiceTotalsByCurrency)}`,
+    810,
+    47,
+    { align: 'right' }
+  );
+
+  autoTable(doc, {
+    startY: 78,
+    head: [
+      [
+        'No',
+        'No. NOPEN',
+        'Tgl. NOPEN',
+        'No. AJU',
+        'Kode OS',
+        'Customer',
+        'Importir',
+        'No. B/L',
+        'Jalur',
+        'Status',
+        'No. SPPB',
+        'Nilai Invoice',
+        'BM/PDRI',
+      ],
+    ],
+    body: rows.map((s, idx) => {
+      const impName = impMap.get((s.kodeImportir || '').trim().toUpperCase()) || '';
+      const impText = s.kodeImportir
+        ? `${s.kodeImportir}${impName ? ` - ${impName}` : ''}`
+        : '-';
+      const invText =
+        s.invoice !== ''
+          ? `${s.currency || 'USD'} ${new Intl.NumberFormat('en-US', {
+              maximumFractionDigits: 2,
+            }).format(Number(s.invoice))}`
+          : '-';
+      return [
+        String(idx + 1),
+        s.nopen || 'Belum Terbit',
+        s.tglNopen || '-',
+        s.noAju || '-',
+        s.kodeOs,
+        s.namaCustomer,
+        impText,
+        s.noBl || '-',
+        s.jalur || '-',
+        s.status || '-',
+        isSppbReadyForGateOut(s) ? s.noSppb || 'Terbit' : '-',
+        invText,
+        s.bmPdri || '-',
+      ];
+    }),
+    styles: { fontSize: 7.5, cellPadding: 4 },
+    headStyles: { fillColor: [11, 37, 69], textColor: 255 },
+    columnStyles: {
+      0: { cellWidth: 24, halign: 'center' },
+      1: { fontStyle: 'bold' },
+      11: { halign: 'right' },
+    },
+  });
+
+  const safePeriod = (summary.dateFrom || summary.dateTo || 'All').replace(/[^0-9_-]/g, '');
+  doc.save(filename || `PTG_PPJK_Rekap_NOPEN_${safePeriod}.pdf`);
+}
+

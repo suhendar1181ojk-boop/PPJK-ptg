@@ -13,6 +13,10 @@ import type {
   ImportirSummaryItem,
   JalurType,
   KontainerItem,
+  NopenDailyRecapItem,
+  NopenImportirRecapItem,
+  NopenRecapCriteria,
+  NopenRecapSummary,
   Pengaturan,
   PhasePermissions,
   Shipment,
@@ -2177,6 +2181,44 @@ export function formatCurrencyTotals(
     .join(' · ');
 }
 
+export function parseBmPdriAmount(raw?: string | number | null): number {
+  if (typeof raw === 'number') {
+    return Number.isFinite(raw) && raw > 0 ? raw : 0;
+  }
+  const str = String(raw ?? '')
+    .replace(/rp|idr/gi, '')
+    .replace(/\s+/g, '')
+    .replace(/[^0-9.,]/g, '');
+  if (!str || !/\d/.test(str)) return 0;
+
+  const hasDot = str.includes('.');
+  const hasComma = str.includes(',');
+  let normalized = str;
+
+  if (hasDot && hasComma) {
+    if (str.lastIndexOf(',') > str.lastIndexOf('.')) {
+      normalized = str.replace(/\./g, '').replace(/,/g, '.');
+    } else {
+      normalized = str.replace(/,/g, '');
+    }
+  } else if (hasDot) {
+    const dotParts = str.split('.');
+    if (dotParts.length > 2 || (dotParts.length === 2 && dotParts[1].length === 3)) {
+      normalized = str.replace(/\./g, '');
+    }
+  } else if (hasComma) {
+    const commaParts = str.split(',');
+    if (commaParts.length > 2 || (commaParts.length === 2 && commaParts[1].length === 3)) {
+      normalized = str.replace(/,/g, '');
+    } else {
+      normalized = str.replace(/,/g, '.');
+    }
+  }
+
+  const num = Number(normalized);
+  return Number.isFinite(num) && num > 0 ? num : 0;
+}
+
 export function computeImportirSummaries(
   shipments: Shipment[],
   importirs: Importir[] = [],
@@ -2206,7 +2248,7 @@ export function computeImportirSummaries(
   let totalSppb = 0;
   let totalGateOut = 0;
   let totalProcessSignal = 0;
-  const globalCurrencyMap = new Map<string, number>();
+  let totalBmPdri = 0;
 
   const items: ImportirSummaryItem[] = Array.from(grouped.entries()).map(
     ([kodeImportir, list]) => {
@@ -2216,6 +2258,7 @@ export function computeImportirSummaries(
       let sppbCount = 0;
       let gateOutCount = 0;
       let processSignalCount = 0;
+      let bmPdriTotal = 0;
       const byJalur: Record<string, number> = {
         Hijau: 0,
         Kuning: 0,
@@ -2223,7 +2266,6 @@ export function computeImportirSummaries(
         MITA: 0,
         'Belum Ada': 0,
       };
-      const currencyMap = new Map<string, number>();
       const customerSet = new Set<string>();
 
       for (const s of list) {
@@ -2262,17 +2304,12 @@ export function computeImportirSummaries(
           customerSet.add(s.namaCustomer.trim());
         }
 
-        const invVal = typeof s.invoice === 'number' ? s.invoice : Number(s.invoice);
-        if (s.invoice !== '' && Number.isFinite(invVal) && invVal > 0) {
-          const cur = (s.currency || 'USD').trim().toUpperCase() || 'USD';
-          currencyMap.set(cur, (currencyMap.get(cur) || 0) + invVal);
-          globalCurrencyMap.set(cur, (globalCurrencyMap.get(cur) || 0) + invVal);
+        const bmVal = parseBmPdriAmount(s.bmPdri);
+        if (bmVal > 0) {
+          bmPdriTotal += bmVal;
+          totalBmPdri += bmVal;
         }
       }
-
-      const invoiceTotalsByCurrency = Array.from(currencyMap.entries())
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([currency, amount]) => ({ currency, amount }));
 
       const resolvedName =
         kodeImportir === 'Belum Diisi'
@@ -2291,7 +2328,7 @@ export function computeImportirSummaries(
         gateOutCount,
         processSignalCount,
         byJalur,
-        invoiceTotalsByCurrency,
+        bmPdriTotal,
         customerNames: Array.from(customerSet).sort(),
       };
     }
@@ -2304,10 +2341,6 @@ export function computeImportirSummaries(
     return a.kodeImportir.localeCompare(b.kodeImportir);
   });
 
-  const invoiceTotalsByCurrency = Array.from(globalCurrencyMap.entries())
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([currency, amount]) => ({ currency, amount }));
-
   return {
     totalImportirs: items.filter((i) => i.kodeImportir !== 'Belum Diisi').length,
     totalShipments: shipments.length,
@@ -2318,7 +2351,7 @@ export function computeImportirSummaries(
     totalSppb,
     totalGateOut,
     totalProcessSignal,
-    invoiceTotalsByCurrency,
+    totalBmPdri,
     items,
   };
 }
@@ -2366,4 +2399,393 @@ export async function verifyGasDeployPin(
       : await computeGasPinHash(DEFAULT_GAS_DEPLOY_PIN);
   return candidateHash === expectedHash;
 }
+
+// =============================================================================
+// Report Rekapan Dokumen Berdasarkan No. NOPEN / Nomor Pendaftaran PIB
+// =============================================================================
+
+function formatLocalDateYmd(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function getCurrentMonthKey(refDate: Date = new Date()): string {
+  const y = refDate.getFullYear();
+  const m = String(refDate.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+export function getPreviousMonthKey(refDate: Date = new Date()): string {
+  const prev = new Date(refDate.getFullYear(), refDate.getMonth() - 1, 1);
+  return getCurrentMonthKey(prev);
+}
+
+export function getMonthDateBounds(monthKey: string): { dateFrom: string; dateTo: string } {
+  const match = /^(\d{4})-(\d{2})$/.exec((monthKey || '').trim());
+  if (!match) {
+    const fallback = getCurrentMonthKey();
+    return getMonthDateBounds(fallback);
+  }
+  const year = Number(match[1]);
+  const monthIdx = Number(match[2]) - 1;
+  const lastDay = new Date(year, monthIdx + 1, 0).getDate();
+  return {
+    dateFrom: `${match[1]}-${match[2]}-01`,
+    dateTo: `${match[1]}-${match[2]}-${String(lastDay).padStart(2, '0')}`,
+  };
+}
+
+export function getRelativeDateRange(
+  daysBack: number,
+  refDate: Date = new Date()
+): { dateFrom: string; dateTo: string } {
+  const end = new Date(refDate.getFullYear(), refDate.getMonth(), refDate.getDate());
+  const start = new Date(end.getTime());
+  start.setDate(end.getDate() - Math.max(0, daysBack - 1));
+  return {
+    dateFrom: formatLocalDateYmd(start),
+    dateTo: formatLocalDateYmd(end),
+  };
+}
+
+const BULAN_ID_NAMES = [
+  'Januari',
+  'Februari',
+  'Maret',
+  'April',
+  'Mei',
+  'Juni',
+  'Juli',
+  'Agustus',
+  'September',
+  'Oktober',
+  'November',
+  'Desember',
+];
+
+function formatIndoShortDate(ymd: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec((ymd || '').trim());
+  if (!match) return ymd || '-';
+  const monthIdx = Number(match[2]) - 1;
+  const monthShort = (BULAN_ID_NAMES[monthIdx] || match[2]).slice(0, 3);
+  return `${match[3]} ${monthShort} ${match[1]}`;
+}
+
+export function resolveNopenDateRange(criteria: NopenRecapCriteria): {
+  dateFrom: string;
+  dateTo: string;
+  monthKey: string;
+} {
+  if (criteria.periodMode === 'month') {
+    const monthKey = /^\d{4}-\d{2}$/.test((criteria.month || '').trim())
+      ? (criteria.month || '').trim()
+      : getCurrentMonthKey();
+    const bounds = getMonthDateBounds(monthKey);
+    return { ...bounds, monthKey };
+  }
+
+  let from = (criteria.dateFrom || '').trim();
+  let to = (criteria.dateTo || '').trim();
+  if (from && to && from > to) {
+    const swap = from;
+    from = to;
+    to = swap;
+  }
+  return {
+    dateFrom: from,
+    dateTo: to,
+    monthKey: from ? from.slice(0, 7) : to ? to.slice(0, 7) : getCurrentMonthKey(),
+  };
+}
+
+export function formatNopenPeriodLabel(criteria: NopenRecapCriteria): string {
+  const resolved = resolveNopenDateRange(criteria);
+  if (criteria.periodMode === 'month') {
+    const m = /^(\d{4})-(\d{2})$/.exec(resolved.monthKey);
+    if (m) {
+      const monthName = BULAN_ID_NAMES[Number(m[2]) - 1] || m[2];
+      return `Bulan ${monthName} ${m[1]} (${formatIndoShortDate(resolved.dateFrom)} – ${formatIndoShortDate(resolved.dateTo)})`;
+    }
+    return `Bulan ${resolved.monthKey}`;
+  }
+
+  if (resolved.dateFrom && resolved.dateTo) {
+    return `${formatIndoShortDate(resolved.dateFrom)} s/d ${formatIndoShortDate(resolved.dateTo)}`;
+  }
+  if (resolved.dateFrom) {
+    return `Mulai ${formatIndoShortDate(resolved.dateFrom)}`;
+  }
+  if (resolved.dateTo) {
+    return `Sampai ${formatIndoShortDate(resolved.dateTo)}`;
+  }
+  return 'Semua Tanggal';
+}
+
+export function hasSptnpIssue(s: Shipment): boolean {
+  const sptnpText = (s.sptnp || '').trim().toLowerCase();
+  const hasFlag = sptnpText !== '' && sptnpText !== 'tidak' && sptnpText !== '-';
+  return hasFlag || Boolean((s.noSptnp || '').trim());
+}
+
+export function filterNopenRecapShipments(
+  shipments: Shipment[],
+  criteria: NopenRecapCriteria
+): Shipment[] {
+  const resolved = resolveNopenDateRange(criteria);
+  const includeWithoutNopen = Boolean(criteria.includeWithoutNopen);
+  const q = (criteria.search || '').trim().toLowerCase();
+
+  const filtered = shipments.filter((s) => {
+    const nopenCode = (s.nopen || '').trim();
+    const hasNopen = nopenCode !== '';
+    if (!includeWithoutNopen && !hasNopen) {
+      return false;
+    }
+
+    const effectiveDate = hasNopen
+      ? (s.tglNopen || '').trim() || (s.tglAju || '').trim()
+      : (s.tglNopen || '').trim() ||
+        (s.tglAju || '').trim() ||
+        (s.tglTerimaDok || '').trim() ||
+        (s.eta || '').trim();
+
+    if (!effectiveDate) {
+      if (!includeWithoutNopen) return false;
+      if (resolved.dateFrom || resolved.dateTo) return false;
+    } else {
+      if (resolved.dateFrom && effectiveDate < resolved.dateFrom) return false;
+      if (resolved.dateTo && effectiveDate > resolved.dateTo) return false;
+    }
+
+    if (criteria.filterJalur === '__EMPTY__') {
+      if ((s.jalur || '') !== '') return false;
+    } else if (criteria.filterJalur && s.jalur !== criteria.filterJalur) {
+      return false;
+    }
+
+    if (criteria.filterStatus && s.status !== criteria.filterStatus) {
+      return false;
+    }
+
+    if (criteria.filterImportir) {
+      const impCode = (s.kodeImportir || '').trim() || 'Belum Diisi';
+      if (impCode.toUpperCase() !== criteria.filterImportir.trim().toUpperCase()) {
+        return false;
+      }
+    }
+
+    if (q) {
+      const hay = [
+        s.nopen,
+        s.tglNopen,
+        s.noAju,
+        s.tglAju,
+        s.kodeOs,
+        s.namaCustomer,
+        s.kodeCustomer,
+        s.kodeImportir,
+        s.noBl,
+        s.noCont,
+        s.noSppb,
+        s.shipper,
+        s.description,
+        s.dokumenChecker,
+        s.jalur,
+        s.status,
+      ]
+        .join(' ')
+        .toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+
+    return true;
+  });
+
+  return [...filtered].sort((a, b) => {
+    const aHas = (a.nopen || '').trim() !== '';
+    const bHas = (b.nopen || '').trim() !== '';
+    if (aHas !== bHas) return aHas ? -1 : 1;
+    const dateA = (a.tglNopen || a.tglAju || a.tglTerimaDok || '').trim();
+    const dateB = (b.tglNopen || b.tglAju || b.tglTerimaDok || '').trim();
+    if (dateA !== dateB) return dateB.localeCompare(dateA);
+    const nopenCmp = (a.nopen || '').localeCompare(b.nopen || '');
+    if (nopenCmp !== 0) return nopenCmp;
+    return a.kodeOs.localeCompare(b.kodeOs);
+  });
+}
+
+export function computeNopenRecapSummary(
+  matchedShipments: Shipment[],
+  importirs: Importir[] = [],
+  checklistItems: string[] = DEFAULT_CHECKLIST_ITEMS,
+  criteria: NopenRecapCriteria
+): NopenRecapSummary {
+  const resolved = resolveNopenDateRange(criteria);
+  const impLookup = new Map<string, string>();
+  for (const imp of importirs) {
+    const k = (imp.kodeImportir || '').trim();
+    if (k) impLookup.set(k.toUpperCase(), imp.namaImportir || '-');
+  }
+
+  let totalWithNopen = 0;
+  let totalWithoutNopen = 0;
+  let totalSppb = 0;
+  let totalGateOut = 0;
+  let totalSelesai = 0;
+  let totalOutstanding = 0;
+  let totalSptnp = 0;
+
+  const byJalur: Record<string, number> = {
+    Hijau: 0,
+    Kuning: 0,
+    Merah: 0,
+    MITA: 0,
+    'Belum Ada': 0,
+  };
+  const currencyMap = new Map<string, number>();
+
+  const dayMap = new Map<
+    string,
+    {
+      count: number;
+      sppbCount: number;
+      gateOutCount: number;
+      sptnpCount: number;
+      byJalur: Record<string, number>;
+    }
+  >();
+
+  const impMap = new Map<
+    string,
+    {
+      count: number;
+      sppbCount: number;
+      gateOutCount: number;
+      currencyMap: Map<string, number>;
+    }
+  >();
+
+  for (const s of matchedShipments) {
+    const hasNopen = (s.nopen || '').trim() !== '';
+    if (hasNopen) totalWithNopen++;
+    else totalWithoutNopen++;
+
+    const sppbOk = isSppbReadyForGateOut(s);
+    const gateOutOk = isContainerGateOut(s);
+    const sptnpOk = hasSptnpIssue(s);
+    const outstandingOk = isShipmentOutstanding(s, checklistItems);
+
+    if (sppbOk) totalSppb++;
+    if (gateOutOk) totalGateOut++;
+    if (s.status === 'Selesai') totalSelesai++;
+    if (outstandingOk) totalOutstanding++;
+    if (sptnpOk) totalSptnp++;
+
+    const jalurKey = s.jalur || 'Belum Ada';
+    byJalur[jalurKey] = (byJalur[jalurKey] || 0) + 1;
+
+    const invVal = typeof s.invoice === 'number' ? s.invoice : Number(s.invoice);
+    const hasInv = s.invoice !== '' && Number.isFinite(invVal) && invVal > 0;
+    const cur = (s.currency || 'USD').trim().toUpperCase() || 'USD';
+    if (hasInv) {
+      currencyMap.set(cur, (currencyMap.get(cur) || 0) + invVal);
+    }
+
+    const dayKey =
+      (s.tglNopen || '').trim() ||
+      (s.tglAju || '').trim() ||
+      (s.tglTerimaDok || '').trim() ||
+      'Belum Ada Tanggal';
+    const dayEntry = dayMap.get(dayKey) || {
+      count: 0,
+      sppbCount: 0,
+      gateOutCount: 0,
+      sptnpCount: 0,
+      byJalur: { Hijau: 0, Kuning: 0, Merah: 0, MITA: 0, 'Belum Ada': 0 },
+    };
+    dayEntry.count++;
+    if (sppbOk) dayEntry.sppbCount++;
+    if (gateOutOk) dayEntry.gateOutCount++;
+    if (sptnpOk) dayEntry.sptnpCount++;
+    dayEntry.byJalur[jalurKey] = (dayEntry.byJalur[jalurKey] || 0) + 1;
+    dayMap.set(dayKey, dayEntry);
+
+    const impCode = (s.kodeImportir || '').trim() || 'Belum Diisi';
+    const impEntry = impMap.get(impCode) || {
+      count: 0,
+      sppbCount: 0,
+      gateOutCount: 0,
+      currencyMap: new Map<string, number>(),
+    };
+    impEntry.count++;
+    if (sppbOk) impEntry.sppbCount++;
+    if (gateOutOk) impEntry.gateOutCount++;
+    if (hasInv) {
+      impEntry.currencyMap.set(cur, (impEntry.currencyMap.get(cur) || 0) + invVal);
+    }
+    impMap.set(impCode, impEntry);
+  }
+
+  const byDay: NopenDailyRecapItem[] = Array.from(dayMap.entries())
+    .sort((a, b) => {
+      if (a[0] === 'Belum Ada Tanggal') return 1;
+      if (b[0] === 'Belum Ada Tanggal') return -1;
+      return b[0].localeCompare(a[0]);
+    })
+    .map(([date, v]) => ({
+      date,
+      count: v.count,
+      sppbCount: v.sppbCount,
+      gateOutCount: v.gateOutCount,
+      sptnpCount: v.sptnpCount,
+      byJalur: v.byJalur,
+    }));
+
+  const byImportir: NopenImportirRecapItem[] = Array.from(impMap.entries())
+    .sort((a, b) => {
+      if (a[0] === 'Belum Diisi' && b[0] !== 'Belum Diisi') return 1;
+      if (b[0] === 'Belum Diisi' && a[0] !== 'Belum Diisi') return -1;
+      if (b[1].count !== a[1].count) return b[1].count - a[1].count;
+      return a[0].localeCompare(b[0]);
+    })
+    .map(([kodeImportir, v]) => ({
+      kodeImportir,
+      namaImportir:
+        kodeImportir === 'Belum Diisi'
+          ? 'Kode Importir Belum Diisi'
+          : impLookup.get(kodeImportir.toUpperCase()) || 'Importir Non-Master',
+      count: v.count,
+      sppbCount: v.sppbCount,
+      gateOutCount: v.gateOutCount,
+      invoiceTotalsByCurrency: Array.from(v.currencyMap.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([currency, amount]) => ({ currency, amount })),
+    }));
+
+  const invoiceTotalsByCurrency = Array.from(currencyMap.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([currency, amount]) => ({ currency, amount }));
+
+  return {
+    periodMode: criteria.periodMode,
+    periodLabel: formatNopenPeriodLabel(criteria),
+    dateFrom: resolved.dateFrom,
+    dateTo: resolved.dateTo,
+    totalMatched: matchedShipments.length,
+    totalWithNopen,
+    totalWithoutNopen,
+    totalSppb,
+    totalGateOut,
+    totalSelesai,
+    totalOutstanding,
+    totalSptnp,
+    byJalur,
+    invoiceTotalsByCurrency,
+    byDay,
+    byImportir,
+  };
+}
+
 

@@ -338,7 +338,7 @@ export interface ImportirSummaryItem {
   gateOutCount: number;
   processSignalCount: number;
   byJalur: Record<string, number>;
-  invoiceTotalsByCurrency: Array<{ currency: string; amount: number }>;
+  bmPdriTotal: number;
   customerNames: string[];
 }
 
@@ -352,8 +352,57 @@ export interface ImportirGlobalSummary {
   totalSppb: number;
   totalGateOut: number;
   totalProcessSignal: number;
-  invoiceTotalsByCurrency: Array<{ currency: string; amount: number }>;
+  totalBmPdri: number;
   items: ImportirSummaryItem[];
+}
+
+export interface NopenRecapCriteria {
+  periodMode: 'month' | 'range';
+  month?: string; // YYYY-MM
+  dateFrom?: string; // YYYY-MM-DD
+  dateTo?: string; // YYYY-MM-DD
+  search?: string;
+  filterJalur?: '' | JalurType | '__EMPTY__';
+  filterStatus?: string;
+  filterImportir?: string;
+  includeWithoutNopen?: boolean;
+}
+
+export interface NopenDailyRecapItem {
+  date: string;
+  count: number;
+  sppbCount: number;
+  gateOutCount: number;
+  sptnpCount: number;
+  byJalur: Record<string, number>;
+}
+
+export interface NopenImportirRecapItem {
+  kodeImportir: string;
+  namaImportir: string;
+  count: number;
+  sppbCount: number;
+  gateOutCount: number;
+  invoiceTotalsByCurrency: Array<{ currency: string; amount: number }>;
+}
+
+export interface NopenRecapSummary {
+  periodMode: 'month' | 'range';
+  periodLabel: string;
+  dateFrom: string;
+  dateTo: string;
+  totalMatched: number;
+  totalWithNopen: number;
+  totalWithoutNopen: number;
+  totalSppb: number;
+  totalGateOut: number;
+  totalSelesai: number;
+  totalOutstanding: number;
+  totalSptnp: number;
+  byJalur: Record<string, number>;
+  invoiceTotalsByCurrency: Array<{ currency: string; amount: number }>;
+  byDay: NopenDailyRecapItem[];
+  byImportir: NopenImportirRecapItem[];
 }
 
 export type AppView =
@@ -362,6 +411,7 @@ export type AppView =
   | 'do'
   | 'surat-jalan'
   | 'penagihan'
+  | 'report-nopen'
   | 'shipments'
   | 'outstanding'
   | 'master';

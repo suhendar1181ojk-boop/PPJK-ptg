@@ -91,6 +91,7 @@ import { CheckerSummaryView } from './components/CheckerSummaryView';
 import { DoPelayaranView } from './components/DoPelayaranView';
 import { SuratJalanView } from './components/SuratJalanView';
 import { PenagihanView } from './components/PenagihanView';
+import { NopenReportView } from './components/NopenReportView';
 import { BillingModal } from './components/BillingModal';
 import { GoogleSignInButton } from './components/GoogleDriveButton';
 
@@ -100,6 +101,7 @@ const VIEW_TITLES: Record<AppView, string> = {
   do: 'Kesiapan D/O Pelayaran',
   'surat-jalan': 'Surat Jalan & Tracking Pengiriman',
   penagihan: 'Info Owner (WA/Email) & Surat Penagihan',
+  'report-nopen': 'Report Rekapan Dokumen No. NOPEN (PIB)',
   outstanding: 'Dokumen Outstanding',
   shipments: 'Semua Data Shipment',
   master: 'Master Data & Pengaturan',
@@ -1027,6 +1029,17 @@ export default function App() {
               userRole={session.role}
               onOpenDetail={(kodeOs) => setDetailKodeOs(kodeOs)}
               onOpenBilling={(kodeOs, tab = 'owner') => setBillingModalState({ kodeOs, tab })}
+            />
+          )}
+
+          {effectiveView === 'report-nopen' && (
+            <NopenReportView
+              shipments={db.shipments}
+              importirs={db.importirs}
+              statusList={db.pengaturan.statusList}
+              jalurList={db.pengaturan.jalurList}
+              checklistItems={db.pengaturan.checklistItems}
+              onOpenDetail={(kodeOs) => setDetailKodeOs(kodeOs)}
             />
           )}
 

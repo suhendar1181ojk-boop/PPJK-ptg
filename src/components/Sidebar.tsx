@@ -5,6 +5,7 @@ import {
   ClipboardList,
   Database,
   FileSpreadsheet,
+  FileText,
   LayoutDashboard,
   LogOut,
   PanelLeftClose,
@@ -88,6 +89,7 @@ export function Sidebar({
       visible: true,
     },
     { id: 'shipments', label: 'Semua Shipment', icon: FileSpreadsheet, visible: true },
+    { id: 'report-nopen', label: 'Report NOPEN (PIB)', icon: FileText, visible: true },
     { id: 'master', label: 'Master & Pengaturan', icon: Database, visible: canAccessMaster },
   ];
 

@@ -18,6 +18,7 @@ import {
   computeDoReadinessSummary,
   computeGasPinHash,
   computeImportirSummaries,
+  computeNopenRecapSummary,
   computeSha256Hex,
   createEmptyChecklist,
   DEFAULT_CHECKLIST_ITEMS,
@@ -26,9 +27,11 @@ import {
   DEFAULT_STATUS_LIST,
   filterBillingShipments,
   filterDoShipments,
+  filterNopenRecapShipments,
   filterShipments,
   formatContainerSummary,
   formatCurrencyTotals,
+  formatNopenPeriodLabel,
   formatRupiah,
   generateNextKodeOS,
   generateSuratJalanNomor,
@@ -36,8 +39,12 @@ import {
   getAllowedFieldsForPermissions,
   getBillingEligibilityReason,
   getCountdownBadgeMeta,
+  getCurrentMonthKey,
   getDefaultPhasePermissions,
   getDoValidityMeta,
+  getMonthDateBounds,
+  getPreviousMonthKey,
+  getRelativeDateRange,
   getShipmentProcessSignal,
   getStatusDokumenBadgeMeta,
   getStatusDoPelayaranMeta,
@@ -46,6 +53,7 @@ import {
   getStatusPenagihanMeta,
   getStatusSuratJalanMeta,
   getStatusTruckingMeta,
+  hasSptnpIssue,
   isContainerGateOut,
   isShipmentBillingEligible,
   isShipmentOutstanding,
@@ -59,9 +67,11 @@ import {
   normalizeStatusSuratJalan,
   normalizeStatusTrucking,
   normalizeWhatsAppNumber,
+  parseBmPdriAmount,
   parseCustomerContact,
   PHASE_1_FIELDS,
   PHASE_2_FIELDS,
+  resolveNopenDateRange,
   resolveUserPhasePermissions,
   validateGasPinFormat,
   validateShipmentInput,
@@ -1134,12 +1144,19 @@ test('Owner WA/Email notification & Admin Auto Surat Penagihan helpers work accu
   assert.ok(badBillingDates.errors.billingJatuhTempo);
 });
 
-test('computeImportirSummaries, formatCurrencyTotals, and filterShipments by importir work accurately', () => {
+test('computeImportirSummaries, parseBmPdriAmount, formatCurrencyTotals, and filterShipments by importir work accurately', () => {
   const ref = new Date(2026, 10, 15);
   const fullOs = {
     items: Object.fromEntries(DEFAULT_CHECKLIST_ITEMS.map((i) => [i, true])),
     catatan: 'Lengkap',
   };
+
+  assert.equal(parseBmPdriAmount('Rp 142.500.000'), 142500000);
+  assert.equal(parseBmPdriAmount('Rp 45.000.000,50'), 45000000.5);
+  assert.equal(parseBmPdriAmount('48300000'), 48300000);
+  assert.equal(parseBmPdriAmount('12,500,000'), 12500000);
+  assert.equal(parseBmPdriAmount('-'), 0);
+  assert.equal(parseBmPdriAmount(''), 0);
 
   assert.equal(formatCurrencyTotals([]), '-');
   assert.equal(
@@ -1161,6 +1178,7 @@ test('computeImportirSummaries, formatCurrencyTotals, and filterShipments by imp
     tglSppb: '2026-11-15',
     currency: 'USD',
     invoice: 30000,
+    bmPdri: 'Rp 142.500.000',
     noPackinglist: 'PL-ALPHA-801',
     description: 'Mesin CNC Presisi',
     negaraAsal: 'Jepang',
@@ -1179,6 +1197,7 @@ test('computeImportirSummaries, formatCurrencyTotals, and filterShipments by imp
     dokumenOs: fullOs,
     currency: 'USD',
     invoice: 20000,
+    bmPdri: 'Rp 118.400.000',
   });
   const s3 = makeShipment({
     kodeOs: 'OS-2611-0803',
@@ -1189,6 +1208,7 @@ test('computeImportirSummaries, formatCurrencyTotals, and filterShipments by imp
     jalur: 'Merah',
     currency: 'EUR',
     invoice: 15000,
+    bmPdri: 'Rp 89.200.000',
   });
   const s4 = makeShipment({
     kodeOs: 'OS-2611-0804',
@@ -1199,6 +1219,7 @@ test('computeImportirSummaries, formatCurrencyTotals, and filterShipments by imp
     jalur: '',
     currency: 'USD',
     invoice: '',
+    bmPdri: '',
   });
 
   const importirs = [
@@ -1216,10 +1237,7 @@ test('computeImportirSummaries, formatCurrencyTotals, and filterShipments by imp
   assert.equal(summary.totalCompleted, 1);
   assert.equal(summary.totalSppb, 2);
   assert.equal(summary.totalGateOut, 1);
-  assert.deepEqual(summary.invoiceTotalsByCurrency, [
-    { currency: 'EUR', amount: 15000 },
-    { currency: 'USD', amount: 50000 },
-  ]);
+  assert.equal(summary.totalBmPdri, 350100000);
 
   // Sorted by total desc, with 'Belum Diisi' always last
   assert.deepEqual(
@@ -1239,10 +1257,11 @@ test('computeImportirSummaries, formatCurrencyTotals, and filterShipments by imp
   assert.equal(imp1.byJalur.Hijau, 1);
   assert.equal(imp1.byJalur.MITA, 1);
   assert.deepEqual(imp1.customerNames, ['PT Cahaya Nusantara', 'PT Maju Jaya']);
-  assert.deepEqual(imp1.invoiceTotalsByCurrency, [{ currency: 'USD', amount: 50000 }]);
+  assert.equal(imp1.bmPdriTotal, 260900000);
 
   const impEmpty = summary.items[2];
   assert.equal(impEmpty.namaImportir, 'Kode Importir Belum Diisi');
+  assert.equal(impEmpty.bmPdriTotal, 0);
   assert.equal(impEmpty.byJalur['Belum Ada'], 1);
 
   // Filter by importir & extended search fields
@@ -1290,6 +1309,230 @@ test('GAS Deploy PIN validation, hashing, and verification protect GAS code modu
   assert.equal(await verifyGasDeployPin(DEFAULT_GAS_DEPLOY_PIN, customHash), false);
   assert.equal(await verifyGasDeployPin('PTG9988', customHash), true);
 });
+
+test('NOPEN / Nomor Pendaftaran PIB monthly & date-to-date recap filters and summary work accurately', () => {
+  const ref = new Date(2026, 10, 15); // 2026-11-15
+  assert.equal(getCurrentMonthKey(ref), '2026-11');
+  assert.equal(getPreviousMonthKey(ref), '2026-10');
+  assert.deepEqual(getMonthDateBounds('2026-11'), {
+    dateFrom: '2026-11-01',
+    dateTo: '2026-11-30',
+  });
+  assert.deepEqual(getMonthDateBounds('2024-02'), {
+    dateFrom: '2024-02-01',
+    dateTo: '2024-02-29',
+  });
+  assert.deepEqual(getRelativeDateRange(7, ref), {
+    dateFrom: '2026-11-09',
+    dateTo: '2026-11-15',
+  });
+
+  // Inverted range auto-swaps
+  assert.deepEqual(
+    resolveNopenDateRange({
+      periodMode: 'range',
+      dateFrom: '2026-11-15',
+      dateTo: '2026-11-01',
+    }),
+    {
+      dateFrom: '2026-11-01',
+      dateTo: '2026-11-15',
+      monthKey: '2026-11',
+    }
+  );
+
+  assert.match(
+    formatNopenPeriodLabel({ periodMode: 'month', month: '2026-11' }),
+    /Bulan November 2026/
+  );
+  assert.match(
+    formatNopenPeriodLabel({
+      periodMode: 'range',
+      dateFrom: '2026-11-05',
+      dateTo: '2026-11-14',
+    }),
+    /05 Nov 2026 s\/d 14 Nov 2026/
+  );
+
+  const fullOs = {
+    items: Object.fromEntries(DEFAULT_CHECKLIST_ITEMS.map((i) => [i, true])),
+    catatan: 'Lengkap',
+  };
+
+  const sNovA = makeShipment({
+    kodeOs: 'OS-2611-0901',
+    nopen: '448120',
+    tglNopen: '2026-11-13',
+    noAju: '000020-AJU-901',
+    tglAju: '2026-11-12',
+    status: 'Proses Pemeriksaan',
+    jalur: 'Merah',
+    kodeImportir: 'IMP-002',
+    namaCustomer: 'PT Karya Elektro Indonesia',
+    sptnp: 'Proses Verifikasi',
+    currency: 'USD',
+    invoice: 42150,
+  });
+  const sNovB = makeShipment({
+    kodeOs: 'OS-2611-0902',
+    nopen: '448905',
+    tglNopen: '2026-11-13',
+    noAju: '000020-AJU-902',
+    tglAju: '2026-11-13',
+    status: 'SPPB Terbit',
+    jalur: 'MITA',
+    noSppb: 'SPPB-902',
+    tglSppb: '2026-11-14',
+    kodeImportir: 'IMP-001',
+    namaCustomer: 'PT Nusantara Baja Mandiri',
+    sptnp: 'Tidak',
+    currency: 'JPY',
+    invoice: 8500000,
+  });
+  const sNovC = makeShipment({
+    kodeOs: 'OS-2611-0903',
+    nopen: '441203',
+    tglNopen: '2026-11-06',
+    noAju: '000020-AJU-903',
+    tglAju: '2026-11-05',
+    status: 'Selesai',
+    jalur: 'Hijau',
+    noSppb: 'SPPB-903',
+    tglSppb: '2026-11-08',
+    gateOutStatus: 'Sudah',
+    dokumenOs: fullOs,
+    kodeImportir: 'IMP-001',
+    namaCustomer: 'PT Nusantara Baja Mandiri',
+    sptnp: 'Tidak',
+    currency: 'USD',
+    invoice: 19500,
+  });
+  const sNovNoNopen = makeShipment({
+    kodeOs: 'OS-2611-0904',
+    nopen: '',
+    tglNopen: '',
+    noAju: '000020-AJU-904',
+    tglAju: '2026-11-14',
+    status: 'Proses PIB/AJU',
+    jalur: '',
+    kodeImportir: 'IMP-002',
+    namaCustomer: 'PT Karya Elektro Indonesia',
+  });
+  const sOctPrevMonth = makeShipment({
+    kodeOs: 'OS-2610-0899',
+    nopen: '439900',
+    tglNopen: '2026-10-28',
+    noAju: '000020-AJU-899',
+    tglAju: '2026-10-27',
+    status: 'Selesai',
+    jalur: 'Hijau',
+    noSppb: 'SPPB-899',
+    gateOutStatus: 'Sudah',
+    dokumenOs: fullOs,
+    kodeImportir: 'IMP-001',
+    currency: 'USD',
+    invoice: 10000,
+  });
+
+  const all = [sNovA, sNovB, sNovC, sNovNoNopen, sOctPrevMonth];
+  const importirs = [
+    { kodeImportir: 'IMP-001', namaImportir: 'PT Nusantara Baja Mandiri (API-U)' },
+    { kodeImportir: 'IMP-002', namaImportir: 'PT Karya Elektro Indonesia (API-P)' },
+  ];
+
+  assert.equal(hasSptnpIssue(sNovA), true);
+  assert.equal(hasSptnpIssue(sNovB), false);
+
+  // 1-Month mode (Nov 2026), default excludes rows without NOPEN
+  const novOnly = filterNopenRecapShipments(all, {
+    periodMode: 'month',
+    month: '2026-11',
+  });
+  assert.deepEqual(
+    novOnly.map((x) => x.kodeOs),
+    ['OS-2611-0901', 'OS-2611-0902', 'OS-2611-0903']
+  );
+
+  // Include rows without NOPEN in Nov 2026
+  const novWithUnissued = filterNopenRecapShipments(all, {
+    periodMode: 'month',
+    month: '2026-11',
+    includeWithoutNopen: true,
+  });
+  assert.deepEqual(
+    novWithUnissued.map((x) => x.kodeOs),
+    ['OS-2611-0901', 'OS-2611-0902', 'OS-2611-0903', 'OS-2611-0904']
+  );
+
+  // Cross-month date-to-date range (2026-10-25 s/d 2026-11-10)
+  const crossRange = filterNopenRecapShipments(all, {
+    periodMode: 'range',
+    dateFrom: '2026-10-25',
+    dateTo: '2026-11-10',
+  });
+  assert.deepEqual(
+    crossRange.map((x) => x.kodeOs),
+    ['OS-2611-0903', 'OS-2610-0899']
+  );
+
+  // Search by No. NOPEN & Filter Jalur/Importir
+  assert.deepEqual(
+    filterNopenRecapShipments(all, {
+      periodMode: 'month',
+      month: '2026-11',
+      search: '448905',
+    }).map((x) => x.kodeOs),
+    ['OS-2611-0902']
+  );
+  assert.deepEqual(
+    filterNopenRecapShipments(all, {
+      periodMode: 'month',
+      month: '2026-11',
+      filterImportir: 'IMP-001',
+    }).map((x) => x.kodeOs),
+    ['OS-2611-0902', 'OS-2611-0903']
+  );
+  assert.deepEqual(
+    filterNopenRecapShipments(all, {
+      periodMode: 'month',
+      month: '2026-11',
+      filterJalur: 'Merah',
+    }).map((x) => x.kodeOs),
+    ['OS-2611-0901']
+  );
+
+  // Summary calculation for Nov 2026 NOPEN docs
+  const novSummary = computeNopenRecapSummary(novOnly, importirs, DEFAULT_CHECKLIST_ITEMS, {
+    periodMode: 'month',
+    month: '2026-11',
+  });
+  assert.equal(novSummary.totalMatched, 3);
+  assert.equal(novSummary.totalWithNopen, 3);
+  assert.equal(novSummary.totalWithoutNopen, 0);
+  assert.equal(novSummary.totalSppb, 2);
+  assert.equal(novSummary.totalGateOut, 1);
+  assert.equal(novSummary.totalSelesai, 1);
+  assert.equal(novSummary.totalOutstanding, 2);
+  assert.equal(novSummary.totalSptnp, 1);
+  assert.equal(novSummary.byJalur.Merah, 1);
+  assert.equal(novSummary.byJalur.MITA, 1);
+  assert.equal(novSummary.byJalur.Hijau, 1);
+  assert.deepEqual(novSummary.invoiceTotalsByCurrency, [
+    { currency: 'JPY', amount: 8500000 },
+    { currency: 'USD', amount: 61650 },
+  ]);
+  assert.equal(novSummary.byDay.length, 2);
+  assert.equal(novSummary.byDay[0].date, '2026-11-13');
+  assert.equal(novSummary.byDay[0].count, 2);
+  assert.equal(novSummary.byDay[0].sppbCount, 1);
+  assert.equal(novSummary.byDay[0].sptnpCount, 1);
+  assert.equal(novSummary.byDay[1].date, '2026-11-06');
+  assert.equal(novSummary.byDay[1].gateOutCount, 1);
+  assert.equal(novSummary.byImportir.length, 2);
+  assert.equal(novSummary.byImportir[0].kodeImportir, 'IMP-001');
+  assert.equal(novSummary.byImportir[0].count, 2);
+});
+
 
 
 

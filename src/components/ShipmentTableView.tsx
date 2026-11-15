@@ -28,7 +28,6 @@ import {
   computeImportirSummaries,
   filterShipments,
   formatChecklistProgress,
-  formatCurrencyTotals,
   formatRupiah,
   getShipmentProcessSignal,
   isShipmentOutstanding,
@@ -652,7 +651,7 @@ export function ShipmentTableView({
                   <th className="py-2.5 px-1.5 font-semibold text-right whitespace-nowrap">SPPB</th>
                   <th className="py-2.5 px-1.5 font-semibold text-right whitespace-nowrap">Gate-Out</th>
                   <th className="py-2.5 px-2 font-semibold whitespace-nowrap">Distribusi Jalur</th>
-                  <th className="py-2.5 px-2.5 font-semibold text-right whitespace-nowrap">Total Nilai Invoice</th>
+                  <th className="py-2.5 px-2.5 font-semibold text-right whitespace-nowrap">Nilai BM/PDRI</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/[0.06]">
@@ -727,7 +726,7 @@ export function ShipmentTableView({
                         </div>
                       </td>
                       <td className="py-2.5 px-2.5 text-right font-mono-code font-semibold tabular-nums text-slate-800 dark:text-slate-100 whitespace-nowrap">
-                        {formatCurrencyTotals(item.invoiceTotalsByCurrency)}
+                        {item.bmPdriTotal > 0 ? formatRupiah(item.bmPdriTotal) : '-'}
                       </td>
                     </tr>
                   );
@@ -776,7 +775,9 @@ export function ShipmentTableView({
                     </div>
                   </td>
                   <td className="py-2.5 px-2.5 text-right font-mono-code tabular-nums whitespace-nowrap">
-                    {formatCurrencyTotals(importirSummary.invoiceTotalsByCurrency)}
+                    {importirSummary.totalBmPdri > 0
+                      ? formatRupiah(importirSummary.totalBmPdri)
+                      : '-'}
                   </td>
                 </tr>
               </tfoot>
@@ -857,7 +858,7 @@ export function ShipmentTableView({
                   </div>
 
                   <div className="text-[11px] font-mono-code font-semibold text-slate-800 dark:text-slate-100">
-                    Total Invoice: {formatCurrencyTotals(item.invoiceTotalsByCurrency)}
+                    Nilai BM/PDRI: {item.bmPdriTotal > 0 ? formatRupiah(item.bmPdriTotal) : '-'}
                   </div>
                 </button>
               );
@@ -875,7 +876,10 @@ export function ShipmentTableView({
                 {importirSummary.totalSppb} · Gate-Out: {importirSummary.totalGateOut}
               </div>
               <div className="text-[11px] font-mono-code">
-                Total Invoice: {formatCurrencyTotals(importirSummary.invoiceTotalsByCurrency)}
+                Nilai BM/PDRI:{' '}
+                {importirSummary.totalBmPdri > 0
+                  ? formatRupiah(importirSummary.totalBmPdri)
+                  : '-'}
               </div>
             </div>
           </div>
