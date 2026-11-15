@@ -87,7 +87,6 @@ import { ShipmentTableView } from './components/ShipmentTableView';
 import { ShipmentDetailDrawer } from './components/ShipmentDetailDrawer';
 import { ShipmentFormModal } from './components/ShipmentFormModal';
 import { MasterSettingsView } from './components/MasterSettingsView';
-import { GasDeployView } from './components/GasDeployView';
 import { CheckerSummaryView } from './components/CheckerSummaryView';
 import { DoPelayaranView } from './components/DoPelayaranView';
 import { SuratJalanView } from './components/SuratJalanView';
@@ -104,7 +103,6 @@ const VIEW_TITLES: Record<AppView, string> = {
   outstanding: 'Dokumen Outstanding',
   shipments: 'Semua Data Shipment',
   master: 'Master Data & Pengaturan',
-  gas: 'Kode Google Apps Script (Deploy)',
 };
 
 export default function App() {
@@ -652,13 +650,9 @@ export default function App() {
   const canAccessMaster =
     canPerformAction(session.role, 'manage_master') ||
     canPerformAction(session.role, 'manage_users');
-  const canViewGas = canPerformAction(session.role, 'view_gas_code');
 
   const effectiveView: AppView =
-    (activeView === 'master' && !canAccessMaster) ||
-    (activeView === 'gas' && !canViewGas)
-      ? 'dashboard'
-      : activeView;
+    activeView === 'master' && !canAccessMaster ? 'dashboard' : activeView;
 
   const detailShipment = detailKodeOs
     ? db.shipments.find((s) => s.kodeOs === detailKodeOs) || null
@@ -680,7 +674,6 @@ export default function App() {
         activeView={effectiveView}
         onSelectView={(view) => {
           if (view === 'master' && !canAccessMaster) return;
-          if (view === 'gas' && !canViewGas) return;
           if (view !== 'shipments') {
             setTableCheckerFilter('');
             setTableSearchQuery('');
@@ -1105,8 +1098,6 @@ export default function App() {
               onResetDatabase={handleResetDb}
             />
           )}
-
-          {effectiveView === 'gas' && canViewGas && <GasDeployView />}
         </main>
       </div>
 

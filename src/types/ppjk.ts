@@ -245,6 +245,7 @@ export interface Pengaturan {
   adminWhatsapp?: string;
   adminEmail?: string;
   billingBankInfo?: string;
+  gasDeployPinHash?: string;
 }
 
 export interface DashboardStats {
@@ -363,6 +364,5 @@ export type AppView =
   | 'penagihan'
   | 'shipments'
   | 'outstanding'
-  | 'master'
-  | 'gas';
+  | 'master';
 export type ShipmentPhase = 1 | 2 | 3 | 4;

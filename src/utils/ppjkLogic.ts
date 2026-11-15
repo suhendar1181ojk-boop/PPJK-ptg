@@ -2322,3 +2322,48 @@ export function computeImportirSummaries(
     items,
   };
 }
+
+// =============================================================================
+// Pengamanan PIN Khusus Modul Kode GAS (Deploy) di Master & Pengaturan
+// =============================================================================
+
+export const DEFAULT_GAS_DEPLOY_PIN = '250888';
+
+export function validateGasPinFormat(pin: string): { valid: boolean; error?: string } {
+  const clean = (pin || '').trim();
+  if (!clean) {
+    return { valid: false, error: 'PIN khusus Kode GAS wajib diisi.' };
+  }
+  if (clean.length < 6 || clean.length > 12) {
+    return {
+      valid: false,
+      error: 'PIN khusus Kode GAS harus terdiri dari 6 hingga 12 karakter.',
+    };
+  }
+  if (!/^[A-Za-z0-9]{6,12}$/.test(clean)) {
+    return {
+      valid: false,
+      error: 'PIN khusus Kode GAS hanya boleh berisi angka atau huruf tanpa spasi/simbol.',
+    };
+  }
+  return { valid: true };
+}
+
+export async function computeGasPinHash(pin: string): Promise<string> {
+  return computeSha256Hex(`ptg_ppjk_gas_pin_v1::${(pin || '').trim()}`);
+}
+
+export async function verifyGasDeployPin(
+  inputPin: string,
+  storedPinHash?: string
+): Promise<boolean> {
+  const clean = (inputPin || '').trim();
+  if (!clean) return false;
+  const candidateHash = await computeGasPinHash(clean);
+  const expectedHash =
+    storedPinHash && storedPinHash.trim()
+      ? storedPinHash.trim()
+      : await computeGasPinHash(DEFAULT_GAS_DEPLOY_PIN);
+  return candidateHash === expectedHash;
+}
+

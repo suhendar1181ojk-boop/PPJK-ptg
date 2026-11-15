@@ -10,7 +10,6 @@ import {
   ChevronRight,
   ClipboardList,
   Clock,
-  Code2,
   Database,
   FileCheck2,
   FileSpreadsheet,
@@ -355,7 +354,6 @@ export function DashboardView({
   const canAccessMaster =
     canPerformAction(userRole, 'manage_master') ||
     canPerformAction(userRole, 'manage_users');
-  const canViewGas = canPerformAction(userRole, 'view_gas_code');
 
   const moduleShortcuts: Array<{
     id: AppView;
@@ -415,19 +413,11 @@ export function DashboardView({
     },
     {
       id: 'master',
-      label: 'Master & User',
-      subtitle: 'Customer, Importir, RBAC',
+      label: 'Master & Pengaturan',
+      subtitle: 'Customer, Importir, RBAC, GAS',
       icon: Database,
       iconBoxClass: 'bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/25',
       visible: canAccessMaster,
-    },
-    {
-      id: 'gas',
-      label: 'Kode GAS Deploy',
-      subtitle: 'Code.gs & Index.html',
-      icon: Code2,
-      iconBoxClass: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/25',
-      visible: canViewGas,
     },
   ];
 

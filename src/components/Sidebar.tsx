@@ -3,7 +3,6 @@ import {
   Anchor,
   ChevronRight,
   ClipboardList,
-  Code2,
   Database,
   FileSpreadsheet,
   LayoutDashboard,
@@ -50,7 +49,6 @@ export function Sidebar({
   const canAccessMaster =
     canPerformAction(user.role, 'manage_master') ||
     canPerformAction(user.role, 'manage_users');
-  const canViewGas = canPerformAction(user.role, 'view_gas_code');
 
   const navItems: Array<{
     id: AppView;
@@ -91,7 +89,6 @@ export function Sidebar({
     },
     { id: 'shipments', label: 'Semua Shipment', icon: FileSpreadsheet, visible: true },
     { id: 'master', label: 'Master & Pengaturan', icon: Database, visible: canAccessMaster },
-    { id: 'gas', label: 'Kode GAS (Deploy)', icon: Code2, visible: canViewGas },
   ];
 
   const handleNav = (id: AppView) => {

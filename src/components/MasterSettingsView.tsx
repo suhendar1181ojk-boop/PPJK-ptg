@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Pencil, Power, RotateCcw, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
+import { Lock, Pencil, Power, RotateCcw, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
+import { GasDeployView } from './GasDeployView';
 import type {
   Customer,
   Importir,
@@ -46,7 +47,7 @@ interface MasterSettingsViewProps {
   onResetDatabase: (mode: 'empty' | 'seed') => Promise<void>;
 }
 
-type MasterTab = 'customer' | 'importir' | 'shipper' | 'users' | 'settings';
+type MasterTab = 'customer' | 'importir' | 'shipper' | 'users' | 'settings' | 'gas';
 
 export function MasterSettingsView({
   customers,
@@ -68,6 +69,7 @@ export function MasterSettingsView({
 }: MasterSettingsViewProps) {
   const [tab, setTab] = useState<MasterTab>('customer');
   const isAdmin = canPerformAction(userRole, 'manage_users');
+  const canViewGas = canPerformAction(userRole, 'view_gas_code');
 
   // Form states
   const [custForm, setCustForm] = useState<Customer>({
@@ -324,6 +326,17 @@ export function MasterSettingsView({
               Pengaturan Sistem
             </button>
           </>
+        )}
+        {canViewGas && (
+          <button
+            type="button"
+            data-testid="tab-master-gas"
+            onClick={() => setTab('gas')}
+            className={`inline-flex items-center gap-1.5 ${tabBtnCls(tab === 'gas')}`}
+          >
+            <Lock className="w-3.5 h-3.5" />
+            <span>Kode GAS (Deploy)</span>
+          </button>
         )}
       </div>
 
@@ -1059,6 +1072,13 @@ export function MasterSettingsView({
               </div>
             </div>
           </div>
+        )}
+
+        {tab === 'gas' && canViewGas && (
+          <GasDeployView
+            pengaturan={pengaturan}
+            onSavePengaturan={onSavePengaturan}
+          />
         )}
       </div>
     </div>

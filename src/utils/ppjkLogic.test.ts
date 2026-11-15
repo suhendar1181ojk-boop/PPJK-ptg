@@ -16,10 +16,12 @@ import {
   computeCheckerSummaries,
   computeDashboardStats,
   computeDoReadinessSummary,
+  computeGasPinHash,
   computeImportirSummaries,
   computeSha256Hex,
   createEmptyChecklist,
   DEFAULT_CHECKLIST_ITEMS,
+  DEFAULT_GAS_DEPLOY_PIN,
   DEFAULT_PENGATURAN,
   DEFAULT_STATUS_LIST,
   filterBillingShipments,
@@ -61,7 +63,9 @@ import {
   PHASE_1_FIELDS,
   PHASE_2_FIELDS,
   resolveUserPhasePermissions,
+  validateGasPinFormat,
   validateShipmentInput,
+  verifyGasDeployPin,
 } from './ppjkLogic';
 import type { Shipment } from '../types/ppjk';
 
@@ -1264,6 +1268,29 @@ test('computeImportirSummaries, formatCurrencyTotals, and filterShipments by imp
     ['OS-2611-0802']
   );
 });
+
+test('GAS Deploy PIN validation, hashing, and verification protect GAS code module', async () => {
+  // Format validation
+  assert.equal(validateGasPinFormat('').valid, false);
+  assert.equal(validateGasPinFormat('12345').valid, false);
+  assert.equal(validateGasPinFormat('1234567890123').valid, false);
+  assert.equal(validateGasPinFormat('12 3456').valid, false);
+  assert.equal(validateGasPinFormat('1234!@').valid, false);
+  assert.equal(validateGasPinFormat('250888').valid, true);
+  assert.equal(validateGasPinFormat('PTG2026').valid, true);
+
+  // Default PIN verification when no custom hash stored
+  assert.equal(await verifyGasDeployPin(DEFAULT_GAS_DEPLOY_PIN), true);
+  assert.equal(await verifyGasDeployPin('000000'), false);
+  assert.equal(await verifyGasDeployPin(''), false);
+
+  // Custom PIN verification once updated
+  const customHash = await computeGasPinHash('PTG9988');
+  assert.equal(customHash.length, 64);
+  assert.equal(await verifyGasDeployPin(DEFAULT_GAS_DEPLOY_PIN, customHash), false);
+  assert.equal(await verifyGasDeployPin('PTG9988', customHash), true);
+});
+
 
 
 
