@@ -37,6 +37,7 @@ import {
   generateNextKodeOS,
   getAllowedFieldsForPermissions,
   isShipmentBillingEligible,
+  isShipmentOutstanding,
   normalizeGatePassJenis,
   normalizeStatusDokumen,
   normalizeStatusDoPelayaran,
@@ -45,6 +46,7 @@ import {
   normalizeStatusPenagihan,
   normalizeStatusSuratJalan,
   normalizeStatusTrucking,
+  reconcileAllShipmentsDerivedState,
   resolveUserPhasePermissions,
   validateShipmentInput,
 } from '../utils/ppjkLogic';
@@ -62,7 +64,7 @@ export interface DatabaseState {
   pengaturan: Pengaturan;
 }
 
-const DB_STORAGE_KEY = 'PTG_PPJK_DB_V1';
+export const DB_STORAGE_KEY = 'PTG_PPJK_DB_V1';
 const SESSION_STORAGE_KEY = 'PTG_PPJK_SESSION_V1';
 
 const VALID_ROLES: UserRole[] = [
@@ -730,51 +732,76 @@ export async function ensureDbInitialized(): Promise<DatabaseState> {
       };
       changed = true;
     }
-    if (changed) {
+    // Recalculate dynamic countdown ETA, container summary, status normalizations, Surat Jalan & Billing, and seqByMonth
+    const reconciled = reconcileAllShipmentsDerivedState(
+      existing.shipments || [],
+      existing.kontainers || [],
+      existing.pengaturan.seqByMonth || {}
+    );
+    existing.shipments = reconciled.shipments;
+    if (reconciled.seqChanged) {
+      existing.pengaturan = {
+        ...existing.pengaturan,
+        seqByMonth: reconciled.seqByMonth,
+      };
+      changed = true;
+    }
+    if (changed || reconciled.hasChanges) {
       writeDbToStorage(existing);
     }
-    // Recalculate dynamic countdown ETA and normalize statusDokumen/D/O/Surat Jalan/Billing fields on read
-    existing.shipments = existing.shipments.map((s) => {
-      const normalizedGateOut = normalizeStatusGateOut(s.gateOutStatus, s.status);
-      const sjPatch =
-        normalizedGateOut === 'Sudah'
-          ? buildAutoSuratJalanFields(s, s.gateOutTanggal || formatDateOffset(0), s.updatedAt)
-          : {
-              suratJalanNomor: s.suratJalanNomor || '',
-              suratJalanTanggal: s.suratJalanTanggal || '',
-              suratJalanStatus: normalizeStatusSuratJalan(s.suratJalanStatus, normalizedGateOut, s.status),
-              suratJalanTujuan: s.suratJalanTujuan || '',
-              suratJalanUpdatedAt: s.suratJalanUpdatedAt || '',
-            };
-      const normalizedBase: Shipment = {
-        ...s,
-        statusDokumen: normalizeStatusDokumen(s.statusDokumen),
-        doPelayaranStatus: normalizeStatusDoPelayaran(s.doPelayaranStatus),
-        doGatePassStatus: normalizeStatusGatePass(s.doGatePassStatus),
-        doGatePassJenis: normalizeGatePassJenis(s.doGatePassJenis),
-        truckingStatus: normalizeStatusTrucking(s.truckingStatus),
-        gateOutStatus: normalizedGateOut,
-        ...sjPatch,
-        countDownEta: calculateCountdownEta(s.eta),
-      };
-      if (isShipmentBillingEligible(normalizedBase)) {
-        const autoBill = buildAutoBillingFields(normalizedBase, formatDateOffset(0));
-        return {
-          ...normalizedBase,
-          ...autoBill,
-        };
-      }
-      return {
-        ...normalizedBase,
-        billingStatus: normalizeStatusPenagihan(s.billingStatus, normalizedBase),
-      };
-    });
     return existing;
   }
   const users = await createSeedUsers();
   const seeded = createSeedDatabase(users);
   writeDbToStorage(seeded);
   return seeded;
+}
+
+export interface SyncRefreshResult {
+  db: DatabaseState;
+  updatedShipmentsCount: number;
+  seqUpdated: boolean;
+  totalShipments: number;
+  outstandingCount: number;
+  syncedAt: string;
+}
+
+export async function refreshAndSyncDatabase(): Promise<SyncRefreshResult> {
+  const rawExisting = readDbFromStorage();
+  if (!rawExisting || !Array.isArray(rawExisting.users) || rawExisting.users.length === 0) {
+    const initialized = await ensureDbInitialized();
+    const outstandingCount = initialized.shipments.filter((s) =>
+      isShipmentOutstanding(s, initialized.pengaturan.checklistItems)
+    ).length;
+    return {
+      db: initialized,
+      updatedShipmentsCount: initialized.shipments.length,
+      seqUpdated: false,
+      totalShipments: initialized.shipments.length,
+      outstandingCount,
+      syncedAt: new Date().toISOString(),
+    };
+  }
+
+  const preReconcile = reconcileAllShipmentsDerivedState(
+    rawExisting.shipments || [],
+    rawExisting.kontainers || [],
+    rawExisting.pengaturan?.seqByMonth || {}
+  );
+
+  const syncedDb = await ensureDbInitialized();
+  const outstandingCount = syncedDb.shipments.filter((s) =>
+    isShipmentOutstanding(s, syncedDb.pengaturan.checklistItems)
+  ).length;
+
+  return {
+    db: syncedDb,
+    updatedShipmentsCount: preReconcile.updatedShipmentsCount,
+    seqUpdated: preReconcile.seqChanged,
+    totalShipments: syncedDb.shipments.length,
+    outstandingCount,
+    syncedAt: new Date().toISOString(),
+  };
 }
 
 function assertSessionActive(db: DatabaseState, session: SessionUser): UserAccount {

@@ -39,6 +39,7 @@ import {
   addShipmentDocument,
   authenticateUser,
   type DatabaseState,
+  DB_STORAGE_KEY,
   deleteCustomerMaster,
   deleteImportirMaster,
   deleteShipmentDocument,
@@ -46,6 +47,7 @@ import {
   deleteShipperMaster,
   ensureDbInitialized,
   getStoredSession,
+  refreshAndSyncDatabase,
   resetDatabase,
   saveCustomerMaster,
   saveImportirMaster,
@@ -146,6 +148,8 @@ export default function App() {
 
   const [driveUserEmail, setDriveUserEmail] = useState<string | null>(null);
   const [driveConnecting, setDriveConnecting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
@@ -204,6 +208,7 @@ export default function App() {
         const loadedDb = await ensureDbInitialized();
         if (!active) return;
         setDb(loadedDb);
+        setLastSyncedAt(new Date().toISOString());
 
         const existingSession = getStoredSession();
         if (existingSession) {
@@ -225,6 +230,18 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const onStorageSync = (e: StorageEvent) => {
+      if (e.key !== DB_STORAGE_KEY) return;
+      void refreshAndSyncDatabase().then((res) => {
+        setDb({ ...res.db });
+        setLastSyncedAt(res.syncedAt);
+      });
+    };
+    window.addEventListener('storage', onStorageSync);
+    return () => window.removeEventListener('storage', onStorageSync);
+  }, []);
+
   const searchMatches = useMemo(() => {
     if (!db || !globalSearch.trim()) return [];
     return filterShipments(
@@ -241,12 +258,82 @@ export default function App() {
     );
   }, [db]);
 
+  const formatSyncClock = (iso: string | null): string => {
+    if (!iso) return '-';
+    const parsed = new Date(iso);
+    if (Number.isNaN(parsed.getTime())) return '-';
+    return parsed.toLocaleTimeString('id-ID', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  };
+
   const handleRefreshData = async () => {
-    const refreshed = await ensureDbInitialized();
-    setDb({ ...refreshed });
-    if (session) {
-      const synced = await syncSessionWithDb(session);
-      setSession(synced);
+    if (refreshing) return;
+    setRefreshing(true);
+    const startMs = Date.now();
+    try {
+      const result = await refreshAndSyncDatabase();
+      setDb({ ...result.db });
+
+      if (session) {
+        const synced = await syncSessionWithDb(session);
+        setSession(synced);
+      }
+
+      let driveNote = '';
+      const accessToken = getGoogleDriveAccessToken();
+      if (accessToken) {
+        try {
+          const driveFiles = await listGoogleDriveFiles({ accessToken, pageSize: 100 });
+          driveNote = ` • Drive: ${driveFiles.length} file`;
+        } catch {
+          driveNote = ' • Drive perlu login ulang';
+        }
+      }
+
+      const elapsed = Date.now() - startMs;
+      if (elapsed < 280) {
+        await new Promise((resolve) => setTimeout(resolve, 280 - elapsed));
+      }
+
+      setLastSyncedAt(result.syncedAt);
+      const syncClock = formatSyncClock(result.syncedAt);
+      const updateSummary =
+        result.updatedShipmentsCount > 0
+          ? `${result.updatedShipmentsCount} shipment diperbarui`
+          : 'Semua data sudah terbaru';
+
+      void Swal.fire({
+        toast: true,
+        position: 'bottom-end',
+        icon: 'success',
+        title: 'Data Berhasil Disinkronkan',
+        text: `${result.totalShipments} shipment (${result.outstandingCount} outstanding) • ${updateSummary}${driveNote} • ${syncClock}`,
+        background: darkMode ? '#151B2B' : '#FFFFFF',
+        color: darkMode ? '#F1F5F9' : '#0F172A',
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true,
+      });
+    } catch (err) {
+      await Swal.fire({
+        toast: true,
+        position: 'bottom-end',
+        icon: 'error',
+        title: 'Gagal Memperbarui Data',
+        text:
+          err instanceof Error
+            ? err.message
+            : 'Terjadi kendala saat menyinkronkan data aplikasi.',
+        background: darkMode ? '#151B2B' : '#FFFFFF',
+        color: darkMode ? '#F1F5F9' : '#0F172A',
+        showConfirmButton: false,
+        timer: 3200,
+      });
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -254,6 +341,7 @@ export default function App() {
     setSession(newSession);
     const loadedDb = await ensureDbInitialized();
     setDb(loadedDb);
+    setLastSyncedAt(new Date().toISOString());
     setActiveView('dashboard');
   };
 
@@ -913,12 +1001,33 @@ export default function App() {
 
             <button
               type="button"
+              data-testid="refresh-sync-btn"
               onClick={handleRefreshData}
-              aria-label="Refresh data"
-              title="Refresh data"
-              className="inline-flex items-center justify-center w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 dark:bg-[#151B2B] dark:hover:bg-[#1D253B] border border-transparent dark:border-white/[0.07] text-white cursor-pointer"
+              disabled={refreshing}
+              aria-label="Sync & Perbarui Data"
+              title={
+                refreshing
+                  ? 'Sedang menyinkronkan & memperbarui data...'
+                  : lastSyncedAt
+                    ? `Sync & Perbarui Data (Terakhir: ${formatSyncClock(lastSyncedAt)})`
+                    : 'Sync & Perbarui Data'
+              }
+              className="relative inline-flex items-center justify-center gap-1.5 h-9 px-2.5 lg:px-3 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-70 dark:bg-[#151B2B] dark:hover:bg-[#1D253B] border border-white/10 dark:border-white/[0.08] text-white cursor-pointer transition-colors"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw
+                className={`w-4 h-4 shrink-0 ${
+                  refreshing ? 'animate-spin text-amber-300' : 'text-emerald-300'
+                }`}
+              />
+              <span className="hidden lg:inline text-[11.5px] font-semibold whitespace-nowrap">
+                {refreshing ? 'Sync...' : 'Sync'}
+              </span>
+              {!refreshing && lastSyncedAt && (
+                <span
+                  aria-hidden="true"
+                  className="lg:hidden absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-emerald-400"
+                />
+              )}
             </button>
 
             {/* User Profile Pill matching mockup */}

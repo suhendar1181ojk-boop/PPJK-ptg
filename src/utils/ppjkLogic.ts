@@ -2780,4 +2780,170 @@ export function computeNopenRecapSummary(
   };
 }
 
+export interface ReconcileShipmentResult {
+  shipment: Shipment;
+  changed: boolean;
+}
+
+export interface ReconcileDatabaseDerivedResult {
+  shipments: Shipment[];
+  updatedShipmentsCount: number;
+  seqByMonth: Record<string, number>;
+  seqChanged: boolean;
+  hasChanges: boolean;
+}
+
+/**
+ * Menghitung ulang seluruh field turunan pada 1 shipment (countdown ETA, ringkasan kontainer,
+ * normalisasi status dokumen/DO/gate-pass/trucking/gate-out, auto Surat Jalan & auto Penagihan).
+ */
+export function reconcileShipmentDerivedFields(
+  shipment: Shipment,
+  shipmentContainers: KontainerItem[] = [],
+  referenceDate: Date = new Date()
+): ReconcileShipmentResult {
+  const todayIso = [
+    referenceDate.getFullYear(),
+    String(referenceDate.getMonth() + 1).padStart(2, '0'),
+    String(referenceDate.getDate()).padStart(2, '0'),
+  ].join('-');
+
+  const normalizedGateOut = normalizeStatusGateOut(shipment.gateOutStatus, shipment.status);
+  const sjPatch =
+    normalizedGateOut === 'Sudah'
+      ? buildAutoSuratJalanFields(
+          shipment,
+          shipment.gateOutTanggal || todayIso,
+          shipment.updatedAt
+        )
+      : {
+          suratJalanNomor: shipment.suratJalanNomor || '',
+          suratJalanTanggal: shipment.suratJalanTanggal || '',
+          suratJalanStatus: normalizeStatusSuratJalan(
+            shipment.suratJalanStatus,
+            normalizedGateOut,
+            shipment.status
+          ),
+          suratJalanTujuan: shipment.suratJalanTujuan || '',
+          suratJalanUpdatedAt: shipment.suratJalanUpdatedAt || '',
+        };
+
+  const nextNoCont =
+    shipmentContainers.length > 0
+      ? formatContainerSummary(shipmentContainers)
+      : shipment.noCont || '-';
+
+  const normalizedBase: Shipment = {
+    ...shipment,
+    noCont: nextNoCont,
+    statusDokumen: normalizeStatusDokumen(shipment.statusDokumen),
+    doPelayaranStatus: normalizeStatusDoPelayaran(shipment.doPelayaranStatus),
+    doGatePassStatus: normalizeStatusGatePass(shipment.doGatePassStatus),
+    doGatePassJenis: normalizeGatePassJenis(shipment.doGatePassJenis),
+    truckingStatus: normalizeStatusTrucking(shipment.truckingStatus),
+    gateOutStatus: normalizedGateOut,
+    ...sjPatch,
+    countDownEta: calculateCountdownEta(shipment.eta, referenceDate),
+  };
+
+  let finalShipment: Shipment;
+  if (isShipmentBillingEligible(normalizedBase)) {
+    const autoBill = buildAutoBillingFields(normalizedBase, todayIso);
+    finalShipment = {
+      ...normalizedBase,
+      ...autoBill,
+    };
+  } else {
+    finalShipment = {
+      ...normalizedBase,
+      billingStatus: normalizeStatusPenagihan(shipment.billingStatus, normalizedBase),
+    };
+  }
+
+  const changed =
+    finalShipment.countDownEta !== shipment.countDownEta ||
+    finalShipment.noCont !== shipment.noCont ||
+    finalShipment.statusDokumen !== shipment.statusDokumen ||
+    finalShipment.doPelayaranStatus !== shipment.doPelayaranStatus ||
+    finalShipment.doGatePassStatus !== shipment.doGatePassStatus ||
+    finalShipment.doGatePassJenis !== shipment.doGatePassJenis ||
+    finalShipment.truckingStatus !== shipment.truckingStatus ||
+    finalShipment.gateOutStatus !== shipment.gateOutStatus ||
+    (finalShipment.suratJalanNomor || '') !== (shipment.suratJalanNomor || '') ||
+    (finalShipment.suratJalanTanggal || '') !== (shipment.suratJalanTanggal || '') ||
+    finalShipment.suratJalanStatus !== shipment.suratJalanStatus ||
+    (finalShipment.billingNomor || '') !== (shipment.billingNomor || '') ||
+    (finalShipment.billingTanggal || '') !== (shipment.billingTanggal || '') ||
+    finalShipment.billingStatus !== shipment.billingStatus ||
+    finalShipment.billingTotal !== shipment.billingTotal;
+
+  return {
+    shipment: finalShipment,
+    changed,
+  };
+}
+
+/**
+ * Menjaga agar seqByMonth selalu sinkron minimal sama dengan nomor urut OS-YYMM-NNNN terbesar.
+ */
+export function reconcileSeqByMonth(
+  shipments: Shipment[],
+  seqByMonth: Record<string, number> = {}
+): { seqByMonth: Record<string, number>; changed: boolean } {
+  const nextSeq: Record<string, number> = { ...seqByMonth };
+  let changed = false;
+
+  for (const s of shipments) {
+    const match = /^OS-(\d{4})-(\d+)$/i.exec((s.kodeOs || '').trim());
+    if (!match) continue;
+    const monthKey = match[1];
+    const seqNum = Number.parseInt(match[2], 10);
+    if (!Number.isFinite(seqNum)) continue;
+    if ((nextSeq[monthKey] || 0) < seqNum) {
+      nextSeq[monthKey] = seqNum;
+      changed = true;
+    }
+  }
+
+  return { seqByMonth: nextSeq, changed };
+}
+
+/**
+ * Rekonsiliasi menyeluruh seluruh shipment & sequence penomoran saat refresh/sync database.
+ */
+export function reconcileAllShipmentsDerivedState(
+  shipments: Shipment[],
+  kontainers: KontainerItem[] = [],
+  seqByMonth: Record<string, number> = {},
+  referenceDate: Date = new Date()
+): ReconcileDatabaseDerivedResult {
+  const contByOs = new Map<string, KontainerItem[]>();
+  for (const k of kontainers) {
+    const key = (k.kodeOs || '').trim();
+    if (!key) continue;
+    const list = contByOs.get(key) || [];
+    list.push(k);
+    contByOs.set(key, list);
+  }
+
+  let updatedShipmentsCount = 0;
+  const nextShipments = shipments.map((s) => {
+    const related = contByOs.get((s.kodeOs || '').trim()) || [];
+    const res = reconcileShipmentDerivedFields(s, related, referenceDate);
+    if (res.changed) updatedShipmentsCount++;
+    return res.shipment;
+  });
+
+  const seqRes = reconcileSeqByMonth(nextShipments, seqByMonth);
+
+  return {
+    shipments: nextShipments,
+    updatedShipmentsCount,
+    seqByMonth: seqRes.seqByMonth,
+    seqChanged: seqRes.changed,
+    hasChanges: updatedShipmentsCount > 0 || seqRes.changed,
+  };
+}
+
+
 

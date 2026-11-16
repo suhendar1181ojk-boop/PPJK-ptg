@@ -71,13 +71,16 @@ import {
   parseCustomerContact,
   PHASE_1_FIELDS,
   PHASE_2_FIELDS,
+  reconcileAllShipmentsDerivedState,
+  reconcileSeqByMonth,
+  reconcileShipmentDerivedFields,
   resolveNopenDateRange,
   resolveUserPhasePermissions,
   validateGasPinFormat,
   validateShipmentInput,
   verifyGasDeployPin,
 } from './ppjkLogic';
-import type { Shipment } from '../types/ppjk';
+import type { KontainerItem, Shipment } from '../types/ppjk';
 
 function makeShipment(overrides: Partial<Shipment> = {}): Shipment {
   const fullChecklist = createEmptyChecklist(DEFAULT_CHECKLIST_ITEMS);
@@ -1535,6 +1538,74 @@ test('NOPEN / Nomor Pendaftaran PIB monthly & date-to-date recap filters and sum
   assert.equal(novSummary.byImportir[1].kodeImportir, 'IMP-002');
   assert.equal(novSummary.byImportir[1].bmPdriTotal, 89200000);
 });
+
+test('reconcileAllShipmentsDerivedState refreshes countdown ETA, containers, Surat Jalan, Billing, and seqByMonth', () => {
+  const refDate = new Date(2026, 10, 16); // 2026-11-16
+  const staleShipment = makeShipment({
+    kodeOs: 'OS-2611-0012',
+    eta: '2026-11-20',
+    countDownEta: 99, // stale! should become 4
+    noCont: '-',
+    gateOutStatus: 'Sudah',
+    gateOutTanggal: '2026-11-16',
+    noSppb: 'SPPB-0012',
+    suratJalanNomor: '',
+    billingNomor: '',
+  });
+  const freshShipment = makeShipment({
+    kodeOs: 'OS-2611-0005',
+    eta: '2026-11-18',
+    countDownEta: 2,
+    noCont: '-',
+    statusDokumen: 'Draft',
+    doPelayaranStatus: 'Belum',
+    doGatePassStatus: 'Belum',
+    doGatePassJenis: '',
+    truckingStatus: 'Belum',
+    gateOutStatus: 'Belum',
+    suratJalanStatus: 'Belum',
+    billingStatus: 'Belum',
+  });
+  const kontainers: KontainerItem[] = [
+    { id: 'c-1', kodeOs: 'OS-2611-0012', noCont: 'MSCU1234567', ukuranTipe: '40HC' },
+  ];
+
+  const singleRes = reconcileShipmentDerivedFields(staleShipment, kontainers, refDate);
+  assert.equal(singleRes.changed, true);
+  assert.equal(singleRes.shipment.countDownEta, 4);
+  assert.equal(singleRes.shipment.noCont, 'MSCU1234567 (40HC)');
+  assert.match(singleRes.shipment.suratJalanNomor || '', /^SJ-2611-/);
+  assert.match(singleRes.shipment.billingNomor || '', /^INV-2611-/);
+
+  const seqCheck = reconcileSeqByMonth([staleShipment, freshShipment], { '2611': 5 });
+  assert.equal(seqCheck.changed, true);
+  assert.equal(seqCheck.seqByMonth['2611'], 12);
+
+  const allRes = reconcileAllShipmentsDerivedState(
+    [staleShipment, freshShipment],
+    kontainers,
+    { '2611': 5 },
+    refDate
+  );
+  assert.equal(allRes.hasChanges, true);
+  assert.equal(allRes.updatedShipmentsCount, 1);
+  assert.equal(allRes.seqChanged, true);
+  assert.equal(allRes.seqByMonth['2611'], 12);
+  assert.equal(allRes.shipments[0].countDownEta, 4);
+  assert.equal(allRes.shipments[1].countDownEta, 2);
+
+  // Second run on already reconciled state should report no changes
+  const secondRun = reconcileAllShipmentsDerivedState(
+    allRes.shipments,
+    kontainers,
+    allRes.seqByMonth,
+    refDate
+  );
+  assert.equal(secondRun.hasChanges, false);
+  assert.equal(secondRun.updatedShipmentsCount, 0);
+  assert.equal(secondRun.seqChanged, false);
+});
+
 
 
 
