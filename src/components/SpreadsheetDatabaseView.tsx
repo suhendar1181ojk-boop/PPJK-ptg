@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
 import {
+  AlertTriangle,
   CheckCircle2,
   Cloud,
   CloudOff,
+  Copy,
   Download,
   ExternalLink,
   FileSpreadsheet,
@@ -11,6 +13,7 @@ import {
   Link2,
   PlusCircle,
   RefreshCw,
+  ShieldCheck,
   Table2,
   Unlink,
   Upload,
@@ -22,6 +25,11 @@ import {
   extractSpreadsheetIdFromInput,
 } from '../utils/sheetsSchema';
 import type { SpreadsheetDriveEntry } from '../services/googleSheetsService';
+import { fetchFirebaseAuthorizedDomains } from '../services/googleDriveService';
+import {
+  buildUnauthorizedDomainHelp,
+  type GoogleAuthDomainStatus,
+} from '../utils/googleAuthLogic';
 
 interface SpreadsheetDatabaseViewProps {
   db: DatabaseState;
@@ -64,6 +72,23 @@ export function SpreadsheetDatabaseView({
   const [existingInput, setExistingInput] = useState(db.pengaturan.spreadsheetId || '');
   const [driveSheets, setDriveSheets] = useState<SpreadsheetDriveEntry[]>([]);
   const [loadingList, setLoadingList] = useState(false);
+  const [domainStatus, setDomainStatus] = useState<GoogleAuthDomainStatus | null>(null);
+  const [checkingDomain, setCheckingDomain] = useState(false);
+  const [copiedDomain, setCopiedDomain] = useState(false);
+
+  const checkDomainStatus = async (forceRefresh = false) => {
+    setCheckingDomain(true);
+    try {
+      const status = await fetchFirebaseAuthorizedDomains(forceRefresh);
+      setDomainStatus(status);
+    } finally {
+      setCheckingDomain(false);
+    }
+  };
+
+  useEffect(() => {
+    void checkDomainStatus(false);
+  }, []);
 
   const linkedId = db.pengaturan.spreadsheetId || '';
   const linkedTitle = db.pengaturan.spreadsheetTitle || 'PTG_PPJK_DATABASE';
@@ -183,36 +208,128 @@ export function SpreadsheetDatabaseView({
       </div>
 
       {/* Step 1: Google Account Auth Status */}
-      <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08] flex flex-wrap items-center justify-between gap-3">
-        <div className="space-y-0.5 min-w-0">
-          <div className="text-xs font-bold text-[#0B2545] dark:text-white flex items-center gap-1.5">
-            <Cloud className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            <span>1. Koneksi Akun Google (Google Sheets &amp; Drive)</span>
+      <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08] space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-0.5 min-w-0">
+            <div className="text-xs font-bold text-[#0B2545] dark:text-white flex items-center gap-1.5 flex-wrap">
+              <Cloud className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <span>1. Koneksi Akun Google (Google Sheets &amp; Drive)</span>
+              {domainStatus && !domainStatus.checkError && (
+                <span
+                  data-testid="google-auth-domain-badge"
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10.5px] font-semibold border ${
+                    domainStatus.isDomainAuthorizedInFirebase
+                      ? 'bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/35'
+                      : 'bg-amber-50 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-500/35'
+                  }`}
+                >
+                  {domainStatus.isDomainAuthorizedInFirebase ? (
+                    <ShieldCheck className="w-3 h-3" />
+                  ) : (
+                    <AlertTriangle className="w-3 h-3" />
+                  )}
+                  <span>
+                    {domainStatus.isDomainAuthorizedInFirebase
+                      ? `Domain Terotorisasi (${domainStatus.currentHostname})`
+                      : `Domain Perlu Otorisasi / GIS (${domainStatus.currentHostname})`}
+                  </span>
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-600 dark:text-slate-400">
+              {driveUserEmail
+                ? `Terhubung sebagai ${driveUserEmail}. Izin baca/tulis Google Spreadsheet aktif untuk sesi ini.`
+                : 'Masuk dengan akun Google Anda agar aplikasi dapat membuat, membaca, dan memperbarui file Google Spreadsheet.'}
+            </p>
           </div>
-          <p className="text-[11px] text-slate-600 dark:text-slate-400">
-            {driveUserEmail
-              ? `Terhubung sebagai ${driveUserEmail}. Izin baca/tulis Google Spreadsheet aktif untuk sesi ini.`
-              : 'Masuk dengan akun Google Anda agar aplikasi dapat membuat, membaca, dan memperbarui file Google Spreadsheet.'}
-          </p>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {driveUserEmail ? (
+              <button
+                type="button"
+                onClick={() => void onDisconnectGoogle()}
+                className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-white/15 bg-white dark:bg-[#182032] hover:bg-slate-100 dark:hover:bg-[#1F2940] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+              >
+                Putuskan Akun Google
+              </button>
+            ) : (
+              <GoogleSignInButton
+                onClick={() => void onConnectGoogle()}
+                disabled={driveConnecting}
+                label={driveConnecting ? 'Menghubungkan...' : 'Sign in with Google'}
+              />
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          {driveUserEmail ? (
-            <button
-              type="button"
-              onClick={() => void onDisconnectGoogle()}
-              className="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-white/15 bg-white dark:bg-[#182032] hover:bg-slate-100 dark:hover:bg-[#1F2940] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+        {domainStatus && !domainStatus.isDomainAuthorizedInFirebase && !driveUserEmail && (() => {
+          const help = buildUnauthorizedDomainHelp({
+            currentHostname: domainStatus.currentHostname,
+            currentOrigin: domainStatus.currentOrigin,
+            projectId: domainStatus.projectId,
+            oAuthClientId: domainStatus.oAuthClientId,
+            authorizedDomains: domainStatus.authorizedDomains,
+          });
+          return (
+            <div
+              data-testid="google-auth-domain-warning"
+              className="p-3 rounded-xl bg-amber-50/80 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-[11px] text-amber-950 dark:text-amber-200 space-y-2"
             >
-              Putuskan Akun Google
-            </button>
-          ) : (
-            <GoogleSignInButton
-              onClick={() => void onConnectGoogle()}
-              disabled={driveConnecting}
-              label={driveConnecting ? 'Menghubungkan...' : 'Sign in with Google'}
-            />
-          )}
-        </div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="font-semibold">
+                  Info Domain: <code className="font-mono-code px-1.5 py-0.5 rounded bg-white/80 dark:bg-[#131926]">{help.currentHostname}</code> belum masuk Authorized Domains Firebase (<code className="font-mono-code">{help.projectId}</code>). Saat klik Sign in, aplikasi otomatis mencoba fallback OAuth (GIS).
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void checkDomainStatus(true)}
+                  disabled={checkingDomain}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-amber-300 dark:border-amber-500/40 bg-white dark:bg-[#182032] text-[10.5px] font-semibold cursor-pointer"
+                >
+                  <RefreshCw className={`w-3 h-3 ${checkingDomain ? 'animate-spin' : ''}`} />
+                  <span>Cek Ulang</span>
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (navigator.clipboard?.writeText) {
+                      void navigator.clipboard.writeText(help.currentHostname).then(() => {
+                        setCopiedDomain(true);
+                        setTimeout(() => setCopiedDomain(false), 2000);
+                      });
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white dark:bg-[#182032] border border-amber-300 dark:border-amber-500/40 font-semibold text-amber-900 dark:text-amber-200 cursor-pointer"
+                >
+                  <Copy className="w-3 h-3" />
+                  <span>{copiedDomain ? 'Domain Tersalin!' : `Salin Domain (${help.currentHostname})`}</span>
+                </button>
+                <a
+                  href={help.firebaseConsoleUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+                >
+                  <span>Firebase Authorized Domains</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+                {help.preferredAppUrls.slice(0, 1).map((url) => (
+                  <a
+                    key={url}
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#0B2545] hover:bg-[#123663] text-white font-semibold"
+                  >
+                    <span>Buka URL Terotorisasi</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Step 2: Active Linked Spreadsheet Card OR Setup Options */}

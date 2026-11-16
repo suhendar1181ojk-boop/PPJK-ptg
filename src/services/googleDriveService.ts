@@ -7,6 +7,14 @@ import {
   type User,
 } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
+import {
+  buildGoogleUserFromDriveAbout,
+  classifyGoogleAuthError,
+  type GoogleAuthDomainStatus,
+  GoogleAuthDomainError,
+  type GoogleDriveConnectedAccount,
+  isHostnameInAuthorizedDomains,
+} from '../utils/googleAuthLogic';
 
 export const SCOPES = [
   'https://www.googleapis.com/auth/drive',
@@ -34,10 +42,52 @@ for (const scope of SCOPES) {
 }
 provider.setCustomParameters({ prompt: 'select_account' });
 
+interface GisTokenResponse {
+  access_token?: string;
+  error?: string;
+  error_description?: string;
+}
+
+interface GisClientError {
+  type?: string;
+  message?: string;
+}
+
+interface GisOAuth2Api {
+  initTokenClient: (config: {
+    client_id: string;
+    scope: string;
+    callback: (response: GisTokenResponse) => void;
+    error_callback?: (error: GisClientError) => void;
+  }) => {
+    requestAccessToken: (overrideConfig?: { prompt?: string }) => void;
+  };
+  revoke?: (accessToken: string, done?: () => void) => void;
+}
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        oauth2?: GisOAuth2Api;
+      };
+    };
+  }
+}
+
 // Token hanya disimpan di memori (tidak pernah disimpan di localStorage / sessionStorage)
 let isSigningIn = false;
 let cachedAccessToken: string | null = null;
 let cachedGoogleUser: User | null = null;
+let cachedAccount: GoogleDriveConnectedAccount | null = null;
+let cachedDomainStatus: GoogleAuthDomainStatus | null = null;
+let gisScriptPromise: Promise<void> | null = null;
+
+interface AuthListenerEntry {
+  onAuthSuccess?: (user: { email: string | null; displayName: string | null }, token: string) => void;
+  onAuthNeedsSignIn?: (user: { email: string | null; displayName: string | null } | null) => void;
+}
+const authListeners = new Set<AuthListenerEntry>();
 
 export interface DriveFileEntry {
   id: string;
@@ -48,54 +98,364 @@ export interface DriveFileEntry {
   size?: string;
 }
 
+export function getFirebaseAuthConfigInfo() {
+  return {
+    projectId: firebaseConfig.projectId || '',
+    authDomain: firebaseConfig.authDomain || '',
+    apiKey: firebaseConfig.apiKey || '',
+    oAuthClientId: firebaseConfig.oAuthClientId || '',
+  };
+}
+
+export async function fetchFirebaseAuthorizedDomains(
+  forceRefresh = false
+): Promise<GoogleAuthDomainStatus> {
+  const currentHostname =
+    typeof window !== 'undefined' ? window.location.hostname : '';
+  const currentOrigin =
+    typeof window !== 'undefined' ? window.location.origin : '';
+
+  if (!forceRefresh && cachedDomainStatus && cachedDomainStatus.currentHostname === currentHostname) {
+    return cachedDomainStatus;
+  }
+
+  const cfg = getFirebaseAuthConfigInfo();
+  const baseStatus: GoogleAuthDomainStatus = {
+    currentHostname,
+    currentOrigin,
+    projectId: cfg.projectId,
+    oAuthClientId: cfg.oAuthClientId,
+    authorizedDomains: [],
+    isDomainAuthorizedInFirebase: false,
+    checkedAt: new Date().toISOString(),
+  };
+
+  if (!cfg.apiKey) {
+    return {
+      ...baseStatus,
+      checkError: 'Konfigurasi Firebase API Key tidak tersedia.',
+    };
+  }
+
+  try {
+    const res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/projects?key=${encodeURIComponent(cfg.apiKey)}`
+    );
+    if (!res.ok) {
+      return {
+        ...baseStatus,
+        checkError: `Gagal memeriksa domain terotorisasi (HTTP ${res.status}).`,
+      };
+    }
+    const data = (await res.json()) as { authorizedDomains?: string[] };
+    const domains = Array.isArray(data.authorizedDomains) ? data.authorizedDomains : [];
+    const status: GoogleAuthDomainStatus = {
+      ...baseStatus,
+      authorizedDomains: domains,
+      isDomainAuthorizedInFirebase: isHostnameInAuthorizedDomains(currentHostname, domains),
+      checkedAt: new Date().toISOString(),
+    };
+    cachedDomainStatus = status;
+    return status;
+  } catch (err) {
+    return {
+      ...baseStatus,
+      checkError: err instanceof Error ? err.message : 'Gagal menghubungi Firebase Auth.',
+    };
+  }
+}
+
+function loadGisScript(): Promise<void> {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return Promise.reject(new Error('Browser environment diperlukan untuk login Google.'));
+  }
+  if (window.google?.accounts?.oauth2) {
+    return Promise.resolve();
+  }
+  if (gisScriptPromise) {
+    return gisScriptPromise;
+  }
+
+  gisScriptPromise = new Promise<void>((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>(
+      'script[src="https://accounts.google.com/gsi/client"]'
+    );
+    if (existing) {
+      if (window.google?.accounts?.oauth2) {
+        resolve();
+        return;
+      }
+      existing.addEventListener('load', () => resolve(), { once: true });
+      existing.addEventListener(
+        'error',
+        () => reject(new Error('Gagal memuat Google Identity Services (gsi/client).')),
+        { once: true }
+      );
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => {
+      gisScriptPromise = null;
+      reject(new Error('Gagal memuat skrip Google Identity Services (accounts.google.com/gsi/client).'));
+    };
+    document.head.appendChild(script);
+  });
+
+  return gisScriptPromise;
+}
+
+async function fetchDriveAboutAccount(
+  accessToken: string
+): Promise<GoogleDriveConnectedAccount> {
+  try {
+    const res = await fetch(
+      'https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress,photoLink)',
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+    if (res.ok) {
+      const data = (await res.json()) as {
+        user?: { displayName?: string; emailAddress?: string; photoLink?: string };
+      };
+      if (data?.user) {
+        return buildGoogleUserFromDriveAbout(data.user);
+      }
+    }
+  } catch {
+    // Fallback ke identitas generik bila endpoint /about dibatasi
+  }
+  return {
+    email: 'Google Account Terhubung',
+    displayName: 'Google Account Terhubung',
+    authMethod: 'gis',
+  };
+}
+
+async function signInWithGisFallback(): Promise<{
+  account: GoogleDriveConnectedAccount;
+  accessToken: string;
+}> {
+  const clientId = (firebaseConfig.oAuthClientId || '').trim();
+  if (!clientId) {
+    throw new Error('oAuthClientId belum dikonfigurasi pada firebase-applet-config.json.');
+  }
+
+  await loadGisScript();
+  const oauth2 = window.google?.accounts?.oauth2;
+  if (!oauth2) {
+    throw new Error('Google Identity Services OAuth2 API tidak tersedia di browser.');
+  }
+
+  const accessToken = await new Promise<string>((resolve, reject) => {
+    let settled = false;
+    const timeoutId = window.setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        reject(new Error('Waktu tunggu popup OAuth Google habis.'));
+      }
+    }, 90_000);
+
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      fn();
+    };
+
+    try {
+      const client = oauth2.initTokenClient({
+        client_id: clientId,
+        scope: SCOPES.join(' '),
+        callback: (response: GisTokenResponse) => {
+          if (response?.access_token) {
+            finish(() => resolve(response.access_token!));
+          } else {
+            const errMsg = response?.error_description || response?.error || 'Token OAuth kosong.';
+            finish(() => reject(new Error(errMsg)));
+          }
+        },
+        error_callback: (err: GisClientError) => {
+          const type = err?.type || 'gis_error';
+          const msg = err?.message || type;
+          finish(() => reject(Object.assign(new Error(msg), { code: type })));
+        },
+      });
+      client.requestAccessToken({ prompt: 'select_account' });
+    } catch (err) {
+      finish(() => reject(err));
+    }
+  });
+
+  const account = await fetchDriveAboutAccount(accessToken);
+  return { account, accessToken };
+}
+
+function notifyAuthSuccess(account: GoogleDriveConnectedAccount, token: string) {
+  const userSummary = {
+    email: account.email || null,
+    displayName: account.displayName || null,
+  };
+  for (const listener of authListeners) {
+    listener.onAuthSuccess?.(userSummary, token);
+  }
+}
+
+function notifyAuthNeedsSignIn() {
+  for (const listener of authListeners) {
+    listener.onAuthNeedsSignIn?.(null);
+  }
+}
+
 export function initGoogleDriveAuth(
-  onAuthSuccess?: (user: User, token: string) => void,
-  onAuthNeedsSignIn?: (user: User | null) => void
+  onAuthSuccess?: (user: { email: string | null; displayName: string | null }, token: string) => void,
+  onAuthNeedsSignIn?: (user: { email: string | null; displayName: string | null } | null) => void
 ): () => void {
-  return onAuthStateChanged(auth, (user: User | null) => {
+  const entry: AuthListenerEntry = { onAuthSuccess, onAuthNeedsSignIn };
+  authListeners.add(entry);
+
+  const unsubFirebase = onAuthStateChanged(auth, (user: User | null) => {
     cachedGoogleUser = user;
     if (user && cachedAccessToken) {
+      cachedAccount = {
+        email: user.email || user.displayName || 'Google Drive Terhubung',
+        displayName: user.displayName || user.email || 'Google Drive Terhubung',
+        photoUrl: user.photoURL || undefined,
+        authMethod: 'firebase',
+      };
       onAuthSuccess?.(user, cachedAccessToken);
+    } else if (cachedAccount?.authMethod === 'gis' && cachedAccessToken) {
+      // Sesi aktif melalui Google Identity Services fallback (tanpa Firebase session)
+      onAuthSuccess?.(
+        { email: cachedAccount.email, displayName: cachedAccount.displayName },
+        cachedAccessToken
+      );
     } else if (!isSigningIn) {
       if (!user) {
         cachedAccessToken = null;
+        cachedAccount = null;
       }
       onAuthNeedsSignIn?.(user);
     }
   });
+
+  return () => {
+    authListeners.delete(entry);
+    unsubFirebase();
+  };
 }
 
 export async function googleDriveSignIn(): Promise<{
-  user: User;
+  user: { email: string | null; displayName: string | null };
   accessToken: string;
+  authMethod: 'firebase' | 'gis';
 }> {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, provider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error('Gagal mendapatkan token akses Google Drive dari autentikasi Google.');
+    try {
+      const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (!credential?.accessToken) {
+        throw new Error('Gagal mendapatkan token akses Google Drive dari autentikasi Google.');
+      }
+      cachedAccessToken = credential.accessToken;
+      cachedGoogleUser = result.user;
+      cachedAccount = {
+        email: result.user.email || result.user.displayName || 'Google Drive Terhubung',
+        displayName: result.user.displayName || result.user.email || 'Google Drive Terhubung',
+        photoUrl: result.user.photoURL || undefined,
+        authMethod: 'firebase',
+      };
+      notifyAuthSuccess(cachedAccount, cachedAccessToken);
+      return {
+        user: result.user,
+        accessToken: cachedAccessToken,
+        authMethod: 'firebase',
+      };
+    } catch (firebaseErr) {
+      const classified = classifyGoogleAuthError(firebaseErr);
+      const shouldTryGisFallback =
+        classified.isUnauthorizedDomain ||
+        classified.code === 'auth/operation-not-supported-in-this-environment';
+
+      if (!shouldTryGisFallback) {
+        throw firebaseErr;
+      }
+
+      // Fallback otomatis ke Google Identity Services (GIS) menggunakan OAuth Client ID
+      try {
+        const gisRes = await signInWithGisFallback();
+        cachedAccessToken = gisRes.accessToken;
+        cachedAccount = gisRes.account;
+        notifyAuthSuccess(cachedAccount, cachedAccessToken);
+        return {
+          user: {
+            email: gisRes.account.email,
+            displayName: gisRes.account.displayName,
+          },
+          accessToken: cachedAccessToken,
+          authMethod: 'gis',
+        };
+      } catch (gisErr) {
+        const gisClassified = classifyGoogleAuthError(gisErr);
+        if (gisClassified.isPopupBlocked) {
+          throw gisErr;
+        }
+        const domainStatus = await fetchFirebaseAuthorizedDomains(true);
+        throw new GoogleAuthDomainError({
+          hostname: domainStatus.currentHostname,
+          origin: domainStatus.currentOrigin,
+          projectId: domainStatus.projectId,
+          oAuthClientId: domainStatus.oAuthClientId,
+          authorizedDomains: domainStatus.authorizedDomains,
+          gisFallbackError: gisClassified.isPopupClosed
+            ? 'Popup OAuth Google ditutup (kemungkinan origin_mismatch di Google OAuth Client).'
+            : gisClassified.rawMessage,
+        });
+      }
     }
-    cachedAccessToken = credential.accessToken;
-    cachedGoogleUser = result.user;
-    return { user: result.user, accessToken: cachedAccessToken };
   } finally {
     isSigningIn = false;
   }
 }
 
 export async function googleDriveSignOut(): Promise<void> {
+  const tokenToRevoke = cachedAccessToken;
+  const wasGis = cachedAccount?.authMethod === 'gis';
   cachedAccessToken = null;
   cachedGoogleUser = null;
+  cachedAccount = null;
+
+  if (wasGis && tokenToRevoke && typeof window !== 'undefined') {
+    try {
+      window.google?.accounts?.oauth2?.revoke?.(tokenToRevoke);
+    } catch {
+      // ignore revoke errors
+    }
+  }
   await auth.signOut();
+  notifyAuthNeedsSignIn();
 }
 
 export function getGoogleDriveAccessToken(): string | null {
   return cachedAccessToken;
 }
 
-export function getGoogleDriveUser(): User | null {
-  return cachedGoogleUser;
+export function getGoogleDriveUser(): { email: string | null; displayName: string | null } | null {
+  if (cachedGoogleUser) return cachedGoogleUser;
+  if (cachedAccount) {
+    return { email: cachedAccount.email, displayName: cachedAccount.displayName };
+  }
+  return null;
+}
+
+export function getGoogleDriveAccount(): GoogleDriveConnectedAccount | null {
+  return cachedAccount;
 }
 
 function escapeDriveQueryValue(val: string): string {

@@ -81,6 +81,8 @@ import type { OfflineSyncTask } from './utils/offlineDbLogic';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import {
   deleteGoogleDriveFile,
+  fetchFirebaseAuthorizedDomains,
+  getFirebaseAuthConfigInfo,
   getGoogleDriveAccessToken,
   googleDriveSignIn,
   googleDriveSignOut,
@@ -88,6 +90,11 @@ import {
   listGoogleDriveFiles,
   uploadFileToGoogleDrive,
 } from './services/googleDriveService';
+import {
+  buildUnauthorizedDomainHelp,
+  classifyGoogleAuthError,
+  GoogleAuthDomainError,
+} from './utils/googleAuthLogic';
 import {
   createDatabaseSpreadsheet,
   fetchSpreadsheetMetadata,
@@ -710,14 +717,155 @@ export default function App() {
         }
       }
     } catch (err) {
-      await Swal.fire({
-        title: 'Koneksi Google Drive & Sheets',
-        text:
-          err instanceof Error
-            ? err.message
-            : 'Gagal terhubung ke akun Google. Silakan coba lagi.',
-        icon: 'error',
-      });
+      setDriveConnecting(false);
+      const classified = classifyGoogleAuthError(err);
+      const modalBg = darkMode ? '#131926' : '#ffffff';
+      const modalColor = darkMode ? '#f1f5f9' : '#0f172a';
+
+      if (err instanceof GoogleAuthDomainError || classified.isUnauthorizedDomain) {
+        const domainStatus =
+          err instanceof GoogleAuthDomainError
+            ? {
+                currentHostname: err.hostname,
+                currentOrigin: err.origin,
+                projectId: err.projectId,
+                oAuthClientId: err.oAuthClientId,
+                authorizedDomains: err.authorizedDomains,
+                gisFallbackError: err.gisFallbackError,
+              }
+            : await (async () => {
+                const status = await fetchFirebaseAuthorizedDomains();
+                const cfg = getFirebaseAuthConfigInfo();
+                return {
+                  currentHostname:
+                    status.currentHostname ||
+                    (typeof window !== 'undefined' ? window.location.hostname : ''),
+                  currentOrigin:
+                    status.currentOrigin ||
+                    (typeof window !== 'undefined' ? window.location.origin : ''),
+                  projectId: status.projectId || cfg.projectId,
+                  oAuthClientId: status.oAuthClientId || cfg.oAuthClientId,
+                  authorizedDomains: status.authorizedDomains,
+                  gisFallbackError: classified.rawMessage,
+                };
+              })();
+
+        const help = buildUnauthorizedDomainHelp(domainStatus);
+        const esc = (s: string) =>
+          s
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+
+        const preferredLinksHtml =
+          help.preferredAppUrls.length > 0
+            ? `<div style="margin-top:10px;padding:8px 10px;border-radius:10px;border:1px solid ${
+                darkMode ? 'rgba(16,185,129,0.35)' : '#a7f3d0'
+              };background:${darkMode ? 'rgba(16,185,129,0.1)' : '#ecfdf5'};">
+                <div style="font-weight:700;font-size:11px;margin-bottom:4px;color:${
+                  darkMode ? '#6ee7b7' : '#065f46'
+                };">Domain Aplikasi yang Sudah Terotorisasi:</div>
+                ${help.preferredAppUrls
+                  .slice(0, 2)
+                  .map(
+                    (url) =>
+                      `<div style="font-size:11px;margin-top:2px;word-break:break-all;"><a href="${esc(
+                        url
+                      )}" target="_blank" rel="noopener noreferrer" style="color:${
+                        darkMode ? '#34d399' : '#059669'
+                      };text-decoration:underline;">${esc(url)}</a></div>`
+                  )
+                  .join('')}
+              </div>`
+            : '';
+
+        await Swal.fire({
+          title: 'Domain Belum Terotorisasi',
+          icon: 'warning',
+          background: modalBg,
+          color: modalColor,
+          confirmButtonText: 'Tutup',
+          confirmButtonColor: '#0B2545',
+          width: 540,
+          padding: '1.25rem',
+          html: `
+            <div style="text-align:left;font-size:11.5px;line-height:1.45;">
+              <p style="margin:0 0 8px 0;">
+                Domain <code style="padding:1px 5px;border-radius:5px;background:${
+                  darkMode ? '#1e293b' : '#f1f5f9'
+                };font-weight:700;">${esc(
+                  help.currentHostname
+                )}</code> belum terdaftar di <strong>Authorized Domains</strong> Firebase project <code style="padding:1px 5px;border-radius:5px;background:${
+                  darkMode ? '#1e293b' : '#f1f5f9'
+                };">${esc(help.projectId || '-')}</code>.
+              </p>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+                <button type="button" id="ptg-copy-auth-domain-btn" style="padding:5px 10px;border-radius:7px;border:1px solid ${
+                  darkMode ? 'rgba(255,255,255,0.2)' : '#cbd5e1'
+                };background:${
+                  darkMode ? '#1e293b' : '#f8fafc'
+                };color:${modalColor};font-size:11px;font-weight:600;cursor:pointer;">
+                  Salin Domain (${esc(help.currentHostname)})
+                </button>
+                <a href="${esc(
+                  help.firebaseConsoleUrl
+                )}" target="_blank" rel="noopener noreferrer" style="padding:5px 10px;border-radius:7px;background:#059669;color:#ffffff;font-size:11px;font-weight:600;text-decoration:none;">
+                  Firebase Console
+                </a>
+                <a href="${esc(
+                  help.gcpCredentialsUrl
+                )}" target="_blank" rel="noopener noreferrer" style="padding:5px 10px;border-radius:7px;background:#2563eb;color:#ffffff;font-size:11px;font-weight:600;text-decoration:none;">
+                  OAuth Credentials
+                </a>
+              </div>
+              <ol style="margin:0;padding-left:16px;font-size:11px;">
+                ${help.steps.map((step) => `<li style="margin-bottom:3px;">${esc(step)}</li>`).join('')}
+              </ol>
+              ${preferredLinksHtml}
+            </div>
+          `,
+          didOpen: () => {
+            const copyBtn = document.getElementById('ptg-copy-auth-domain-btn');
+            if (copyBtn) {
+              copyBtn.addEventListener('click', () => {
+                if (navigator.clipboard?.writeText) {
+                  void navigator.clipboard.writeText(help.currentHostname).then(() => {
+                    copyBtn.textContent = `Tersalin: ${help.currentHostname}`;
+                  });
+                }
+              });
+            }
+          },
+        });
+      } else if (classified.isPopupBlocked) {
+        await Swal.fire({
+          title: 'Popup Login Diblokir Browser',
+          text: 'Browser memblokir jendela login Google. Izinkan pop-up untuk situs ini lalu klik "Sign in with Google" kembali.',
+          icon: 'warning',
+          background: modalBg,
+          color: modalColor,
+        });
+      } else if (classified.isPopupClosed) {
+        await Swal.fire({
+          title: 'Login Google Dibatalkan',
+          text: 'Jendela pemilihan akun Google ditutup sebelum proses otorisasi selesai.',
+          icon: 'info',
+          background: modalBg,
+          color: modalColor,
+        });
+      } else {
+        await Swal.fire({
+          title: 'Koneksi Google Drive & Sheets',
+          text:
+            err instanceof Error
+              ? err.message
+              : 'Gagal terhubung ke akun Google. Silakan coba lagi.',
+          icon: 'error',
+          background: modalBg,
+          color: modalColor,
+        });
+      }
     } finally {
       setDriveConnecting(false);
     }
