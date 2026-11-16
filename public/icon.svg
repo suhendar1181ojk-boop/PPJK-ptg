@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="ptgBg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0B2545"/>
+      <stop offset="55%" stop-color="#1E1B4B"/>
+      <stop offset="100%" stop-color="#4C1D95"/>
+    </linearGradient>
+    <linearGradient id="ptgAccent" x1="112" y1="120" x2="400" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F28C28"/>
+      <stop offset="100%" stop-color="#7C3AED"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#ptgBg)"/>
+  <rect x="20" y="20" width="472" height="472" rx="96" stroke="#A78BFA" stroke-opacity="0.28" stroke-width="4"/>
+  <!-- Stylized cargo ship & container stack -->
+  <rect x="134" y="136" width="112" height="68" rx="14" fill="#7C3AED"/>
+  <rect x="262" y="136" width="116" height="68" rx="14" fill="#F28C28"/>
+  <rect x="158" y="218" width="196" height="56" rx="14" fill="#6366F1"/>
+  <path d="M98 292H414L374 374C368 386 356 394 342 394H170C156 394 144 386 138 374L98 292Z" fill="#FFFFFF" fill-opacity="0.95"/>
+  <path d="M126 322H386" stroke="#0B2545" stroke-width="14" stroke-linecap="round"/>
+  <path d="M96 420C140 400 184 400 228 420C272 440 316 440 360 420C382 410 402 408 418 414" stroke="url(#ptgAccent)" stroke-width="16" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,1169 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Activity,
+  Building2,
+  ChevronDown,
+  ChevronUp,
+  Crown,
+  Globe,
+  Lock,
+  Mail,
+  MapPin,
+  Phone,
+  Power,
+  RotateCcw,
+  Save,
+  Search,
+  ShieldAlert,
+  ShieldCheck,
+  SlidersHorizontal,
+  Users,
+} from 'lucide-react';
+import type {
+  AppView,
+  LogPerubahan,
+  ModulePermissionsMap,
+  Pengaturan,
+  PhasePermissions,
+  RoleModuleAccessMap,
+  UserAccount,
+  UserRole,
+} from '../types/ppjk';
+import {
+  APP_MODULE_META,
+  buildUserMonitoringRows,
+  DEFAULT_PENGATURAN,
+  getDefaultModuleAccessForRole,
+  getDefaultPhasePermissions,
+  getPpjkIdentity,
+  isOwnerSuperAdmin,
+  PHASE_META,
+  resolveUserPhasePermissions,
+} from '../utils/ppjkLogic';
+
+interface SetupAppViewProps {
+  pengaturan: Pengaturan;
+  users: UserAccount[];
+  logs: LogPerubahan[];
+  userRole: UserRole;
+  currentUsername: string;
+  onSavePengaturan: (p: Pengaturan) => Promise<void>;
+  onSaveUser: (u: {
+    username: string;
+    nama: string;
+    role: UserRole;
+    password?: string;
+    aktif: boolean;
+    mustChangePassword?: boolean;
+    phasePermissions?: PhasePermissions;
+    modulePermissions?: ModulePermissionsMap;
+  }) => Promise<void>;
+}
+
+type SetupTab = 'identity' | 'control';
+
+const CONTROLLABLE_ROLES: UserRole[] = [
+  'Owner',
+  'Admin',
+  'Checker',
+  'Drafter',
+  'Operasional',
+  'Manajer',
+];
+
+export function SetupAppView({
+  pengaturan,
+  users,
+  logs,
+  userRole,
+  currentUsername,
+  onSavePengaturan,
+  onSaveUser,
+}: SetupAppViewProps) {
+  const isOwner = isOwnerSuperAdmin(userRole);
+  const [tab, setTab] = useState<SetupTab>(isOwner ? 'control' : 'identity');
+  const [feedback, setFeedback] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [savingIdentity, setSavingIdentity] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+
+  // Identity Form State
+  const initialId = useMemo(() => getPpjkIdentity(pengaturan), [pengaturan]);
+  const [ppjkBrandName, setPpjkBrandName] = useState(initialId.brandName);
+  const [ppjkCompanyName, setPpjkCompanyName] = useState(initialId.companyName);
+  const [ppjkTagline, setPpjkTagline] = useState(initialId.tagline);
+  const [ppjkNpwp, setPpjkNpwp] = useState(initialId.npwp);
+  const [ppjkAddress, setPpjkAddress] = useState(initialId.address);
+  const [ppjkPhone, setPpjkPhone] = useState(initialId.phone);
+  const [ppjkEmail, setPpjkEmail] = useState(initialId.email);
+  const [ppjkWebsite, setPpjkWebsite] = useState(initialId.website);
+  const [ppjkFooterNote, setPpjkFooterNote] = useState(initialId.footerNote);
+
+  useEffect(() => {
+    const id = getPpjkIdentity(pengaturan);
+    setPpjkBrandName(id.brandName);
+    setPpjkCompanyName(id.companyName);
+    setPpjkTagline(id.tagline);
+    setPpjkNpwp(id.npwp);
+    setPpjkAddress(id.address);
+    setPpjkPhone(id.phone);
+    setPpjkEmail(id.email);
+    setPpjkWebsite(id.website);
+    setPpjkFooterNote(id.footerNote);
+  }, [pengaturan]);
+
+  // Monitoring filters
+  const [userSearch, setUserSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState<string>('ALL');
+  const [expandedUser, setExpandedUser] = useState<string | null>(null);
+
+  const notify = (msg: string) => {
+    setErrorMsg('');
+    setFeedback(msg);
+    setTimeout(() => setFeedback(''), 3200);
+  };
+
+  const notifyErr = (err: unknown, fallback: string) => {
+    setFeedback('');
+    setErrorMsg(err instanceof Error ? err.message : fallback);
+  };
+
+  const monitoringRows = useMemo(
+    () => buildUserMonitoringRows(users, logs, pengaturan),
+    [users, logs, pengaturan]
+  );
+
+  const filteredMonitoringRows = useMemo(() => {
+    const q = userSearch.trim().toLowerCase();
+    return monitoringRows.filter((row) => {
+      if (roleFilter !== 'ALL' && row.user.role !== roleFilter) return false;
+      if (!q) return true;
+      return (
+        row.user.username.toLowerCase().includes(q) ||
+        row.user.nama.toLowerCase().includes(q) ||
+        row.user.role.toLowerCase().includes(q)
+      );
+    });
+  }, [monitoringRows, userSearch, roleFilter]);
+
+  const totalActiveUsers = users.filter((u) => u.aktif).length;
+  const totalCustomModuleUsers = monitoringRows.filter((r) => r.hasCustomModuleOverrides).length;
+
+  const handleSaveIdentity = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ppjkBrandName.trim() || !ppjkCompanyName.trim()) {
+      setErrorMsg('Nama Brand PPJK dan Nama Badan Hukum / Perusahaan wajib diisi.');
+      return;
+    }
+    setSavingIdentity(true);
+    try {
+      await onSavePengaturan({
+        ...pengaturan,
+        ppjkBrandName: ppjkBrandName.trim(),
+        ppjkCompanyName: ppjkCompanyName.trim(),
+        ppjkTagline: ppjkTagline.trim(),
+        ppjkNpwp: ppjkNpwp.trim(),
+        ppjkAddress: ppjkAddress.trim(),
+        ppjkPhone: ppjkPhone.trim(),
+        ppjkEmail: ppjkEmail.trim(),
+        ppjkWebsite: ppjkWebsite.trim(),
+        ppjkFooterNote: ppjkFooterNote.trim(),
+      });
+      notify('Identitas aplikasi & profil perusahaan PPJK berhasil diperbarui.');
+    } catch (err) {
+      notifyErr(err, 'Gagal menyimpan identitas PPJK.');
+    } finally {
+      setSavingIdentity(false);
+    }
+  };
+
+  const handleResetIdentity = () => {
+    setPpjkBrandName(DEFAULT_PENGATURAN.ppjkBrandName || 'PTG PPJK');
+    setPpjkCompanyName(DEFAULT_PENGATURAN.ppjkCompanyName || 'PT PTG Logistik Kepabeanan');
+    setPpjkTagline(DEFAULT_PENGATURAN.ppjkTagline || 'Customs Brokerage & Import Tracking');
+    setPpjkNpwp(DEFAULT_PENGATURAN.ppjkNpwp || '');
+    setPpjkAddress(DEFAULT_PENGATURAN.ppjkAddress || '');
+    setPpjkPhone(DEFAULT_PENGATURAN.ppjkPhone || '');
+    setPpjkEmail(DEFAULT_PENGATURAN.ppjkEmail || '');
+    setPpjkWebsite(DEFAULT_PENGATURAN.ppjkWebsite || '');
+    setPpjkFooterNote(DEFAULT_PENGATURAN.ppjkFooterNote || '');
+  };
+
+  const getEffectiveRoleModuleValue = (role: UserRole, moduleId: AppView): boolean => {
+    if (role === 'Owner') return true;
+    const rolePolicy = pengaturan.roleModuleAccess?.[role];
+    if (rolePolicy && typeof rolePolicy[moduleId] === 'boolean') {
+      return Boolean(rolePolicy[moduleId]);
+    }
+    const def = getDefaultModuleAccessForRole(role);
+    return def[moduleId] ?? false;
+  };
+
+  const handleToggleRoleModule = async (role: UserRole, moduleId: AppView) => {
+    if (!isOwner || role === 'Owner') return;
+    const key = `role:${role}:${moduleId}`;
+    setBusyKey(key);
+    try {
+      const currentVal = getEffectiveRoleModuleValue(role, moduleId);
+      const nextVal = !currentVal;
+      const currentMap: RoleModuleAccessMap = { ...(pengaturan.roleModuleAccess || {}) };
+      const roleEntry: ModulePermissionsMap = {
+        ...getDefaultModuleAccessForRole(role),
+        ...(currentMap[role] || {}),
+        [moduleId]: nextVal,
+      };
+      currentMap[role] = roleEntry;
+      await onSavePengaturan({
+        ...pengaturan,
+        roleModuleAccess: currentMap,
+      });
+      const modMeta = APP_MODULE_META.find((m) => m.id === moduleId);
+      notify(
+        `Modul "${modMeta?.shortLabel || moduleId}" untuk peran ${role} diubah menjadi ${
+          nextVal ? 'Aktif' : 'Nonaktif'
+        }.`
+      );
+    } catch (err) {
+      notifyErr(err, 'Gagal mengubah toggle modul peran.');
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleResetAllRoleModules = async () => {
+    if (!isOwner) return;
+    setBusyKey('role:reset');
+    try {
+      await onSavePengaturan({
+        ...pengaturan,
+        roleModuleAccess: {},
+      });
+      notify('Seluruh toggle modul per peran dikembalikan ke standar awal.');
+    } catch (err) {
+      notifyErr(err, 'Gagal mereset toggle modul peran.');
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleToggleUserActive = async (u: UserAccount) => {
+    if (!isOwner || u.role === 'Owner') return;
+    const key = `active:${u.username}`;
+    setBusyKey(key);
+    try {
+      await onSaveUser({
+        username: u.username,
+        nama: u.nama,
+        role: u.role,
+        aktif: !u.aktif,
+        phasePermissions: resolveUserPhasePermissions(u.role, u.phasePermissions),
+        modulePermissions: u.modulePermissions,
+      });
+      notify(`Akun ${u.username} sekarang ${!u.aktif ? 'Aktif' : 'Dinonaktifkan'}.`);
+    } catch (err) {
+      notifyErr(err, 'Gagal mengubah status aktif user.');
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleToggleUserModule = async (
+    u: UserAccount,
+    moduleId: AppView,
+    currentResolvedVal: boolean
+  ) => {
+    if (!isOwner || u.role === 'Owner') return;
+    const key = `umod:${u.username}:${moduleId}`;
+    setBusyKey(key);
+    try {
+      const nextVal = !currentResolvedVal;
+      const nextOverrides: ModulePermissionsMap = {
+        ...(u.modulePermissions || {}),
+        [moduleId]: nextVal,
+      };
+      await onSaveUser({
+        username: u.username,
+        nama: u.nama,
+        role: u.role,
+        aktif: u.aktif,
+        phasePermissions: resolveUserPhasePermissions(u.role, u.phasePermissions),
+        modulePermissions: nextOverrides,
+      });
+      const modMeta = APP_MODULE_META.find((m) => m.id === moduleId);
+      notify(
+        `Akses modul "${modMeta?.shortLabel || moduleId}" untuk ${u.username}: ${
+          nextVal ? 'Aktif' : 'Nonaktif'
+        }.`
+      );
+    } catch (err) {
+      notifyErr(err, 'Gagal mengubah akses modul user.');
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleClearUserModuleOverrides = async (u: UserAccount) => {
+    if (!isOwner || u.role === 'Owner') return;
+    const key = `umod-reset:${u.username}`;
+    setBusyKey(key);
+    try {
+      await onSaveUser({
+        username: u.username,
+        nama: u.nama,
+        role: u.role,
+        aktif: u.aktif,
+        phasePermissions: resolveUserPhasePermissions(u.role, u.phasePermissions),
+        modulePermissions: {},
+      });
+      notify(`Akses modul ${u.username} dikembalikan mengikuti aturan peran ${u.role}.`);
+    } catch (err) {
+      notifyErr(err, 'Gagal mereset override modul user.');
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleToggleUserPhase = async (
+    u: UserAccount,
+    phaseKey: keyof PhasePermissions,
+    phaseLabel: string
+  ) => {
+    if (!isOwner || u.role === 'Owner') return;
+    const key = `uphase:${u.username}:${phaseKey}`;
+    setBusyKey(key);
+    try {
+      const currentPerms = resolveUserPhasePermissions(u.role, u.phasePermissions);
+      const nextVal = !currentPerms[phaseKey];
+      const nextPerms: PhasePermissions = {
+        ...currentPerms,
+        [phaseKey]: nextVal,
+      };
+      await onSaveUser({
+        username: u.username,
+        nama: u.nama,
+        role: u.role,
+        aktif: u.aktif,
+        phasePermissions: nextPerms,
+        modulePermissions: u.modulePermissions,
+      });
+      notify(`Fase "${phaseLabel}" untuk ${u.username}: ${nextVal ? 'Aktif' : 'Nonaktif'}.`);
+    } catch (err) {
+      notifyErr(err, 'Gagal mengubah toggle fase user.');
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const inputCls =
+    'w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-white/10 text-xs bg-white dark:bg-[#182032] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#F28C28]/40 dark:focus:ring-violet-500/40';
+
+  const tabBtnCls = (active: boolean) =>
+    `inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold border cursor-pointer transition-colors ${
+      active
+        ? 'bg-[#0B2545] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] text-white border-[#0B2545] dark:border-transparent shadow-sm'
+        : 'bg-white dark:bg-[#131926] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-white/[0.08] hover:bg-slate-50 dark:hover:bg-[#182032]'
+    }`;
+
+  return (
+    <div className="space-y-5" data-testid="setup-app-view">
+      {/* Top Role Status Banner */}
+      <div
+        className={`rounded-2xl border p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4 ${
+          isOwner
+            ? 'bg-gradient-to-r from-[#0B2545] via-[#13315C] to-[#1D3557] dark:from-[#1B1336] dark:via-[#161B33] dark:to-[#131926] border-amber-400/40 dark:border-violet-500/40 text-white'
+            : 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/35 text-amber-900 dark:text-amber-200'
+        }`}
+      >
+        <div className="flex items-start gap-3.5 min-w-0">
+          <div
+            className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
+              isOwner
+                ? 'bg-amber-400/20 border border-amber-300/40 text-amber-300'
+                : 'bg-amber-500/20 border border-amber-500/30 text-amber-700 dark:text-amber-300'
+            }`}
+          >
+            {isOwner ? <Crown className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-sm sm:text-base font-bold">
+                {isOwner
+                  ? 'Mode Super Admin Owner Aktif'
+                  : 'Mode Baca — Kontrol Penuh Khusus Owner (Super Admin)'}
+              </h2>
+              <span
+                className={`px-2 py-0.5 rounded-md text-[10.5px] font-bold uppercase ${
+                  isOwner
+                    ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/35'
+                    : 'bg-amber-500/20 text-amber-800 dark:text-amber-200 border border-amber-500/30'
+                }`}
+              >
+                {userRole}
+              </span>
+            </div>
+            <p
+              className={`text-xs mt-1 ${
+                isOwner ? 'text-white/80' : 'text-amber-800/90 dark:text-amber-200/80'
+              }`}
+            >
+              {isOwner
+                ? 'Anda memiliki kendali penuh untuk mengatur identitas aplikasi PPJK, mengaktifkan/menonaktifkan setiap modul terhadap peran atau user individual, serta memantau aktivitas pengguna.'
+                : 'Hanya akun dengan peran Owner (Super Admin) yang dapat mengubah toggle kontrol modul aplikasi atau memodifikasi batasan pengguna.'}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span
+            className={`px-3 py-1.5 rounded-xl font-semibold tabular-nums ${
+              isOwner
+                ? 'bg-white/10 text-white border border-white/15'
+                : 'bg-white/70 dark:bg-white/10 text-amber-900 dark:text-amber-100'
+            }`}
+          >
+            {totalActiveUsers}/{users.length} User Aktif
+          </span>
+          <span
+            className={`px-3 py-1.5 rounded-xl font-semibold tabular-nums ${
+              isOwner
+                ? 'bg-white/10 text-white border border-white/15'
+                : 'bg-white/70 dark:bg-white/10 text-amber-900 dark:text-amber-100'
+            }`}
+          >
+            {APP_MODULE_META.length} Modul Terkontrol
+          </span>
+        </div>
+      </div>
+
+      {/* Section Tabs */}
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          data-testid="setup-tab-control"
+          onClick={() => setTab('control')}
+          className={tabBtnCls(tab === 'control')}
+        >
+          <SlidersHorizontal className="w-4 h-4" />
+          <span>Kontrol Modul &amp; Pantau User</span>
+        </button>
+        <button
+          type="button"
+          data-testid="setup-tab-identity"
+          onClick={() => setTab('identity')}
+          className={tabBtnCls(tab === 'identity')}
+        >
+          <Building2 className="w-4 h-4" />
+          <span>Setup Identitas PPJK</span>
+        </button>
+      </div>
+
+      {feedback && (
+        <div
+          role="status"
+          className="px-4 py-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/15 border border-emerald-200 dark:border-emerald-500/35 text-xs font-semibold text-emerald-700 dark:text-emerald-300"
+        >
+          {feedback}
+        </div>
+      )}
+
+      {errorMsg && (
+        <div
+          role="alert"
+          className="px-4 py-2.5 rounded-xl bg-red-50 dark:bg-red-500/15 border border-red-200 dark:border-red-500/35 text-xs font-semibold text-red-700 dark:text-red-300"
+        >
+          {errorMsg}
+        </div>
+      )}
+
+      {/* TAB 1: IDENTITAS APLIKASI PPJK */}
+      {tab === 'identity' && (
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+          <form
+            onSubmit={handleSaveIdentity}
+            className="xl:col-span-7 bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-5 sm:p-6 space-y-4"
+          >
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100 dark:border-white/[0.06]">
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm font-bold text-[#0B2545] dark:text-white">
+                  Identitas Aplikasi &amp; Profil Perusahaan PPJK
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Nama PPJK, badan hukum, NPWP/izin, dan kontak akan tampil otomatis di Sidebar, Header, Halaman Login, pesan WA/Email, Surat Jalan, dan PDF Penagihan.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleResetIdentity}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.05] cursor-pointer shrink-0"
+              >
+                <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                <span>Default</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label
+                  htmlFor="ppjkBrandName"
+                  className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5"
+                >
+                  Nama Brand / Aplikasi PPJK *
+                </label>
+                <input
+                  id="ppjkBrandName"
+                  type="text"
+                  value={ppjkBrandName}
+                  onChange={(e) => setPpjkBrandName(e.target.value)}
+                  placeholder="Contoh: PTG PPJK / Bintang Samudera PPJK"
+                  className={inputCls}
+                  required
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="ppjkCompanyName"
+                  className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5"
+                >
+                  Nama Badan Hukum / PT PPJK *
+                </label>
+                <input
+                  id="ppjkCompanyName"
+                  type="text"
+                  value={ppjkCompanyName}
+                  onChange={(e) => setPpjkCompanyName(e.target.value)}
+                  placeholder="Contoh: PT PTG Logistik Kepabeanan"
+                  className={inputCls}
+                  required
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label
+                  htmlFor="ppjkTagline"
+                  className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5"
+                >
+                  Tagline / Subjudul Sistem
+                </label>
+                <input
+                  id="ppjkTagline"
+                  type="text"
+                  value={ppjkTagline}
+                  onChange={(e) => setPpjkTagline(e.target.value)}
+                  placeholder="Customs Brokerage & Import Tracking"
+                  className={inputCls}
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="ppjkNpwp"
+                  className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5"
+                >
+                  NPWP / Nomor Izin PPJK
+                </label>
+                <input
+                  id="ppjkNpwp"
+                  type="text"
+                  value={ppjkNpwp}
+                  onChange={(e) => setPpjkNpwp(e.target.value)}
+                  placeholder="01.234.567.8-041.000 · PPJK-040200"
+                  className={`${inputCls} font-mono-code`}
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="ppjkPhone"
+                  className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5"
+                >
+                  Telepon Kantor
+                </label>
+                <input
+                  id="ppjkPhone"
+                  type="text"
+                  value={ppjkPhone}
+                  onChange={(e) => setPpjkPhone(e.target.value)}
+                  placeholder="021-4390-8811"
+                  className={inputCls}
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="ppjkEmail"
+                  className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5"
+                >
+                  Email Resmi PPJK
+                </label>
+                <input
+                  id="ppjkEmail"
+                  type="email"
+                  value={ppjkEmail}
+                  onChange={(e) => setPpjkEmail(e.target.value)}
+                  placeholder="operasional@ptg-ppjk.co.id"
+                  className={inputCls}
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="ppjkWebsite"
+                  className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5"
+                >
+                  Website / Portal
+                </label>
+                <input
+                  id="ppjkWebsite"
+                  type="text"
+                  value={ppjkWebsite}
+                  onChange={(e) => setPpjkWebsite(e.target.value)}
+                  placeholder="https://ptg-ppjk.co.id"
+                  className={inputCls}
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label
+                  htmlFor="ppjkAddress"
+                  className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5"
+                >
+                  Alamat Lengkap Kantor PPJK
+                </label>
+                <textarea
+                  id="ppjkAddress"
+                  rows={2}
+                  value={ppjkAddress}
+                  onChange={(e) => setPpjkAddress(e.target.value)}
+                  className={inputCls}
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label
+                  htmlFor="ppjkFooterNote"
+                  className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5"
+                >
+                  Catatan Kaki Dokumen &amp; Penagihan
+                </label>
+                <textarea
+                  id="ppjkFooterNote"
+                  rows={2}
+                  value={ppjkFooterNote}
+                  onChange={(e) => setPpjkFooterNote(e.target.value)}
+                  className={inputCls}
+                />
+              </div>
+            </div>
+
+            <div className="pt-2 flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="submit"
+                disabled={savingIdentity}
+                data-testid="save-ppjk-identity-btn"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#F28C28] hover:bg-[#D97719] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] disabled:opacity-60 text-white text-xs font-semibold cursor-pointer shadow-sm"
+              >
+                <Save className="w-4 h-4" />
+                <span>{savingIdentity ? 'Menyimpan...' : 'Simpan Identitas PPJK'}</span>
+              </button>
+            </div>
+          </form>
+
+          {/* Live Kop & Branding Preview */}
+          <div className="xl:col-span-5 space-y-4">
+            <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-5 space-y-4">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Pratinjau Langsung Kop &amp; Branding Aplikasi
+              </div>
+
+              <div className="rounded-2xl bg-[#0B2545] dark:bg-[#0D111C] text-white p-5 border border-white/10 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-[#F28C28] dark:text-violet-400">
+                      {ppjkBrandName || 'PTG PPJK'}
+                    </div>
+                    <h4 className="text-lg font-bold text-white mt-0.5">
+                      {ppjkCompanyName || 'PT PTG Logistik Kepabeanan'}
+                    </h4>
+                    <p className="text-xs text-white/75 mt-0.5">
+                      {ppjkTagline || 'Customs Brokerage & Import Tracking'}
+                    </p>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-lg bg-white/10 border border-white/15 text-[10.5px] font-mono-code text-white/90 shrink-0">
+                    AKTIF
+                  </span>
+                </div>
+
+                <div className="pt-3 border-t border-white/10 space-y-1.5 text-xs text-white/80">
+                  <div className="flex items-start gap-2">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span className="font-mono-code text-[11px]">{ppjkNpwp || '-'}</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <MapPin className="w-3.5 h-3.5 text-amber-300 shrink-0 mt-0.5" />
+                    <span>{ppjkAddress || '-'}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Phone className="w-3.5 h-3.5 text-sky-300" />
+                      <span>{ppjkPhone || '-'}</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5 text-violet-300" />
+                      <span>{ppjkEmail || '-'}</span>
+                    </span>
+                    {ppjkWebsite && (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5 text-emerald-300" />
+                        <span>{ppjkWebsite}</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.06] text-xs text-slate-600 dark:text-slate-300 space-y-1">
+                <div className="font-semibold text-slate-900 dark:text-white">
+                  Catatan Kaki Dokumen Resmi:
+                </div>
+                <p className="leading-relaxed italic">
+                  &ldquo;{ppjkFooterNote || '-'}&rdquo;
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2: KONTROL MODUL & PEMANTAUAN USER (SUPER ADMIN OWNER) */}
+      {tab === 'control' && (
+        <div className="space-y-5">
+          {/* 1. Matriks Toggle Aktif / Nonaktif Modul per Peran */}
+          <section
+            aria-label="Matriks kontrol modul aplikasi PPJK per peran"
+            className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] overflow-hidden"
+          >
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-white/[0.08] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-[#0B2545] dark:text-white flex items-start sm:items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5 sm:mt-0 text-[#F28C28] dark:text-violet-400" />
+                  <span>Kontrol Toggle Aktif / Tidak Modul Aplikasi PPJK (Per Peran)</span>
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Owner mengaktifkan atau menonaktifkan akses setiap modul bagi Admin, Checker, Drafter, Operasional, dan Manajer. Akun Owner kebal terhadap pembatasan.
+                </p>
+              </div>
+
+              {isOwner && (
+                <button
+                  type="button"
+                  onClick={handleResetAllRoleModules}
+                  disabled={busyKey === 'role:reset'}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/[0.06] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset Default Semua Peran</span>
+                </button>
+              )}
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs" data-testid="role-module-matrix-table">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-[#182032] border-b border-slate-200 dark:border-white/[0.08] text-[11px] text-slate-600 dark:text-slate-300">
+                    <th className="py-3 px-4 font-semibold min-w-[210px]">Modul Aplikasi PPJK</th>
+                    {CONTROLLABLE_ROLES.map((r) => (
+                      <th key={r} className="py-3 px-2.5 font-semibold text-center whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1">
+                          {r === 'Owner' && <Crown className="w-3 h-3 text-amber-500" />}
+                          <span>{r}</span>
+                        </span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-white/[0.06]">
+                  {APP_MODULE_META.map((mod) => (
+                    <tr
+                      key={mod.id}
+                      className="hover:bg-slate-50/80 dark:hover:bg-white/[0.03] transition-colors"
+                    >
+                      <td className="py-3 px-4">
+                        <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
+                          <span>{mod.label}</span>
+                          {mod.ownerExclusive && (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 text-[10px] font-bold">
+                              Super Admin
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                          {mod.description}
+                        </div>
+                      </td>
+
+                      {CONTROLLABLE_ROLES.map((role) => {
+                        const enabled = getEffectiveRoleModuleValue(role, mod.id);
+                        const locked = role === 'Owner' || !isOwner;
+                        const isBusy = busyKey === `role:${role}:${mod.id}`;
+                        return (
+                          <td key={role} className="py-2.5 px-2.5 text-center">
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={enabled}
+                              aria-label={`Toggle modul ${mod.shortLabel} untuk peran ${role}`}
+                              data-testid={`role-toggle-${role}-${mod.id}`}
+                              disabled={locked || isBusy}
+                              onClick={() => handleToggleRoleModule(role, mod.id)}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold transition-colors ${
+                                locked ? 'opacity-75 cursor-not-allowed' : 'cursor-pointer'
+                              } ${
+                                enabled
+                                  ? 'bg-emerald-50 dark:bg-emerald-500/15 border-emerald-300 dark:border-emerald-500/40 text-emerald-800 dark:text-emerald-200'
+                                  : 'bg-slate-100 dark:bg-[#182032] border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400'
+                              }`}
+                            >
+                              <span
+                                className={`w-6 h-3.5 rounded-full p-0.5 flex items-center transition-colors ${
+                                  enabled
+                                    ? 'bg-emerald-600 dark:bg-emerald-500 justify-end'
+                                    : 'bg-slate-300 dark:bg-slate-600 justify-start'
+                                }`}
+                              >
+                                <span className="w-2.5 h-2.5 rounded-full bg-white shadow-xs" />
+                              </span>
+                              <span>{role === 'Owner' ? 'Kebal' : enabled ? 'Aktif' : 'Off'}</span>
+                            </button>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* 2. Pemantauan User & Kontrol Toggle Khusus Per User */}
+          <section
+            aria-label="Pemantauan user dan batasan modul per pengguna"
+            className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-5 space-y-4"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-[#0B2545] dark:text-white flex items-center gap-2">
+                  <Users className="w-4 h-4 text-[#F28C28] dark:text-violet-400" />
+                  <span>Pemantauan User, Log Aktivitas &amp; Toggle Batasan Per User</span>
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Pantau status akun, jumlah aktivitas perubahan data, serta atur pengecualian toggle modul &amp; fase edit untuk tiap akun pengguna.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-500/15 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-300 font-semibold tabular-nums">
+                  Aktif: {totalActiveUsers}
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-500/15 border border-amber-200 dark:border-amber-500/30 text-amber-700 dark:text-amber-300 font-semibold tabular-nums">
+                  Custom Modul: {totalCustomModuleUsers}
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-violet-50 dark:bg-violet-500/15 border border-violet-200 dark:border-violet-500/30 text-violet-700 dark:text-violet-300 font-semibold tabular-nums">
+                  Total Log: {logs.length}
+                </span>
+              </div>
+            </div>
+
+            {/* Filter & Search Bar */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  aria-label="Cari username atau nama pengguna"
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  placeholder="Cari username, nama lengkap, atau peran..."
+                  className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-[#182032] text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F28C28]/40 dark:focus:ring-violet-500/40"
+                />
+              </div>
+              <select
+                aria-label="Filter peran user"
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+                className="px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-[#182032] text-xs font-semibold text-slate-800 dark:text-slate-200"
+              >
+                <option value="ALL">Semua Peran ({users.length})</option>
+                {CONTROLLABLE_ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Monitoring Cards */}
+            <div className="divide-y divide-slate-200 dark:divide-white/[0.08] border border-slate-200 dark:border-white/[0.08] rounded-xl overflow-hidden">
+              {filteredMonitoringRows.length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-500 dark:text-slate-400">
+                  Tidak ada akun pengguna yang cocok dengan filter pencarian.
+                </div>
+              ) : (
+                filteredMonitoringRows.map((row) => {
+                  const u = row.user;
+                  const isRowOwner = u.role === 'Owner';
+                  const isSelf = u.username.toLowerCase() === currentUsername.toLowerCase();
+                  const isExpanded = expandedUser === u.username;
+
+                  return (
+                    <div
+                      key={u.username}
+                      data-testid={`monitor-user-row-${u.username}`}
+                      className="p-4 bg-white dark:bg-[#131926] space-y-3 text-xs"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono-code font-bold text-[#0B2545] dark:text-violet-300">
+                              {u.username}
+                            </span>
+                            <span className="font-semibold text-slate-900 dark:text-white">
+                              {u.nama}
+                            </span>
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[11px] ${
+                                isRowOwner
+                                  ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-500/35'
+                                  : 'bg-slate-100 dark:bg-[#182032] text-[#0B2545] dark:text-slate-200'
+                              }`}
+                            >
+                              {isRowOwner && <Crown className="w-3 h-3" />}
+                              <span>{u.role}</span>
+                            </span>
+                            {row.hasCustomModuleOverrides && (
+                              <span className="px-2 py-0.5 rounded bg-violet-50 dark:bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-500/30 text-[10px] font-semibold">
+                                Custom Modul
+                              </span>
+                            )}
+                            {isSelf && (
+                              <span className="px-2 py-0.5 rounded bg-sky-50 dark:bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-500/30 text-[10px] font-semibold">
+                                Sedang Login
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                            <span className="inline-flex items-center gap-1 tabular-nums">
+                              <SlidersHorizontal className="w-3 h-3 text-emerald-500" />
+                              <span>
+                                Modul:{' '}
+                                <strong className="text-slate-800 dark:text-slate-200">
+                                  {row.enabledModulesCount}/{row.totalModulesCount} Aktif
+                                </strong>
+                              </span>
+                            </span>
+                            <span className="inline-flex items-center gap-1 tabular-nums">
+                              <ShieldAlert className="w-3 h-3 text-indigo-500" />
+                              <span>
+                                Edit Fase:{' '}
+                                <strong className="text-slate-800 dark:text-slate-200">
+                                  {row.activePhasesCount}/4
+                                </strong>
+                              </span>
+                            </span>
+                            <span className="inline-flex items-center gap-1 tabular-nums">
+                              <Activity className="w-3 h-3 text-amber-500" />
+                              <span>
+                                Log Aktivitas:{' '}
+                                <strong className="text-slate-800 dark:text-slate-200">
+                                  {row.activityCount}x
+                                </strong>
+                                {row.lastActivityAt && (
+                                  <>
+                                    {' '}
+                                    · Terakhir{' '}
+                                    {new Date(row.lastActivityAt).toLocaleString('id-ID', {
+                                      day: '2-digit',
+                                      month: 'short',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}
+                                    {row.lastKodeOs ? ` (${row.lastKodeOs})` : ''}
+                                  </>
+                                )}
+                              </span>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`px-2 py-1 rounded-lg text-[11px] font-semibold border ${
+                              u.aktif
+                                ? 'bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30'
+                                : 'bg-red-50 dark:bg-red-500/15 text-red-700 dark:text-red-300 border-red-200 dark:border-red-500/30'
+                            }`}
+                          >
+                            {u.aktif ? 'Akun Aktif' : 'Nonaktif'}
+                          </span>
+
+                          {isOwner && !isRowOwner && !isSelf && (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleUserActive(u)}
+                              disabled={busyKey === `active:${u.username}`}
+                              aria-label={`${u.aktif ? 'Nonaktifkan' : 'Aktifkan'} akun ${u.username}`}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold cursor-pointer ${
+                                u.aktif
+                                  ? 'bg-red-50 dark:bg-red-500/15 hover:bg-red-100 dark:hover:bg-red-500/25 text-red-700 dark:text-red-300'
+                                  : 'bg-emerald-50 dark:bg-emerald-500/15 hover:bg-emerald-100 dark:hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300'
+                              }`}
+                            >
+                              <Power className="w-3 h-3" />
+                              <span>{u.aktif ? 'Nonaktifkan' : 'Aktifkan'}</span>
+                            </button>
+                          )}
+
+                          {!isRowOwner && (
+                            <button
+                              type="button"
+                              data-testid={`expand-user-controls-${u.username}`}
+                              onClick={() =>
+                                setExpandedUser((prev) => (prev === u.username ? null : u.username))
+                              }
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-[#1F2940] text-[11px] font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                            >
+                              <span>{isExpanded ? 'Tutup Kontrol' : 'Atur Modul & Fase'}</span>
+                              {isExpanded ? (
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              ) : (
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Expanded Individual User Controls */}
+                      {isExpanded && !isRowOwner && (
+                        <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200/80 dark:border-white/[0.06] space-y-4">
+                          {/* Module Overrides */}
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="text-[11px] font-bold uppercase tracking-wider text-[#0B2545] dark:text-violet-300">
+                                Kontrol Toggle Modul Khusus User ({u.username})
+                              </span>
+                              {isOwner && row.hasCustomModuleOverrides && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleClearUserModuleOverrides(u)}
+                                  disabled={busyKey === `umod-reset:${u.username}`}
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:text-[#F28C28] dark:hover:text-violet-300 cursor-pointer"
+                                >
+                                  <RotateCcw className="w-3 h-3" />
+                                  <span>Ikuti Default Peran ({u.role})</span>
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2">
+                              {APP_MODULE_META.map((mod) => {
+                                const enabled = Boolean(row.resolvedModules[mod.id]);
+                                const hasOverride =
+                                  u.modulePermissions &&
+                                  typeof u.modulePermissions[mod.id] === 'boolean';
+                                const isBusy = busyKey === `umod:${u.username}:${mod.id}`;
+                                return (
+                                  <button
+                                    key={mod.id}
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={enabled}
+                                    aria-label={`Toggle user ${u.username} modul ${mod.shortLabel}`}
+                                    data-testid={`user-module-toggle-${u.username}-${mod.id}`}
+                                    disabled={!isOwner || isBusy}
+                                    onClick={() => handleToggleUserModule(u, mod.id, enabled)}
+                                    className={`min-h-[42px] px-2.5 py-2 rounded-lg border flex items-center justify-between gap-2 text-[11px] font-semibold transition-colors ${
+                                      !isOwner ? 'opacity-75 cursor-not-allowed' : 'cursor-pointer'
+                                    } ${
+                                      enabled
+                                        ? 'bg-emerald-50 dark:bg-emerald-500/15 border-emerald-300 dark:border-emerald-500/40 text-emerald-900 dark:text-emerald-200'
+                                        : 'bg-white dark:bg-[#182032] border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400'
+                                    }`}
+                                  >
+                                    <span className="truncate text-left">
+                                      {mod.shortLabel}
+                                      {hasOverride && (
+                                        <span className="ml-1 text-[9.5px] font-bold text-violet-600 dark:text-violet-300">
+                                          *
+                                        </span>
+                                      )}
+                                    </span>
+                                    <span className="inline-flex items-center gap-1 shrink-0">
+                                      <span className="text-[10px] font-bold uppercase">
+                                        {enabled ? 'Aktif' : 'Off'}
+                                      </span>
+                                      <span
+                                        className={`w-6 h-3.5 rounded-full p-0.5 flex items-center transition-colors ${
+                                          enabled
+                                            ? 'bg-emerald-600 dark:bg-emerald-500 justify-end'
+                                            : 'bg-slate-300 dark:bg-slate-600 justify-start'
+                                        }`}
+                                      >
+                                        <span className="w-2.5 h-2.5 rounded-full bg-white shadow-xs" />
+                                      </span>
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Phase Edit Permissions */}
+                          <div className="space-y-2 pt-3 border-t border-slate-200/80 dark:border-white/[0.06]">
+                            <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                              Kontrol Hak Edit Fase Shipment (Fase 1–4)
+                            </span>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                              {PHASE_META.map((ph) => {
+                                const enabled = row.resolvedPhases[ph.key];
+                                const isBusy = busyKey === `uphase:${u.username}:${ph.key}`;
+                                return (
+                                  <button
+                                    key={ph.key}
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={enabled}
+                                    aria-label={`Toggle user ${u.username} ${ph.label}`}
+                                    disabled={!isOwner || isBusy}
+                                    onClick={() => handleToggleUserPhase(u, ph.key, ph.label)}
+                                    className={`min-h-[38px] px-2.5 py-1.5 rounded-lg border flex items-center justify-between gap-2 text-[11px] font-semibold transition-colors ${
+                                      !isOwner ? 'opacity-75 cursor-not-allowed' : 'cursor-pointer'
+                                    } ${
+                                      enabled
+                                        ? 'bg-sky-50 dark:bg-sky-500/15 border-sky-300 dark:border-sky-500/40 text-sky-900 dark:text-sky-200'
+                                        : 'bg-white dark:bg-[#182032] border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400'
+                                    }`}
+                                  >
+                                    <span className="truncate">{ph.label}</span>
+                                    <span className="text-[10px] font-bold uppercase shrink-0">
+                                      {enabled ? 'Aktif' : 'Off'}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+    </div>
+  );
+}

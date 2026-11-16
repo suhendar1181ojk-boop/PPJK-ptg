@@ -1,15 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  APP_MODULE_META,
   buildAutoBillingFields,
   buildAutoSuratJalanFields,
   buildCustomerBillingMessage,
   buildDefaultBillingItems,
   buildOwnerBillingMessage,
+  buildUserMonitoringRows,
   calculateBillingTotals,
   calculateCountdownEta,
   canEditPhase,
   canPerformAction,
+  canUserAccessModule,
   canUserEditAnyPhase,
   canUserEditPhase,
   computeBillingSummary,
@@ -40,9 +43,12 @@ import {
   getBillingEligibilityReason,
   getCountdownBadgeMeta,
   getCurrentMonthKey,
+  getDefaultModuleAccessForRole,
   getDefaultPhasePermissions,
   getDoValidityMeta,
+  getFirstAccessibleModule,
   getMonthDateBounds,
+  getPpjkIdentity,
   getPreviousMonthKey,
   getRelativeDateRange,
   getShipmentProcessSignal,
@@ -55,6 +61,7 @@ import {
   getStatusTruckingMeta,
   hasSptnpIssue,
   isContainerGateOut,
+  isOwnerSuperAdmin,
   isShipmentBillingEligible,
   isShipmentOutstanding,
   isUrgentMissingAju,
@@ -75,12 +82,13 @@ import {
   reconcileSeqByMonth,
   reconcileShipmentDerivedFields,
   resolveNopenDateRange,
+  resolveUserModuleAccess,
   resolveUserPhasePermissions,
   validateGasPinFormat,
   validateShipmentInput,
   verifyGasDeployPin,
 } from './ppjkLogic';
-import type { KontainerItem, Shipment } from '../types/ppjk';
+import type { KontainerItem, LogPerubahan, Pengaturan, Shipment, UserAccount } from '../types/ppjk';
 
 function makeShipment(overrides: Partial<Shipment> = {}): Shipment {
   const fullChecklist = createEmptyChecklist(DEFAULT_CHECKLIST_ITEMS);
@@ -1605,6 +1613,200 @@ test('reconcileAllShipmentsDerivedState refreshes countdown ETA, containers, Sur
   assert.equal(secondRun.updatedShipmentsCount, 0);
   assert.equal(secondRun.seqChanged, false);
 });
+
+test('Owner Super Admin role holds exclusive module-toggle authority and full permissions', () => {
+  assert.equal(isOwnerSuperAdmin('Owner'), true);
+  assert.equal(isOwnerSuperAdmin('Admin'), false);
+  assert.equal(isOwnerSuperAdmin('Checker'), false);
+
+  // Owner passes every action including exclusive manage_module_toggles & manage_setup
+  assert.equal(canPerformAction('Owner', 'manage_module_toggles'), true);
+  assert.equal(canPerformAction('Owner', 'manage_setup'), true);
+  assert.equal(canPerformAction('Owner', 'manage_settings'), true);
+  assert.equal(canPerformAction('Owner', 'delete_shipment'), true);
+
+  // Non-Owner Admin does NOT get exclusive module toggle authority (Checker cannot manage setup either)
+  assert.equal(canPerformAction('Admin', 'manage_module_toggles'), false);
+  assert.equal(canPerformAction('Admin', 'manage_setup'), true);
+  assert.equal(canPerformAction('Checker', 'manage_setup'), false);
+  assert.equal(canPerformAction('Checker', 'manage_module_toggles'), false);
+  assert.equal(canPerformAction('Admin', 'manage_settings'), true);
+
+  // Owner has full phase permissions regardless of role restrictions
+  assert.deepEqual(getDefaultPhasePermissions('Owner'), {
+    phase1: true,
+    phase2: true,
+    phase3: true,
+    phase4: true,
+  });
+});
+
+test('getPpjkIdentity provides defaults and propagates custom company identity into billing messages', () => {
+  const defaultId = getPpjkIdentity();
+  assert.equal(defaultId.brandName, 'PTG PPJK');
+  assert.equal(defaultId.companyName, 'PT PTG Logistik Kepabeanan');
+
+  const customSettings: Pengaturan = {
+    ...DEFAULT_PENGATURAN,
+    ppjkBrandName: 'SAMUDERA PPJK',
+    ppjkCompanyName: 'PT Samudera Kepabeanan Nusantara',
+    ppjkTagline: 'Customs & Port Clearance Hub',
+    ppjkNpwp: '02.999.888.7-041.000',
+    ppjkAddress: 'Jl. Pelabuhan Raya No. 10, Jakarta',
+    ppjkPhone: '021-5555-8888',
+    ppjkEmail: 'cs@samudera-ppjk.id',
+    ppjkWebsite: 'https://samudera-ppjk.id',
+    ppjkFooterNote: 'Catatan Footer Samudera',
+  };
+  const customId = getPpjkIdentity(customSettings);
+  assert.equal(customId.brandName, 'SAMUDERA PPJK');
+  assert.equal(customId.companyName, 'PT Samudera Kepabeanan Nusantara');
+  assert.equal(customId.footerNote, 'Catatan Footer Samudera');
+
+  const eligibleShipment = makeShipment({
+    kodeOs: 'OS-2611-0950',
+    noSppb: 'SPPB-950',
+    tglSppb: '2026-11-16',
+    status: 'SPPB Terbit',
+  });
+  const ownerMsg = buildOwnerBillingMessage(eligibleShipment, customSettings);
+  assert.match(ownerMsg.subject, /\[INFO PENAGIHAN SAMUDERA PPJK\]/);
+  assert.match(ownerMsg.message, /Sistem SAMUDERA PPJK/);
+
+  const custMsg = buildCustomerBillingMessage(
+    eligibleShipment,
+    { kodeCustomer: 'CUST-001', namaCustomer: 'PT Maju Jaya', kontak: '08123456789' },
+    customSettings
+  );
+  assert.match(custMsg.message, /PT Samudera Kepabeanan Nusantara/);
+  assert.match(custMsg.message, /SAMUDERA PPJK/);
+});
+
+test('resolveUserModuleAccess enforces role matrix, per-user overrides, Owner immunity, and all-locked handling', () => {
+  assert.equal(APP_MODULE_META.length, 10);
+
+  const pengaturanWithPolicy: Pick<Pengaturan, 'roleModuleAccess'> = {
+    roleModuleAccess: {
+      Checker: { do: false, penagihan: false },
+      Operasional: { 'report-nopen': false },
+    },
+  };
+
+  // Owner stays 100% immune even if user.modulePermissions tries to lock them out
+  const ownerAccount = {
+    role: 'Owner' as const,
+    modulePermissions: { dashboard: false, do: false, setup: false },
+  };
+  const ownerAccess = resolveUserModuleAccess(ownerAccount, pengaturanWithPolicy);
+  assert.equal(ownerAccess.setup, true);
+  assert.equal(ownerAccess.do, true);
+  assert.equal(canUserAccessModule(ownerAccount, 'setup', pengaturanWithPolicy), true);
+  assert.equal(canUserAccessModule(ownerAccount, 'do', pengaturanWithPolicy), true);
+
+  // Checker inherits role policy (do=false, penagihan=false), except explicit per-user override (penagihan=true)
+  const checkerAccess = resolveUserModuleAccess(
+    {
+      role: 'Checker',
+      modulePermissions: { penagihan: true },
+    },
+    pengaturanWithPolicy
+  );
+  assert.equal(checkerAccess.dashboard, true);
+  assert.equal(checkerAccess.do, false);
+  assert.equal(checkerAccess.penagihan, true);
+  assert.equal(checkerAccess.setup, false);
+
+  // Dokumen/Checker shares Checker role policy
+  assert.equal(
+    canUserAccessModule({ role: 'Dokumen/Checker' }, 'do', pengaturanWithPolicy),
+    false
+  );
+
+  // Default role module access disables master & setup for Manajer
+  const managerDefaults = getDefaultModuleAccessForRole('Manajer');
+  assert.equal(managerDefaults.master, false);
+  assert.equal(managerDefaults.setup, false);
+  assert.equal(managerDefaults.dashboard, true);
+
+  // When all modules are disabled for a non-Owner user, getFirstAccessibleModule returns null
+  const allLockedOverrides = Object.fromEntries(APP_MODULE_META.map((m) => [m.id, false]));
+  assert.equal(
+    getFirstAccessibleModule({ role: 'Manajer', modulePermissions: allLockedOverrides }),
+    null
+  );
+
+  // Fallback picks first enabled module when dashboard is disabled
+  assert.equal(
+    getFirstAccessibleModule({
+      role: 'Manajer',
+      modulePermissions: { dashboard: false, outstanding: false, checker: true },
+    }),
+    'checker'
+  );
+});
+
+test('buildUserMonitoringRows aggregates log activity counts, resolved modules, and phase counts per user', () => {
+  const users: UserAccount[] = [
+    {
+      username: 'owner',
+      passwordHash: 'h',
+      salt: 's',
+      nama: 'Bpk. Gunawan (Owner)',
+      role: 'Owner',
+      aktif: true,
+      phasePermissions: { phase1: true, phase2: true, phase3: true, phase4: true },
+    },
+    {
+      username: 'checker1',
+      passwordHash: 'h',
+      salt: 's',
+      nama: 'Budi Santoso',
+      role: 'Checker',
+      aktif: true,
+      phasePermissions: { phase1: true, phase2: false, phase3: false, phase4: false },
+      modulePermissions: { do: false, 'surat-jalan': false },
+    },
+  ];
+  const logs: LogPerubahan[] = [
+    {
+      id: 'l1',
+      waktu: '2026-11-15T09:00:00Z',
+      user: 'checker1',
+      kodeOs: 'OS-2611-0001',
+      kolom: 'status',
+      nilaiLama: 'Dokumen Diterima',
+      nilaiBaru: 'Proses PIB/AJU',
+    },
+    {
+      id: 'l2',
+      waktu: '2026-11-16T11:30:00Z',
+      user: 'CHECKER1',
+      kodeOs: 'OS-2611-0002',
+      kolom: 'nopen',
+      nilaiLama: '-',
+      nilaiBaru: '448120',
+    },
+  ];
+
+  const rows = buildUserMonitoringRows(users, logs, { roleModuleAccess: {} });
+  assert.equal(rows.length, 2);
+
+  const ownerRow = rows[0];
+  assert.equal(ownerRow.totalModulesCount, 10);
+  assert.equal(ownerRow.enabledModulesCount, 10);
+  assert.equal(ownerRow.activePhasesCount, 4);
+  assert.equal(ownerRow.activityCount, 0);
+
+  const checkerRow = rows[1];
+  assert.equal(checkerRow.totalModulesCount, 9); // excludes owner-exclusive setup module
+  assert.equal(checkerRow.enabledModulesCount, 7); // 9 - 2 disabled
+  assert.equal(checkerRow.hasCustomModuleOverrides, true);
+  assert.equal(checkerRow.activePhasesCount, 1);
+  assert.equal(checkerRow.activityCount, 2);
+  assert.equal(checkerRow.lastActivityAt, '2026-11-16T11:30:00Z');
+  assert.equal(checkerRow.lastKodeOs, 'OS-2611-0002');
+});
+
 
 
 

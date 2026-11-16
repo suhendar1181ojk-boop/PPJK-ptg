@@ -1,4 +1,5 @@
 import type {
+  AppView,
   BillingItem,
   BillingSummary,
   CheckerSummary,
@@ -13,12 +14,15 @@ import type {
   ImportirSummaryItem,
   JalurType,
   KontainerItem,
+  LogPerubahan,
+  ModulePermissionsMap,
   NopenDailyRecapItem,
   NopenImportirRecapItem,
   NopenRecapCriteria,
   NopenRecapSummary,
   Pengaturan,
   PhasePermissions,
+  RoleModuleAccessMap,
   Shipment,
   ShipmentDateFilterField,
   ShipmentPhase,
@@ -28,6 +32,7 @@ import type {
   StatusGatePassType,
   StatusPenagihanType,
   StatusSuratJalanType,
+  UserAccount,
   UserRole,
 } from '../types/ppjk';
 
@@ -59,6 +64,16 @@ export const DEFAULT_PENGATURAN: Pengaturan = {
   jalurList: [...DEFAULT_JALUR_LIST],
   checklistItems: [...DEFAULT_CHECKLIST_ITEMS],
   notificationEmails: ['operasional@ptg-ppjk.co.id', 'dokumen@ptg-ppjk.co.id'],
+  ppjkBrandName: 'PTG PPJK',
+  ppjkCompanyName: 'PT PTG Logistik Kepabeanan',
+  ppjkTagline: 'Customs & Tracking',
+  ppjkNpwp: '01.234.567.8-042.000 · Izin PPJK DJBC',
+  ppjkAddress: 'Jl. Yos Sudarso Kav. 88, Tanjung Priok, Jakarta Utara',
+  ppjkPhone: '(021) 4390-8811',
+  ppjkEmail: 'info@ptg-ppjk.co.id',
+  ppjkWebsite: 'www.ptg-ppjk.co.id',
+  ppjkFooterNote: 'Dokumen resmi diterbitkan oleh sistem monitoring kepabeanan PPJK.',
+  roleModuleAccess: {},
   ownerName: 'Bpk. Gunawan (Owner PTG)',
   ownerWhatsapp: '0811-8880-900',
   ownerEmail: 'owner@ptg-ppjk.co.id',
@@ -1110,13 +1125,21 @@ export const DRAFTER_ALLOWED_FIELDS: Array<keyof Shipment> = [
 ];
 
 export const ROLE_LIMITS_INFO: Record<
-  'Admin' | 'Checker' | 'Drafter' | 'Operasional' | 'Manajer',
+  'Owner' | 'Admin' | 'Checker' | 'Drafter' | 'Operasional' | 'Manajer',
   { title: string; summary: string; restrictions: string }
 > = {
+  Owner: {
+    title: 'Owner (Super Admin Penuh)',
+    summary:
+      'Kontrol tertinggi: Setup identitas PPJK, toggle aktif/non-aktif modul terhadap seluruh peran & user, kelola semua user, CRUD semua fase (1–4), dan monitoring menyeluruh.',
+    restrictions: 'Tidak ada batasan — kebal terhadap pembatasan modul & akun.',
+  },
   Admin: {
-    title: 'Admin (Akses Penuh)',
-    summary: 'CRUD seluruh fase (1–4), hapus shipment, master data, manajemen user & pengaturan sistem.',
-    restrictions: 'Tidak ada batasan fitur.',
+    title: 'Admin (Operasional Penuh)',
+    summary:
+      'CRUD seluruh fase (1–4), hapus shipment, master data, manajemen user non-Owner & pengaturan sistem.',
+    restrictions:
+      'Tunduk pada kontrol toggle modul dari Owner; tidak dapat mengubah akun Owner atau toggle Super Admin.',
   },
   Checker: {
     title: 'Checker (Dokumen & Pasca-SPPB)',
@@ -1140,6 +1163,10 @@ export const ROLE_LIMITS_INFO: Record<
   },
 };
 
+export function isOwnerSuperAdmin(role: UserRole): boolean {
+  return role === 'Owner';
+}
+
 export function isCheckerRole(role: UserRole): boolean {
   return role === 'Checker' || role === 'Dokumen/Checker';
 }
@@ -1149,7 +1176,7 @@ export function isDrafterOrOpsRole(role: UserRole): boolean {
 }
 
 /**
- * RBAC Matrix (konsisten dengan Code.gs)
+ * RBAC Matrix (konsisten dengan Code.gs + Owner Super Admin)
  */
 export function canPerformAction(
   role: UserRole,
@@ -1162,9 +1189,13 @@ export function canPerformAction(
     | 'manage_master'
     | 'manage_users'
     | 'manage_settings'
+    | 'manage_setup'
+    | 'manage_module_toggles'
     | 'view_gas_code'
     | 'export_report'
 ): boolean {
+  if (isOwnerSuperAdmin(role)) return true;
+
   switch (action) {
     case 'create_shipment':
       return role === 'Admin' || isCheckerRole(role);
@@ -1179,8 +1210,11 @@ export function canPerformAction(
       return role === 'Admin' || isCheckerRole(role);
     case 'manage_users':
     case 'manage_settings':
+    case 'manage_setup':
     case 'view_gas_code':
       return role === 'Admin';
+    case 'manage_module_toggles':
+      return false; // Eksklusif Owner (Super Admin)
     case 'export_report':
       return true;
     default:
@@ -1275,7 +1309,7 @@ export const PHASE_META: Array<{
 ];
 
 export function getDefaultPhasePermissions(role: UserRole): PhasePermissions {
-  if (role === 'Admin') {
+  if (role === 'Owner' || role === 'Admin') {
     return { phase1: true, phase2: true, phase3: true, phase4: true };
   }
   if (isCheckerRole(role)) {
@@ -1989,14 +2023,15 @@ export function buildOwnerBillingMessage(
 } {
   const auto = buildAutoBillingFields(shipment);
   const triggerLabel = getBillingEligibilityReason(shipment);
+  const identity = getPpjkIdentity(pengaturan);
   const ownerName = pengaturan.ownerName?.trim() || 'Bpk/Ibu Owner';
   const adminName = pengaturan.adminName?.trim() || 'Tim Admin Billing';
   const sjPart = shipment.suratJalanNomor ? ` | No. SJ: ${shipment.suratJalanNomor}` : '';
-  const subject = `[INFO PENAGIHAN PPJK] ${shipment.kodeOs} (${triggerLabel}) - ${shipment.namaCustomer}`;
+  const subject = `[INFO PENAGIHAN ${identity.brandName}] ${shipment.kodeOs} (${triggerLabel}) - ${shipment.namaCustomer}`;
   const message = [
     `Yth. ${ownerName},`,
     ``,
-    `Menginformasikan dari Sistem PTG PPJK bahwa dokumen berikut telah berstatus *${triggerLabel}*:`,
+    `Menginformasikan dari Sistem ${identity.brandName} bahwa dokumen berikut telah berstatus *${triggerLabel}*:`,
     `- Kode OS : ${shipment.kodeOs}`,
     `- Customer : ${shipment.namaCustomer} (${shipment.kodeCustomer})`,
     `- No. B/L : ${shipment.noBl || '-'}`,
@@ -2009,7 +2044,7 @@ export function buildOwnerBillingMessage(
     `Mohon arahan/persetujuan Owner kepada *${adminName}* agar segera menerbitkan Surat Penagihan resmi untuk customer *${shipment.namaCustomer}* di sistem PPJK.`,
     ``,
     `Terima kasih,`,
-    `Tim Operasional PTG PPJK`,
+    `Tim Operasional ${identity.brandName}`,
   ].join('\n');
 
   const waPhone = normalizeWhatsAppNumber(pengaturan.ownerWhatsapp);
@@ -2037,12 +2072,13 @@ export function buildCustomerBillingMessage(
   customerEmail: string;
 } {
   const auto = buildAutoBillingFields(shipment);
+  const identity = getPpjkIdentity(pengaturan);
   const parsed = parseCustomerContact(customer?.kontak);
   const bankInfo =
     pengaturan.billingBankInfo?.trim() ||
     DEFAULT_PENGATURAN.billingBankInfo ||
-    'Rekening resmi PT PTG Logistik Kepabeanan';
-  const adminName = pengaturan.adminName?.trim() || 'Admin Billing PTG PPJK';
+    `Rekening resmi ${identity.companyName}`;
+  const adminName = pengaturan.adminName?.trim() || `Admin Billing ${identity.brandName}`;
 
   const itemLines = auto.billingItems.map(
     (it, idx) =>
@@ -2055,7 +2091,7 @@ export function buildCustomerBillingMessage(
   const message = [
     `Yth. Finance / Bagian Import ${shipment.namaCustomer},`,
     ``,
-    `Bersama ini kami sampaikan Surat Penagihan Jasa PPJK & Pengeluaran Kontainer:`,
+    `Bersama ini kami sampaikan Surat Penagihan Jasa PPJK (${identity.companyName}) & Pengeluaran Kontainer:`,
     `- No. Surat Penagihan : ${auto.billingNomor}`,
     `- Tanggal / Jatuh Tempo : ${auto.billingTanggal} / s.d. ${auto.billingJatuhTempo}`,
     `- Referensi OS / B/L : ${shipment.kodeOs} / ${shipment.noBl || '-'}`,
@@ -2070,7 +2106,7 @@ export function buildCustomerBillingMessage(
     `${bankInfo}`,
     ``,
     `Hormat kami,`,
-    `${adminName} — PTG PPJK`,
+    `${adminName} — ${identity.brandName}`,
   ].join('\n');
 
   const whatsappUrl = parsed.whatsappDigits
@@ -2944,6 +2980,320 @@ export function reconcileAllShipmentsDerivedState(
     hasChanges: updatedShipmentsCount > 0 || seqRes.changed,
   };
 }
+
+export interface PpjkIdentity {
+  brandName: string;
+  companyName: string;
+  tagline: string;
+  npwp: string;
+  address: string;
+  phone: string;
+  email: string;
+  website: string;
+  footerNote: string;
+}
+
+export function getPpjkIdentity(pengaturan?: Partial<Pengaturan> | null): PpjkIdentity {
+  return {
+    brandName:
+      pengaturan?.ppjkBrandName?.trim() || DEFAULT_PENGATURAN.ppjkBrandName || 'PTG PPJK',
+    companyName:
+      pengaturan?.ppjkCompanyName?.trim() ||
+      DEFAULT_PENGATURAN.ppjkCompanyName ||
+      'PT PTG Logistik Kepabeanan',
+    tagline:
+      pengaturan?.ppjkTagline?.trim() ||
+      DEFAULT_PENGATURAN.ppjkTagline ||
+      'Customs Brokerage & Import Tracking',
+    npwp:
+      pengaturan?.ppjkNpwp?.trim() ||
+      DEFAULT_PENGATURAN.ppjkNpwp ||
+      '01.234.567.8-041.000 · PPJK-040200/2026',
+    address:
+      pengaturan?.ppjkAddress?.trim() ||
+      DEFAULT_PENGATURAN.ppjkAddress ||
+      'Jl. Yos Sudarso Kav. 88, Tanjung Priok, Jakarta Utara 14350',
+    phone:
+      pengaturan?.ppjkPhone?.trim() || DEFAULT_PENGATURAN.ppjkPhone || '021-4390-8811',
+    email:
+      pengaturan?.ppjkEmail?.trim() ||
+      DEFAULT_PENGATURAN.ppjkEmail ||
+      'operasional@ptg-ppjk.co.id',
+    website:
+      pengaturan?.ppjkWebsite?.trim() ||
+      DEFAULT_PENGATURAN.ppjkWebsite ||
+      'https://ptg-ppjk.co.id',
+    footerNote:
+      pengaturan?.ppjkFooterNote?.trim() ||
+      DEFAULT_PENGATURAN.ppjkFooterNote ||
+      'Dokumen resmi operasional kepabeanan, D/O pelayaran, surat jalan & penagihan.',
+  };
+}
+
+export interface AppModuleMeta {
+  id: AppView;
+  label: string;
+  shortLabel: string;
+  description: string;
+  category: 'Operasional' | 'Monitoring & Report' | 'Administrasi';
+  ownerExclusive?: boolean;
+}
+
+export const APP_MODULE_META: AppModuleMeta[] = [
+  {
+    id: 'dashboard',
+    label: 'Dashboard Ringkasan',
+    shortLabel: 'Dashboard',
+    description: 'Ringkasan KPI, grafik jalur kepabeanan, tabel inti checker & aktivitas.',
+    category: 'Monitoring & Report',
+  },
+  {
+    id: 'outstanding',
+    label: 'Dokumen Outstanding',
+    shortLabel: 'Outstanding',
+    description: 'Pantau dokumen impor yang belum SPPB / belum lengkap.',
+    category: 'Operasional',
+  },
+  {
+    id: 'checker',
+    label: 'Rekap Checker',
+    shortLabel: 'Rekap Checker',
+    description: 'Monitor beban dokumen Draft/Ready & penyelesaian per checker.',
+    category: 'Monitoring & Report',
+  },
+  {
+    id: 'do',
+    label: 'Kesiapan D/O Pelayaran',
+    shortLabel: 'Kesiapan D/O',
+    description: 'Tracking D/O pelayaran, masa berlaku, Eslah/TILA & kesiapan trucking.',
+    category: 'Operasional',
+  },
+  {
+    id: 'surat-jalan',
+    label: 'Surat Jalan & Gate-Out',
+    shortLabel: 'Surat Jalan',
+    description: 'Terbit surat jalan otomatis pasca Gate-Out & status pengiriman armada.',
+    category: 'Operasional',
+  },
+  {
+    id: 'penagihan',
+    label: 'Penagihan & Info Owner',
+    shortLabel: 'Penagihan & Owner',
+    description: 'Notifikasi WA/Email ke Owner serta penerbitan Surat Penagihan customer.',
+    category: 'Operasional',
+  },
+  {
+    id: 'shipments',
+    label: 'Semua Data Shipment',
+    shortLabel: 'Semua Shipment',
+    description: 'Tabel lengkap 39 kolom data shipment, ekspor & detail transaksi.',
+    category: 'Operasional',
+  },
+  {
+    id: 'report-nopen',
+    label: 'Report NOPEN (PIB)',
+    shortLabel: 'Report NOPEN',
+    description: 'Rekap bulanan dan rentang tanggal berdasarkan No. NOPEN & nilai BM/PDRI.',
+    category: 'Monitoring & Report',
+  },
+  {
+    id: 'master',
+    label: 'Master & Pengaturan',
+    shortLabel: 'Master & Pengaturan',
+    description: 'Master Customer, Importir, Shipper, User, Spreadsheet DB & Kode GAS.',
+    category: 'Administrasi',
+  },
+  {
+    id: 'setup',
+    label: 'Setup Identitas & Kontrol Owner',
+    shortLabel: 'Setup & Kontrol',
+    description: 'Identitas PPJK, kontrol toggle modul per peran/user & pemantauan aktivitas.',
+    category: 'Administrasi',
+    ownerExclusive: true,
+  },
+];
+
+export function getDefaultModuleAccessForRole(role: UserRole): ModulePermissionsMap {
+  if (role === 'Owner') {
+    return {
+      dashboard: true,
+      outstanding: true,
+      checker: true,
+      do: true,
+      'surat-jalan': true,
+      penagihan: true,
+      shipments: true,
+      'report-nopen': true,
+      master: true,
+      setup: true,
+    };
+  }
+  if (role === 'Admin') {
+    return {
+      dashboard: true,
+      outstanding: true,
+      checker: true,
+      do: true,
+      'surat-jalan': true,
+      penagihan: true,
+      shipments: true,
+      'report-nopen': true,
+      master: true,
+      setup: false,
+    };
+  }
+  if (role === 'Checker' || role === 'Dokumen/Checker') {
+    return {
+      dashboard: true,
+      outstanding: true,
+      checker: true,
+      do: true,
+      'surat-jalan': true,
+      penagihan: true,
+      shipments: true,
+      'report-nopen': true,
+      master: true,
+      setup: false,
+    };
+  }
+  return {
+    dashboard: true,
+    outstanding: true,
+    checker: true,
+    do: true,
+    'surat-jalan': true,
+    penagihan: true,
+    shipments: true,
+    'report-nopen': true,
+    master: false,
+    setup: false,
+  };
+}
+
+export function resolveUserModuleAccess(
+  user: { role: UserRole; modulePermissions?: ModulePermissionsMap },
+  pengaturan?: Pick<Pengaturan, 'roleModuleAccess'> | null
+): ModulePermissionsMap {
+  if (user.role === 'Owner') {
+    return getDefaultModuleAccessForRole('Owner');
+  }
+  const roleDefault = getDefaultModuleAccessForRole(user.role);
+  const roleKey = user.role === 'Dokumen/Checker' ? 'Checker' : user.role;
+  const rolePolicy = pengaturan?.roleModuleAccess?.[roleKey] || {};
+  const userOverrides = user.modulePermissions || {};
+
+  const resolved: ModulePermissionsMap = {};
+  for (const mod of APP_MODULE_META) {
+    if (mod.id === 'setup') {
+      // Modul Setup & Kontrol Owner bisa dibuka Admin jika memang diizinkan rolePolicy/override (untuk lihat identitas), namun toggle tetap dikontrol Owner
+      resolved.setup =
+        typeof userOverrides.setup === 'boolean'
+          ? userOverrides.setup
+          : typeof rolePolicy.setup === 'boolean'
+            ? rolePolicy.setup
+            : roleDefault.setup ?? false;
+      continue;
+    }
+    if (typeof userOverrides[mod.id] === 'boolean') {
+      resolved[mod.id] = userOverrides[mod.id];
+    } else if (typeof rolePolicy[mod.id] === 'boolean') {
+      resolved[mod.id] = rolePolicy[mod.id];
+    } else {
+      resolved[mod.id] = roleDefault[mod.id] ?? true;
+    }
+  }
+  return resolved;
+}
+
+export function canUserAccessModule(
+  user: { role: UserRole; modulePermissions?: ModulePermissionsMap },
+  moduleId: AppView,
+  pengaturan?: Pick<Pengaturan, 'roleModuleAccess'> | null
+): boolean {
+  if (user.role === 'Owner') return true;
+  const resolved = resolveUserModuleAccess(user, pengaturan);
+  return resolved[moduleId] !== false;
+}
+
+export function getFirstAccessibleModule(
+  user: { role: UserRole; modulePermissions?: ModulePermissionsMap },
+  pengaturan?: Pick<Pengaturan, 'roleModuleAccess'> | null
+): AppView | null {
+  const resolved = resolveUserModuleAccess(user, pengaturan);
+  for (const mod of APP_MODULE_META) {
+    if (resolved[mod.id]) return mod.id;
+  }
+  return null;
+}
+
+export interface UserMonitoringRow {
+  user: UserAccount;
+  resolvedModules: ModulePermissionsMap;
+  enabledModulesCount: number;
+  totalModulesCount: number;
+  hasCustomModuleOverrides: boolean;
+  resolvedPhases: PhasePermissions;
+  activePhasesCount: number;
+  activityCount: number;
+  lastActivityAt: string;
+  lastKodeOs: string;
+}
+
+export function buildUserMonitoringRows(
+  users: UserAccount[],
+  logs: LogPerubahan[],
+  pengaturan?: Pick<Pengaturan, 'roleModuleAccess'> | null
+): UserMonitoringRow[] {
+  const activityMap = new Map<
+    string,
+    { count: number; lastAt: string; lastKodeOs: string }
+  >();
+  for (const log of logs) {
+    const key = (log.user || '').trim().toLowerCase();
+    if (!key) continue;
+    const prev = activityMap.get(key) || { count: 0, lastAt: '', lastKodeOs: '' };
+    prev.count += 1;
+    if (!prev.lastAt || (log.waktu && log.waktu > prev.lastAt)) {
+      prev.lastAt = log.waktu;
+      prev.lastKodeOs = log.kodeOs || '';
+    }
+    activityMap.set(key, prev);
+  }
+
+  return users.map((u) => {
+    const resolvedModules = resolveUserModuleAccess(u, pengaturan);
+    const controllableMods = APP_MODULE_META.filter((m) =>
+      u.role === 'Owner' ? true : m.id !== 'setup'
+    );
+    const enabledModulesCount = controllableMods.filter((m) => resolvedModules[m.id]).length;
+    const hasCustomModuleOverrides = Boolean(
+      u.modulePermissions && Object.keys(u.modulePermissions).length > 0
+    );
+    const resolvedPhases = resolveUserPhasePermissions(u.role, u.phasePermissions);
+    const activePhasesCount = (['phase1', 'phase2', 'phase3', 'phase4'] as const).filter(
+      (k) => resolvedPhases[k]
+    ).length;
+    const stat = activityMap.get(u.username.toLowerCase()) || {
+      count: 0,
+      lastAt: '',
+      lastKodeOs: '',
+    };
+
+    return {
+      user: u,
+      resolvedModules,
+      enabledModulesCount,
+      totalModulesCount: controllableMods.length,
+      hasCustomModuleOverrides,
+      resolvedPhases,
+      activePhasesCount,
+      activityCount: stat.count,
+      lastActivityAt: stat.lastAt,
+      lastKodeOs: stat.lastKodeOs,
+    };
+  });
+}
+
 
 
 

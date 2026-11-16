@@ -12,11 +12,19 @@ import {
   PanelLeftOpen,
   Receipt,
   Ship,
+  SlidersHorizontal,
   UserCheck,
+  Wifi,
+  WifiOff,
   X,
 } from 'lucide-react';
-import type { AppView, SessionUser } from '../types/ppjk';
-import { canPerformAction } from '../utils/ppjkLogic';
+import type { AppView, Pengaturan, SessionUser } from '../types/ppjk';
+import {
+  canPerformAction,
+  getPpjkIdentity,
+  resolveUserModuleAccess,
+} from '../utils/ppjkLogic';
+import { PWAInstallButton } from './PWAStatusControls';
 
 interface SidebarProps {
   activeView: AppView;
@@ -31,6 +39,9 @@ interface SidebarProps {
   doBelumCount?: number;
   suratJalanCount?: number;
   pendingBillingCount?: number;
+  isOnline?: boolean;
+  pendingSyncCount?: number;
+  pengaturan?: Pengaturan;
 }
 
 export function Sidebar({
@@ -46,10 +57,18 @@ export function Sidebar({
   doBelumCount = 0,
   suratJalanCount = 0,
   pendingBillingCount = 0,
+  isOnline = true,
+  pendingSyncCount = 0,
+  pengaturan,
 }: SidebarProps) {
+  const identity = getPpjkIdentity(pengaturan);
+  const moduleAccess = resolveUserModuleAccess(user, pengaturan);
   const canAccessMaster =
-    canPerformAction(user.role, 'manage_master') ||
-    canPerformAction(user.role, 'manage_users');
+    (canPerformAction(user.role, 'manage_master') ||
+      canPerformAction(user.role, 'manage_users')) &&
+    Boolean(moduleAccess.master);
+  const canAccessSetup =
+    canPerformAction(user.role, 'manage_setup') || Boolean(moduleAccess.setup);
 
   const navItems: Array<{
     id: AppView;
@@ -58,39 +77,40 @@ export function Sidebar({
     badge?: number;
     visible: boolean;
   }> = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, visible: true },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, visible: Boolean(moduleAccess.dashboard) },
     {
       id: 'outstanding',
       label: 'Outstanding',
       icon: AlertTriangle,
       badge: outstandingCount,
-      visible: true,
+      visible: Boolean(moduleAccess.outstanding),
     },
-    { id: 'checker', label: 'Rekap Checker', icon: UserCheck, visible: true },
+    { id: 'checker', label: 'Rekap Checker', icon: UserCheck, visible: Boolean(moduleAccess.checker) },
     {
       id: 'do',
       label: 'Kesiapan D/O',
       icon: Anchor,
       badge: doBelumCount,
-      visible: true,
+      visible: Boolean(moduleAccess.do),
     },
     {
       id: 'surat-jalan',
       label: 'Surat Jalan',
       icon: ClipboardList,
       badge: suratJalanCount,
-      visible: true,
+      visible: Boolean(moduleAccess['surat-jalan']),
     },
     {
       id: 'penagihan',
       label: 'Penagihan & Owner',
       icon: Receipt,
       badge: pendingBillingCount,
-      visible: true,
+      visible: Boolean(moduleAccess.penagihan),
     },
-    { id: 'shipments', label: 'Semua Shipment', icon: FileSpreadsheet, visible: true },
-    { id: 'report-nopen', label: 'Report NOPEN (PIB)', icon: FileText, visible: true },
+    { id: 'shipments', label: 'Semua Shipment', icon: FileSpreadsheet, visible: Boolean(moduleAccess.shipments) },
+    { id: 'report-nopen', label: 'Report NOPEN (PIB)', icon: FileText, visible: Boolean(moduleAccess['report-nopen']) },
     { id: 'master', label: 'Master & Pengaturan', icon: Database, visible: canAccessMaster },
+    { id: 'setup', label: 'Setup & Kontrol', icon: SlidersHorizontal, visible: canAccessSetup },
   ];
 
   const handleNav = (id: AppView) => {
@@ -127,11 +147,14 @@ export function Sidebar({
                 <Ship className="w-4.5 h-4.5 text-white" />
               </div>
               <div className="min-w-0">
-                <div className="text-base font-bold tracking-tight text-white leading-tight truncate">
-                  PTG PPJK
+                <div
+                  data-testid="sidebar-brand-name"
+                  className="text-base font-bold tracking-tight text-white leading-tight truncate"
+                >
+                  {identity.brandName}
                 </div>
                 <div className="text-[10.5px] text-white/60 dark:text-slate-400 truncate">
-                  Customs &amp; Tracking
+                  {identity.tagline}
                 </div>
               </div>
             </div>
@@ -217,16 +240,42 @@ export function Sidebar({
             })}
         </nav>
 
-        {/* Bottom User Profile & Logout */}
-        <div className="relative z-10 p-3.5 border-t border-white/10 dark:border-white/[0.06] shrink-0">
+        {/* Bottom User Profile, PWA Install & Logout */}
+        <div className="relative z-10 p-3.5 border-t border-white/10 dark:border-white/[0.06] shrink-0 space-y-2.5">
           {!collapsed && (
-            <div className="mb-3 px-1">
-              <div className="text-xs font-semibold text-white truncate">{user.nama}</div>
-              <div className="text-[11px] text-white/60 dark:text-slate-400 truncate">
-                {user.role}
+            <div className="px-1 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-white truncate">{user.nama}</div>
+                <div className="text-[11px] text-white/60 dark:text-slate-400 truncate">
+                  {user.role}
+                </div>
               </div>
+              <span
+                title={
+                  isOnline
+                    ? 'Online · Penyimpanan Lokal IndexedDB Aktif'
+                    : 'Offline Mode · Bekerja penuh via IndexedDB'
+                }
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold shrink-0 ${
+                  isOnline
+                    ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/25'
+                    : 'bg-amber-500/20 text-amber-200 border border-amber-400/30'
+                }`}
+              >
+                {isOnline ? <Wifi className="w-2.5 h-2.5" /> : <WifiOff className="w-2.5 h-2.5" />}
+                <span>
+                  {isOnline
+                    ? pendingSyncCount > 0
+                      ? `${pendingSyncCount} Antre`
+                      : 'IDB'
+                    : 'Offline'}
+                </span>
+              </span>
             </div>
           )}
+
+          <PWAInstallButton variant="sidebar" collapsed={collapsed} />
+
           <button
             type="button"
             onClick={onLogout}

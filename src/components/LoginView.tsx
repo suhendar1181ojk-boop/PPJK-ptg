@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { Lock, ShieldCheck, Ship, User } from 'lucide-react';
-import type { SessionUser } from '../types/ppjk';
+import type { Pengaturan, SessionUser } from '../types/ppjk';
 import { authenticateUser, changeUserPassword } from '../services/gasSimulator';
-import { ROLE_LIMITS_INFO } from '../utils/ppjkLogic';
+import { getPpjkIdentity, ROLE_LIMITS_INFO } from '../utils/ppjkLogic';
 
 interface LoginViewProps {
   onLoginSuccess: (session: SessionUser) => void;
+  pengaturan?: Pengaturan;
 }
 
 const DEMO_ACCOUNTS: Array<{
@@ -14,6 +15,7 @@ const DEMO_ACCOUNTS: Array<{
   username: string;
   pass: string;
 }> = [
+  { label: 'Owner', roleKey: 'Owner', username: 'owner', pass: 'Owner123!' },
   { label: 'Admin', roleKey: 'Admin', username: 'admin', pass: 'Admin123!' },
   { label: 'Checker', roleKey: 'Checker', username: 'checker1', pass: 'Checker123!' },
   { label: 'Drafter', roleKey: 'Drafter', username: 'drafter1', pass: 'Drafter123!' },
@@ -21,7 +23,8 @@ const DEMO_ACCOUNTS: Array<{
   { label: 'Manajer', roleKey: 'Manajer', username: 'manajer1', pass: 'Manajer123!' },
 ];
 
-export function LoginView({ onLoginSuccess }: LoginViewProps) {
+export function LoginView({ onLoginSuccess, pengaturan }: LoginViewProps) {
+  const identity = getPpjkIdentity(pengaturan);
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('Admin123!');
   const [error, setError] = useState('');
@@ -142,13 +145,13 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
           </div>
           <div>
             <div className="text-[11px] font-bold tracking-wider uppercase text-[#F28C28] dark:text-violet-400">
-              PTG Customs Brokerage
+              {identity.companyName}
             </div>
             <h1 className="text-xl sm:text-2xl font-bold text-[#0B2545] dark:text-white mt-0.5">
-              PTG PPJK Outstanding
+              {identity.brandName}
             </h1>
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-1">
-              Sistem pencatatan dan pemantauan dokumen shipment impor.
+              {identity.tagline}
             </p>
           </div>
         </div>

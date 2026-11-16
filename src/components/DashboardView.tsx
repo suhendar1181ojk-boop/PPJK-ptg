@@ -19,9 +19,16 @@ import {
   Receipt,
   ShieldAlert,
   Ship,
+  SlidersHorizontal,
   UserCheck,
 } from 'lucide-react';
-import type { AppView, LogPerubahan, Shipment, UserRole } from '../types/ppjk';
+import type {
+  AppView,
+  LogPerubahan,
+  ModulePermissionsMap,
+  Shipment,
+  UserRole,
+} from '../types/ppjk';
 import {
   canPerformAction,
   computeBillingSummary,
@@ -51,6 +58,8 @@ interface DashboardViewProps {
   checklistItems: string[];
   userName?: string;
   userRole?: UserRole;
+  moduleAccess?: ModulePermissionsMap;
+  ppjkBrandName?: string;
   darkMode?: boolean;
   onOpenDetail: (kodeOs: string) => void;
   onNavigateView?: (v: AppView) => void;
@@ -78,6 +87,8 @@ export function DashboardView({
   checklistItems,
   userName = 'Tim PPJK',
   userRole = 'Admin',
+  moduleAccess,
+  ppjkBrandName = 'PTG PPJK',
   darkMode = true,
   onOpenDetail,
   onNavigateView,
@@ -352,9 +363,16 @@ export function DashboardView({
     [logs]
   );
 
+  const canOpenModule = (id: AppView) =>
+    moduleAccess ? Boolean(moduleAccess[id]) : true;
+
   const canAccessMaster =
-    canPerformAction(userRole, 'manage_master') ||
-    canPerformAction(userRole, 'manage_users');
+    (canPerformAction(userRole, 'manage_master') ||
+      canPerformAction(userRole, 'manage_users')) &&
+    canOpenModule('master');
+
+  const canAccessSetup =
+    canPerformAction(userRole, 'manage_setup') || Boolean(moduleAccess?.setup);
 
   const moduleShortcuts: Array<{
     id: AppView;
@@ -370,7 +388,7 @@ export function DashboardView({
       subtitle: `${stats.outstanding} dokumen OS`,
       icon: ShieldAlert,
       iconBoxClass: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/25',
-      visible: true,
+      visible: canOpenModule('outstanding'),
     },
     {
       id: 'checker',
@@ -378,7 +396,7 @@ export function DashboardView({
       subtitle: `${stats.draftCount} Draft · ${stats.readyCount} Ready`,
       icon: UserCheck,
       iconBoxClass: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25',
-      visible: true,
+      visible: canOpenModule('checker'),
     },
     {
       id: 'do',
@@ -386,7 +404,7 @@ export function DashboardView({
       subtitle: `${doSummary.sediaCount} Sedia · ${doSummary.belumCount} Belum`,
       icon: Anchor,
       iconBoxClass: 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/25',
-      visible: true,
+      visible: canOpenModule('do'),
     },
     {
       id: 'surat-jalan',
@@ -394,7 +412,7 @@ export function DashboardView({
       subtitle: `${doSummary.gateOutSudahCount} Terbit · ${doSummary.suratJalanDalamPengirimanCount} Kirim`,
       icon: ClipboardList,
       iconBoxClass: 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/25',
-      visible: true,
+      visible: canOpenModule('surat-jalan'),
     },
     {
       id: 'penagihan',
@@ -402,7 +420,7 @@ export function DashboardView({
       subtitle: `${billingSummary.siapInfoOwnerCount} Siap Info · ${billingSummary.terbitCount + billingSummary.terkirimCustomerCount + billingSummary.lunasCount} Tagihan`,
       icon: Receipt,
       iconBoxClass: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/25',
-      visible: true,
+      visible: canOpenModule('penagihan'),
     },
     {
       id: 'shipments',
@@ -410,7 +428,7 @@ export function DashboardView({
       subtitle: `${stats.total} total B/L`,
       icon: FileSpreadsheet,
       iconBoxClass: 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/25',
-      visible: true,
+      visible: canOpenModule('shipments'),
     },
     {
       id: 'report-nopen',
@@ -418,7 +436,7 @@ export function DashboardView({
       subtitle: 'Rekap 1 bulan & tanggal',
       icon: FileText,
       iconBoxClass: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/25',
-      visible: true,
+      visible: canOpenModule('report-nopen'),
     },
     {
       id: 'master',
@@ -427,6 +445,14 @@ export function DashboardView({
       icon: Database,
       iconBoxClass: 'bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/25',
       visible: canAccessMaster,
+    },
+    {
+      id: 'setup',
+      label: 'Setup & Kontrol',
+      subtitle: 'Identitas PPJK & Toggle Owner',
+      icon: SlidersHorizontal,
+      iconBoxClass: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/25',
+      visible: canAccessSetup,
     },
   ];
 
@@ -444,7 +470,7 @@ export function DashboardView({
             Selamat Datang, {userName}
           </h2>
           <p className="text-xs sm:text-[13px] text-slate-500 dark:text-slate-400 mt-0.5">
-            Berikut adalah ringkasan kinerja operasional &amp; status dokumen kepabeanan hari ini.
+            Ringkasan kinerja operasional &amp; status dokumen kepabeanan <strong className="font-semibold text-slate-700 dark:text-slate-200">{ppjkBrandName}</strong> hari ini.
           </p>
         </div>
 

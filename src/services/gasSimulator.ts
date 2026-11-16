@@ -2,11 +2,13 @@ import type {
   BillingItem,
   Catatan,
   Customer,
+  DatabaseState,
   DokumenItem,
   GatePassJenisType,
   Importir,
   KontainerItem,
   LogPerubahan,
+  ModulePermissionsMap,
   Pengaturan,
   PhasePermissions,
   SessionUser,
@@ -36,6 +38,7 @@ import {
   formatContainerSummary,
   generateNextKodeOS,
   getAllowedFieldsForPermissions,
+  isOwnerSuperAdmin,
   isShipmentBillingEligible,
   isShipmentOutstanding,
   normalizeGatePassJenis,
@@ -50,24 +53,20 @@ import {
   resolveUserPhasePermissions,
   validateShipmentInput,
 } from '../utils/ppjkLogic';
+import {
+  isIndexedDbAvailable,
+  loadDatabaseFromIndexedDB,
+  saveDatabaseToIndexedDB,
+} from './indexedDbService';
 
-export interface DatabaseState {
-  shipments: Shipment[];
-  kontainers: KontainerItem[];
-  customers: Customer[];
-  importirs: Importir[];
-  shippers: Shipper[];
-  users: UserAccount[];
-  logs: LogPerubahan[];
-  catatan: Catatan[];
-  dokumen: DokumenItem[];
-  pengaturan: Pengaturan;
-}
+export type { DatabaseState };
 
 export const DB_STORAGE_KEY = 'PTG_PPJK_DB_V1';
+export const OFFLINE_BROADCAST_CHANNEL = 'ptg_ppjk_offline_sync';
 const SESSION_STORAGE_KEY = 'PTG_PPJK_SESSION_V1';
 
 const VALID_ROLES: UserRole[] = [
+  'Owner',
   'Admin',
   'Checker',
   'Drafter',
@@ -108,6 +107,7 @@ async function createSeedUsers(): Promise<UserAccount[]> {
   };
 
   return Promise.all([
+    mkUser('owner', 'Owner123!', 'Bpk. Gunawan (Owner)', 'Owner', false),
     mkUser('admin', 'Admin123!', 'Hendra Wijaya (Admin)', 'Admin', false),
     mkUser('checker1', 'Checker123!', 'Rina Kusuma (Checker)', 'Checker', false),
     mkUser('checker2', 'Checker123!', 'Dewi Lestari (Checker)', 'Checker', false),
@@ -669,7 +669,26 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
   };
 }
 
-function readDbFromStorage(): DatabaseState | null {
+let inMemoryDbMirror: DatabaseState | null = null;
+let pendingIdbWrite: Promise<void> = Promise.resolve();
+
+function broadcastDbChange(): void {
+  try {
+    if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
+      const ch = new BroadcastChannel(OFFLINE_BROADCAST_CHANNEL);
+      ch.postMessage({ type: 'db-updated', at: Date.now() });
+      ch.close();
+    }
+  } catch {
+    // ignore unsupported BroadcastChannel environments
+  }
+}
+
+export async function flushIndexedDbWrites(): Promise<void> {
+  await pendingIdbWrite;
+}
+
+function readDbFromLocalStorage(): DatabaseState | null {
   try {
     const raw = localStorage.getItem(DB_STORAGE_KEY);
     if (!raw) return null;
@@ -679,18 +698,63 @@ function readDbFromStorage(): DatabaseState | null {
   }
 }
 
-function writeDbToStorage(db: DatabaseState): void {
+function readDbFromStorage(): DatabaseState | null {
+  if (inMemoryDbMirror) return inMemoryDbMirror;
+  return readDbFromLocalStorage();
+}
+
+function writeDbToStorage(
+  db: DatabaseState,
+  options?: { migratedFromLocalStorage?: boolean }
+): void {
+  inMemoryDbMirror = db;
+  if (isIndexedDbAvailable()) {
+    pendingIdbWrite = pendingIdbWrite
+      .then(() => saveDatabaseToIndexedDB(db, options))
+      .catch(() => {
+        // Keep in-memory & localStorage fallback active if IDB write fails
+      });
+  }
   try {
     localStorage.setItem(DB_STORAGE_KEY, JSON.stringify(db));
   } catch {
-    // Ignore storage quota errors in restricted sandboxes
+    // Ignore storage quota errors in restricted sandboxes; IndexedDB holds large datasets
   }
+  broadcastDbChange();
 }
 
 export async function ensureDbInitialized(): Promise<DatabaseState> {
-  const existing = readDbFromStorage();
+  let existing: DatabaseState | null = inMemoryDbMirror;
+  let migratedFromLocalStorage = false;
+
+  if (!existing && isIndexedDbAvailable()) {
+    existing = await loadDatabaseFromIndexedDB();
+  }
+  if (!existing) {
+    existing = readDbFromLocalStorage();
+    if (existing && isIndexedDbAvailable()) {
+      migratedFromLocalStorage = true;
+    }
+  }
+
   if (existing && Array.isArray(existing.users) && existing.users.length > 0) {
+    inMemoryDbMirror = existing;
     let changed = false;
+    if (!existing.users.some((u) => u.username.toLowerCase() === 'owner')) {
+      const salt = 'ptg_owner_salt2026';
+      const passwordHash = await computeSha256Hex(`${salt}:Owner123!`);
+      existing.users.unshift({
+        username: 'owner',
+        passwordHash,
+        salt,
+        nama: 'Bpk. Gunawan (Owner)',
+        role: 'Owner',
+        aktif: true,
+        mustChangePassword: false,
+        phasePermissions: resolveUserPhasePermissions('Owner'),
+      });
+      changed = true;
+    }
     if (!existing.users.some((u) => u.username.toLowerCase() === 'drafter1')) {
       const salt = 'ptg_drafter1_salt2026';
       const passwordHash = await computeSha256Hex(`${salt}:Drafter123!`);
@@ -718,10 +782,27 @@ export async function ensureDbInitialized(): Promise<DatabaseState> {
         changed = true;
       }
     }
-    if (!existing.pengaturan.ownerWhatsapp || !existing.pengaturan.ownerEmail || !existing.pengaturan.billingBankInfo) {
+    if (
+      !existing.pengaturan.ownerWhatsapp ||
+      !existing.pengaturan.ownerEmail ||
+      !existing.pengaturan.billingBankInfo ||
+      !existing.pengaturan.ppjkBrandName ||
+      !existing.pengaturan.ppjkCompanyName ||
+      !existing.pengaturan.roleModuleAccess
+    ) {
       existing.pengaturan = {
         ...DEFAULT_PENGATURAN,
         ...existing.pengaturan,
+        ppjkBrandName: existing.pengaturan.ppjkBrandName || DEFAULT_PENGATURAN.ppjkBrandName,
+        ppjkCompanyName: existing.pengaturan.ppjkCompanyName || DEFAULT_PENGATURAN.ppjkCompanyName,
+        ppjkTagline: existing.pengaturan.ppjkTagline || DEFAULT_PENGATURAN.ppjkTagline,
+        ppjkNpwp: existing.pengaturan.ppjkNpwp || DEFAULT_PENGATURAN.ppjkNpwp,
+        ppjkAddress: existing.pengaturan.ppjkAddress || DEFAULT_PENGATURAN.ppjkAddress,
+        ppjkPhone: existing.pengaturan.ppjkPhone || DEFAULT_PENGATURAN.ppjkPhone,
+        ppjkEmail: existing.pengaturan.ppjkEmail || DEFAULT_PENGATURAN.ppjkEmail,
+        ppjkWebsite: existing.pengaturan.ppjkWebsite || DEFAULT_PENGATURAN.ppjkWebsite,
+        ppjkFooterNote: existing.pengaturan.ppjkFooterNote || DEFAULT_PENGATURAN.ppjkFooterNote,
+        roleModuleAccess: existing.pengaturan.roleModuleAccess || {},
         ownerName: existing.pengaturan.ownerName || DEFAULT_PENGATURAN.ownerName,
         ownerWhatsapp: existing.pengaturan.ownerWhatsapp || DEFAULT_PENGATURAN.ownerWhatsapp,
         ownerEmail: existing.pengaturan.ownerEmail || DEFAULT_PENGATURAN.ownerEmail,
@@ -746,14 +827,16 @@ export async function ensureDbInitialized(): Promise<DatabaseState> {
       };
       changed = true;
     }
-    if (changed || reconciled.hasChanges) {
-      writeDbToStorage(existing);
+    if (changed || reconciled.hasChanges || migratedFromLocalStorage) {
+      writeDbToStorage(existing, { migratedFromLocalStorage });
+      await flushIndexedDbWrites();
     }
     return existing;
   }
   const users = await createSeedUsers();
   const seeded = createSeedDatabase(users);
   writeDbToStorage(seeded);
+  await flushIndexedDbWrites();
   return seeded;
 }
 
@@ -767,7 +850,12 @@ export interface SyncRefreshResult {
 }
 
 export async function refreshAndSyncDatabase(): Promise<SyncRefreshResult> {
-  const rawExisting = readDbFromStorage();
+  await flushIndexedDbWrites();
+  const rawFromIdb = isIndexedDbAvailable() ? await loadDatabaseFromIndexedDB() : null;
+  if (rawFromIdb) {
+    inMemoryDbMirror = rawFromIdb;
+  }
+  const rawExisting = rawFromIdb || readDbFromStorage();
   if (!rawExisting || !Array.isArray(rawExisting.users) || rawExisting.users.length === 0) {
     const initialized = await ensureDbInitialized();
     const outstandingCount = initialized.shipments.filter((s) =>
@@ -831,6 +919,7 @@ export async function syncSessionWithDb(
     role: found.role,
     mustChangePassword: Boolean(found.mustChangePassword),
     phasePermissions: resolveUserPhasePermissions(found.role, found.phasePermissions),
+    modulePermissions: found.role === 'Owner' ? undefined : found.modulePermissions,
   };
   saveStoredSession(synced);
   return synced;
@@ -841,6 +930,7 @@ export async function resetDatabase(mode: 'empty' | 'seed'): Promise<DatabaseSta
   if (mode === 'seed') {
     const seeded = createSeedDatabase(users);
     writeDbToStorage(seeded);
+    await flushIndexedDbWrites();
     return seeded;
   }
   const emptyDb: DatabaseState = {
@@ -856,7 +946,42 @@ export async function resetDatabase(mode: 'empty' | 'seed'): Promise<DatabaseSta
     pengaturan: { ...DEFAULT_PENGATURAN, seqByMonth: {} },
   };
   writeDbToStorage(emptyDb);
+  await flushIndexedDbWrites();
   return emptyDb;
+}
+
+export async function importDatabaseSnapshot(snapshot: DatabaseState): Promise<DatabaseState> {
+  const safeUsers =
+    Array.isArray(snapshot.users) && snapshot.users.length > 0
+      ? snapshot.users
+      : await createSeedUsers();
+
+  const reconciled = reconcileAllShipmentsDerivedState(
+    snapshot.shipments || [],
+    snapshot.kontainers || [],
+    snapshot.pengaturan?.seqByMonth || {}
+  );
+
+  const normalized: DatabaseState = {
+    shipments: reconciled.shipments,
+    kontainers: Array.isArray(snapshot.kontainers) ? snapshot.kontainers : [],
+    customers: Array.isArray(snapshot.customers) ? snapshot.customers : [],
+    importirs: Array.isArray(snapshot.importirs) ? snapshot.importirs : [],
+    shippers: Array.isArray(snapshot.shippers) ? snapshot.shippers : [],
+    users: safeUsers,
+    logs: Array.isArray(snapshot.logs) ? snapshot.logs : [],
+    catatan: Array.isArray(snapshot.catatan) ? snapshot.catatan : [],
+    dokumen: Array.isArray(snapshot.dokumen) ? snapshot.dokumen : [],
+    pengaturan: {
+      ...DEFAULT_PENGATURAN,
+      ...(snapshot.pengaturan || {}),
+      seqByMonth: reconciled.seqByMonth,
+    },
+  };
+
+  writeDbToStorage(normalized);
+  await flushIndexedDbWrites();
+  return normalized;
 }
 
 export function getStoredSession(): SessionUser | null {
@@ -907,6 +1032,7 @@ export async function authenticateUser(
     mustChangePassword: Boolean(u.mustChangePassword),
     expiresAt: Date.now() + 6 * 3600 * 1000,
     phasePermissions: resolveUserPhasePermissions(u.role, u.phasePermissions),
+    modulePermissions: u.role === 'Owner' ? undefined : u.modulePermissions,
   };
   saveStoredSession(session);
   return session;
@@ -1833,9 +1959,10 @@ export async function saveUserRecord(
     aktif: boolean;
     mustChangePassword?: boolean;
     phasePermissions?: Partial<PhasePermissions>;
+    modulePermissions?: ModulePermissionsMap;
   }
 ): Promise<DatabaseState> {
-  if (!canPerformAction(session.role, 'manage_users')) throw new Error('Khusus Admin.');
+  if (!canPerformAction(session.role, 'manage_users')) throw new Error('Khusus Admin / Owner.');
   if (!VALID_ROLES.includes(payload.role)) {
     throw new Error('Peran user tidak valid.');
   }
@@ -1845,7 +1972,7 @@ export async function saveUserRecord(
     throw new Error('Username dan Nama Lengkap wajib diisi.');
   }
   if (cleanUsername.toLowerCase() === session.username.toLowerCase() && !payload.aktif) {
-    throw new Error('Admin tidak dapat menonaktifkan akunnya sendiri saat sedang login.');
+    throw new Error('Anda tidak dapat menonaktifkan akunnya sendiri saat sedang login.');
   }
 
   const db = await ensureDbInitialized();
@@ -1854,20 +1981,54 @@ export async function saveUserRecord(
     (u) => u.username.toLowerCase() === cleanUsername.toLowerCase()
   );
 
-  const existingPerms = idx >= 0 ? db.users[idx].phasePermissions : undefined;
+  const existingUser = idx >= 0 ? db.users[idx] : undefined;
+  const callerIsOwner = isOwnerSuperAdmin(session.role);
+
+  if ((existingUser?.role === 'Owner' || payload.role === 'Owner') && !callerIsOwner) {
+    throw new Error('Akses ditolak: Akun Owner (Super Admin) hanya dapat dikelola oleh Owner.');
+  }
+
+  if (payload.modulePermissions !== undefined && !callerIsOwner) {
+    throw new Error('Akses ditolak: Toggle modul per user hanya dapat diubah oleh Owner (Super Admin).');
+  }
+
+  if (existingUser?.role === 'Owner' && !payload.aktif) {
+    throw new Error('Akun Owner Super Admin utama tidak boleh dinonaktifkan.');
+  }
+
+  const existingPerms = existingUser?.phasePermissions;
   const resolvedPhasePermissions = resolveUserPhasePermissions(
     payload.role,
     payload.phasePermissions ?? existingPerms
   );
 
-  if (idx >= 0) {
-    const existing = db.users[idx];
-    let salt = existing.salt;
-    let passwordHash = existing.passwordHash;
+  const normalizeModulePermissions = (
+    raw?: ModulePermissionsMap
+  ): ModulePermissionsMap | undefined => {
+    if (!raw || payload.role === 'Owner') return undefined;
+    const cleaned: ModulePermissionsMap = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v === 'boolean') {
+        cleaned[k as keyof ModulePermissionsMap] = v;
+      }
+    }
+    return Object.keys(cleaned).length > 0 ? cleaned : undefined;
+  };
+
+  const resolvedModulePermissions =
+    payload.role === 'Owner'
+      ? undefined
+      : payload.modulePermissions !== undefined
+        ? normalizeModulePermissions(payload.modulePermissions)
+        : existingUser?.modulePermissions;
+
+  if (idx >= 0 && existingUser) {
+    let salt = existingUser.salt;
+    let passwordHash = existingUser.passwordHash;
     let mustChangePassword =
       payload.mustChangePassword !== undefined
         ? payload.mustChangePassword
-        : existing.mustChangePassword;
+        : existingUser.mustChangePassword;
     if (payload.password && payload.password.trim().length > 0) {
       if (payload.password.trim().length < 6) {
         throw new Error('Password baru minimal 6 karakter.');
@@ -1877,7 +2038,7 @@ export async function saveUserRecord(
       mustChangePassword = payload.mustChangePassword ?? false;
     }
     db.users[idx] = {
-      ...existing,
+      ...existingUser,
       nama: cleanNama,
       role: payload.role,
       aktif: payload.aktif,
@@ -1885,6 +2046,7 @@ export async function saveUserRecord(
       passwordHash,
       mustChangePassword,
       phasePermissions: resolvedPhasePermissions,
+      modulePermissions: resolvedModulePermissions,
     };
   } else {
     if (!payload.password || payload.password.trim().length < 6) {
@@ -1901,6 +2063,7 @@ export async function saveUserRecord(
       passwordHash,
       mustChangePassword: payload.mustChangePassword ?? false,
       phasePermissions: resolvedPhasePermissions,
+      modulePermissions: resolvedModulePermissions,
     });
   }
   writeDbToStorage(db);
@@ -1911,6 +2074,7 @@ export async function saveUserRecord(
       nama: cleanNama,
       role: payload.role,
       phasePermissions: resolvedPhasePermissions,
+      modulePermissions: resolvedModulePermissions,
     });
   }
   return db;
@@ -1920,9 +2084,16 @@ export async function savePengaturanRecord(
   session: SessionUser,
   pengaturan: Pengaturan
 ): Promise<DatabaseState> {
-  if (!canPerformAction(session.role, 'manage_settings')) throw new Error('Khusus Admin.');
+  if (!canPerformAction(session.role, 'manage_settings')) throw new Error('Khusus Admin / Owner.');
   const db = await ensureDbInitialized();
   assertSessionActive(db, session);
+
+  const prevModulePolicyJson = JSON.stringify(db.pengaturan.roleModuleAccess || {});
+  const nextModulePolicyJson = JSON.stringify(pengaturan.roleModuleAccess || {});
+  if (prevModulePolicyJson !== nextModulePolicyJson && !isOwnerSuperAdmin(session.role)) {
+    throw new Error('Akses ditolak: Hanya Owner (Super Admin) yang dapat mengatur toggle modul aplikasi.');
+  }
+
   db.pengaturan = pengaturan;
   writeDbToStorage(db);
   return db;

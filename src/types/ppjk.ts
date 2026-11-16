@@ -1,4 +1,5 @@
 export type UserRole =
+  | 'Owner'
   | 'Admin'
   | 'Checker'
   | 'Drafter'
@@ -171,6 +172,11 @@ export interface PhasePermissions {
   phase4: boolean; // 4. Pasca-SPPB
 }
 
+export type ModulePermissionsMap = Partial<Record<AppView, boolean>>;
+export type RoleModuleAccessMap = Partial<
+  Record<Exclude<UserRole, 'Owner'>, ModulePermissionsMap>
+>;
+
 export interface UserAccount {
   username: string;
   passwordHash: string;
@@ -180,6 +186,7 @@ export interface UserAccount {
   aktif: boolean;
   mustChangePassword?: boolean;
   phasePermissions?: PhasePermissions;
+  modulePermissions?: ModulePermissionsMap;
 }
 
 export interface SessionUser {
@@ -190,6 +197,7 @@ export interface SessionUser {
   mustChangePassword: boolean;
   expiresAt: number;
   phasePermissions?: PhasePermissions;
+  modulePermissions?: ModulePermissionsMap;
 }
 
 export interface LogPerubahan {
@@ -238,6 +246,16 @@ export interface Pengaturan {
   jalurList: JalurType[];
   checklistItems: string[];
   notificationEmails: string[];
+  ppjkBrandName?: string;
+  ppjkCompanyName?: string;
+  ppjkTagline?: string;
+  ppjkNpwp?: string;
+  ppjkAddress?: string;
+  ppjkPhone?: string;
+  ppjkEmail?: string;
+  ppjkWebsite?: string;
+  ppjkFooterNote?: string;
+  roleModuleAccess?: RoleModuleAccessMap;
   ownerName?: string;
   ownerWhatsapp?: string;
   ownerEmail?: string;
@@ -246,6 +264,25 @@ export interface Pengaturan {
   adminEmail?: string;
   billingBankInfo?: string;
   gasDeployPinHash?: string;
+  spreadsheetId?: string;
+  spreadsheetTitle?: string;
+  spreadsheetUrl?: string;
+  spreadsheetAutoSync?: boolean;
+  spreadsheetLastSyncAt?: string;
+  spreadsheetLastSyncDirection?: 'push' | 'pull' | 'create' | '';
+}
+
+export interface DatabaseState {
+  shipments: Shipment[];
+  kontainers: KontainerItem[];
+  customers: Customer[];
+  importirs: Importir[];
+  shippers: Shipper[];
+  users: UserAccount[];
+  logs: LogPerubahan[];
+  catatan: Catatan[];
+  dokumen: DokumenItem[];
+  pengaturan: Pengaturan;
 }
 
 export interface DashboardStats {
@@ -414,5 +451,6 @@ export type AppView =
   | 'report-nopen'
   | 'shipments'
   | 'outstanding'
-  | 'master';
+  | 'master'
+  | 'setup';
 export type ShipmentPhase = 1 | 2 | 3 | 4;

@@ -3,6 +3,7 @@ import Swal from 'sweetalert2';
 import {
   Bell,
   Building2,
+  FileSpreadsheet,
   HardDrive,
   LogOut as LogOutIcon,
   Menu,
@@ -20,6 +21,7 @@ import type {
   GatePassJenisType,
   Importir,
   KontainerItem,
+  ModulePermissionsMap,
   Pengaturan,
   PendingUploadFile,
   PhasePermissions,
@@ -46,7 +48,10 @@ import {
   deleteShipmentRecord,
   deleteShipperMaster,
   ensureDbInitialized,
+  flushIndexedDbWrites,
   getStoredSession,
+  importDatabaseSnapshot,
+  OFFLINE_BROADCAST_CHANNEL,
   refreshAndSyncDatabase,
   resetDatabase,
   saveCustomerMaster,
@@ -63,6 +68,18 @@ import {
   updateShipmentStatusDokumen,
 } from './services/gasSimulator';
 import {
+  clearOfflineSyncQueue,
+  completeOfflineSyncTask,
+  enqueueOfflineSyncTask,
+  failOfflineSyncTask,
+  getIndexedDbStatusSummary,
+  getOfflineSyncQueue,
+  type IndexedDbStatusSummary,
+  saveDatabaseToIndexedDB,
+} from './services/indexedDbService';
+import type { OfflineSyncTask } from './utils/offlineDbLogic';
+import { useOnlineStatus } from './hooks/useOnlineStatus';
+import {
   deleteGoogleDriveFile,
   getGoogleDriveAccessToken,
   googleDriveSignIn,
@@ -72,15 +89,27 @@ import {
   uploadFileToGoogleDrive,
 } from './services/googleDriveService';
 import {
+  createDatabaseSpreadsheet,
+  fetchSpreadsheetMetadata,
+  findDatabaseSpreadsheet,
+  listUserSpreadsheets,
+  pullDatabaseFromSpreadsheet,
+  pushDatabaseToSpreadsheet,
+} from './services/googleSheetsService';
+import { computeSpreadsheetSyncDiffSummary } from './utils/sheetsSchema';
+import {
   canPerformAction,
   computeBillingSummary,
   filterShipments,
+  getFirstAccessibleModule,
+  getPpjkIdentity,
   getShipmentProcessSignal,
   isContainerGateOut,
   isShipmentBillingEligible,
   isShipmentOutstanding,
   isUrgentMissingAju,
   normalizeStatusDoPelayaran,
+  resolveUserModuleAccess,
 } from './utils/ppjkLogic';
 import { LoginView } from './components/LoginView';
 import { Sidebar } from './components/Sidebar';
@@ -88,7 +117,8 @@ import { DashboardView } from './components/DashboardView';
 import { ShipmentTableView } from './components/ShipmentTableView';
 import { ShipmentDetailDrawer } from './components/ShipmentDetailDrawer';
 import { ShipmentFormModal } from './components/ShipmentFormModal';
-import { MasterSettingsView } from './components/MasterSettingsView';
+import { MasterSettingsView, type MasterTab } from './components/MasterSettingsView';
+import { SetupAppView } from './components/SetupAppView';
 import { CheckerSummaryView } from './components/CheckerSummaryView';
 import { DoPelayaranView } from './components/DoPelayaranView';
 import { SuratJalanView } from './components/SuratJalanView';
@@ -96,6 +126,7 @@ import { PenagihanView } from './components/PenagihanView';
 import { NopenReportView } from './components/NopenReportView';
 import { BillingModal } from './components/BillingModal';
 import { GoogleSignInButton } from './components/GoogleDriveButton';
+import { OfflineIndicator } from './components/PWAStatusControls';
 
 const VIEW_TITLES: Record<AppView, string> = {
   dashboard: 'Dashboard Ringkasan',
@@ -107,6 +138,7 @@ const VIEW_TITLES: Record<AppView, string> = {
   outstanding: 'Dokumen Outstanding',
   shipments: 'Semua Data Shipment',
   master: 'Master Data & Pengaturan',
+  setup: 'Setup Identitas & Kontrol Owner',
 };
 
 export default function App() {
@@ -150,6 +182,26 @@ export default function App() {
   const [driveConnecting, setDriveConnecting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [syncingSheets, setSyncingSheets] = useState(false);
+  const [masterInitialTab, setMasterInitialTab] = useState<MasterTab>('customer');
+  const autoSyncInFlightRef = useRef(false);
+  const isOnline = useOnlineStatus();
+  const [idbStatus, setIdbStatus] = useState<IndexedDbStatusSummary | null>(null);
+  const [offlineSyncQueue, setOfflineSyncQueue] = useState<OfflineSyncTask[]>([]);
+  const [syncingOfflineQueue, setSyncingOfflineQueue] = useState(false);
+
+  const refreshOfflineTelemetry = async (snapshot?: DatabaseState) => {
+    try {
+      const [status, queue] = await Promise.all([
+        getIndexedDbStatusSummary(snapshot),
+        getOfflineSyncQueue(),
+      ]);
+      setIdbStatus(status);
+      setOfflineSyncQueue(queue);
+    } catch {
+      // ignore telemetry check error
+    }
+  };
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
@@ -159,6 +211,15 @@ export default function App() {
       // ignore storage failure
     }
   }, [darkMode]);
+
+  useEffect(() => {
+    const id = getPpjkIdentity(db?.pengaturan);
+    document.title = `${id.brandName} — ${id.companyName}`;
+  }, [db?.pengaturan]);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [activeView]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -209,6 +270,7 @@ export default function App() {
         if (!active) return;
         setDb(loadedDb);
         setLastSyncedAt(new Date().toISOString());
+        void refreshOfflineTelemetry(loadedDb);
 
         const existingSession = getStoredSession();
         if (existingSession) {
@@ -231,15 +293,35 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const onStorageSync = (e: StorageEvent) => {
-      if (e.key !== DB_STORAGE_KEY) return;
+    const syncFromLocalStores = () => {
       void refreshAndSyncDatabase().then((res) => {
         setDb({ ...res.db });
         setLastSyncedAt(res.syncedAt);
+        void refreshOfflineTelemetry(res.db);
       });
     };
+    const onStorageSync = (e: StorageEvent) => {
+      if (e.key !== DB_STORAGE_KEY) return;
+      syncFromLocalStores();
+    };
     window.addEventListener('storage', onStorageSync);
-    return () => window.removeEventListener('storage', onStorageSync);
+
+    let bc: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        bc = new BroadcastChannel(OFFLINE_BROADCAST_CHANNEL);
+        bc.onmessage = () => {
+          syncFromLocalStores();
+        };
+      } catch {
+        bc = null;
+      }
+    }
+
+    return () => {
+      window.removeEventListener('storage', onStorageSync);
+      if (bc) bc.close();
+    };
   }, []);
 
   const searchMatches = useMemo(() => {
@@ -269,6 +351,171 @@ export default function App() {
     });
   };
 
+  const handleReplayOfflineQueue = async () => {
+    if (!db || !session || syncingOfflineQueue) return;
+    const accessToken = getGoogleDriveAccessToken();
+    const queue = await getOfflineSyncQueue();
+    if (queue.length === 0) return;
+
+    if (!isOnline) {
+      await Swal.fire({
+        toast: true,
+        position: 'bottom-end',
+        icon: 'info',
+        title: 'Masih dalam Mode Offline',
+        text: `${queue.length} perubahan tetap aman tersimpan di IndexedDB dan akan disinkronkan saat koneksi kembali.`,
+        background: darkMode ? '#151B2B' : '#FFFFFF',
+        color: darkMode ? '#F1F5F9' : '#0F172A',
+        showConfirmButton: false,
+        timer: 3200,
+      });
+      return;
+    }
+
+    if (!accessToken) {
+      await Swal.fire({
+        toast: true,
+        position: 'bottom-end',
+        icon: 'info',
+        title: 'Perlu Sign in Google',
+        text: 'Klik "Sign in with Google" untuk mengirim antrean perubahan offline ke Google Spreadsheet.',
+        background: darkMode ? '#151B2B' : '#FFFFFF',
+        color: darkMode ? '#F1F5F9' : '#0F172A',
+        showConfirmButton: false,
+        timer: 3500,
+      });
+      return;
+    }
+
+    setSyncingOfflineQueue(true);
+    setSyncingSheets(true);
+    try {
+      let currentDb = db;
+      for (const task of queue) {
+        const targetSheetId = task.spreadsheetId || currentDb.pengaturan.spreadsheetId;
+        if (!targetSheetId) {
+          await completeOfflineSyncTask(task.id);
+          continue;
+        }
+        try {
+          const pushRes = await pushDatabaseToSpreadsheet(
+            accessToken,
+            targetSheetId,
+            currentDb,
+            session.nama
+          );
+          currentDb = await savePengaturanRecord(session, {
+            ...currentDb.pengaturan,
+            spreadsheetId: pushRes.spreadsheetId,
+            spreadsheetTitle: pushRes.title,
+            spreadsheetUrl: pushRes.spreadsheetUrl,
+            spreadsheetLastSyncAt: pushRes.syncedAt,
+            spreadsheetLastSyncDirection: 'push',
+          });
+          await flushIndexedDbWrites();
+          await completeOfflineSyncTask(task.id);
+          setDb({ ...currentDb });
+          setLastSyncedAt(pushRes.syncedAt);
+        } catch (err) {
+          await failOfflineSyncTask(
+            task.id,
+            err instanceof Error ? err.message : 'Gagal mengirim antrean'
+          );
+        }
+      }
+      await refreshOfflineTelemetry(currentDb);
+    } finally {
+      setSyncingOfflineQueue(false);
+      setSyncingSheets(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOnline && driveUserEmail && offlineSyncQueue.length > 0 && db?.pengaturan.spreadsheetId) {
+      void handleReplayOfflineQueue();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline, driveUserEmail]);
+
+  const applyDbUpdate = async (
+    nextDb: DatabaseState,
+    options?: { skipAutoSheetsSync?: boolean }
+  ) => {
+    setDb({ ...nextDb });
+    await flushIndexedDbWrites();
+
+    const accessToken = getGoogleDriveAccessToken();
+    const spreadsheetId = nextDb.pengaturan.spreadsheetId;
+    if (
+      options?.skipAutoSheetsSync ||
+      !nextDb.pengaturan.spreadsheetAutoSync ||
+      !spreadsheetId ||
+      !session
+    ) {
+      await refreshOfflineTelemetry(nextDb);
+      return;
+    }
+
+    if (!isOnline || !accessToken) {
+      await enqueueOfflineSyncTask(
+        !isOnline
+          ? 'Perubahan data saat Mode Offline (IndexedDB)'
+          : 'Menunggu sesi Google untuk sinkronisasi otomatis',
+        spreadsheetId
+      );
+      await refreshOfflineTelemetry(nextDb);
+      return;
+    }
+
+    if (autoSyncInFlightRef.current) {
+      await refreshOfflineTelemetry(nextDb);
+      return;
+    }
+
+    autoSyncInFlightRef.current = true;
+    setSyncingSheets(true);
+    try {
+      const pushRes = await pushDatabaseToSpreadsheet(
+        accessToken,
+        spreadsheetId,
+        nextDb,
+        session.nama
+      );
+      const savedMetaDb = await savePengaturanRecord(session, {
+        ...nextDb.pengaturan,
+        spreadsheetId: pushRes.spreadsheetId,
+        spreadsheetTitle: pushRes.title,
+        spreadsheetUrl: pushRes.spreadsheetUrl,
+        spreadsheetLastSyncAt: pushRes.syncedAt,
+        spreadsheetLastSyncDirection: 'push',
+      });
+      await flushIndexedDbWrites();
+      setDb({ ...savedMetaDb });
+      setLastSyncedAt(pushRes.syncedAt);
+      await refreshOfflineTelemetry(savedMetaDb);
+    } catch (err) {
+      await enqueueOfflineSyncTask('Auto-sync gagal sementara, masuk antrean offline', spreadsheetId);
+      await refreshOfflineTelemetry(nextDb);
+      void Swal.fire({
+        toast: true,
+        position: 'bottom-end',
+        icon: 'warning',
+        title: 'Tersimpan di IndexedDB · Auto-Sync Antre',
+        text:
+          err instanceof Error
+            ? err.message
+            : 'Perubahan tersimpan aman di IndexedDB dan masuk antrean sinkronisasi.',
+        background: darkMode ? '#151B2B' : '#FFFFFF',
+        color: darkMode ? '#F1F5F9' : '#0F172A',
+        showConfirmButton: false,
+        timer: 3500,
+      });
+    } finally {
+      autoSyncInFlightRef.current = false;
+      setSyncingSheets(false);
+    }
+  };
+
   const handleRefreshData = async () => {
     if (refreshing) return;
     setRefreshing(true);
@@ -283,6 +530,7 @@ export default function App() {
       }
 
       let driveNote = '';
+      let sheetsNote = '';
       const accessToken = getGoogleDriveAccessToken();
       if (accessToken) {
         try {
@@ -291,6 +539,74 @@ export default function App() {
         } catch {
           driveNote = ' • Drive perlu login ulang';
         }
+
+        const linkedSheetId = result.db.pengaturan.spreadsheetId;
+        if (linkedSheetId && result.db.pengaturan.spreadsheetAutoSync && session) {
+          try {
+            const pulled = await pullDatabaseFromSpreadsheet(
+              accessToken,
+              linkedSheetId,
+              result.db
+            );
+            const remoteTime = pulled.remoteLastUpdatedAt
+              ? new Date(pulled.remoteLastUpdatedAt).getTime()
+              : 0;
+            const localTime = result.db.pengaturan.spreadsheetLastSyncAt
+              ? new Date(result.db.pengaturan.spreadsheetLastSyncAt).getTime()
+              : 0;
+
+            if (remoteTime > localTime + 2000) {
+              const diff = computeSpreadsheetSyncDiffSummary(result.db, pulled.db);
+              const askPull = await Swal.fire({
+                title: 'Pembaruan Ditemukan di Google Spreadsheet',
+                text: `File "${pulled.title}" memiliki versi lebih baru (${diff.remoteCounts.shipments} shipment di Spreadsheet vs ${diff.localCounts.shipments} di lokal). Terapkan data terbaru dari Google Spreadsheet ke aplikasi?`,
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonColor: '#059669',
+                confirmButtonText: 'Ya, Tarik dari Spreadsheet',
+                cancelButtonText: 'Pertahankan Data Lokal',
+                background: darkMode ? '#131926' : '#ffffff',
+                color: darkMode ? '#f1f5f9' : '#0f172a',
+              });
+              if (askPull.isConfirmed) {
+                const imported = await importDatabaseSnapshot({
+                  ...pulled.db,
+                  pengaturan: {
+                    ...pulled.db.pengaturan,
+                    spreadsheetAutoSync: result.db.pengaturan.spreadsheetAutoSync,
+                    spreadsheetLastSyncAt: new Date().toISOString(),
+                    spreadsheetLastSyncDirection: 'pull',
+                  },
+                });
+                setDb({ ...imported });
+                sheetsNote = ' • Sheets: Ditarik';
+              } else {
+                sheetsNote = ' • Sheets: Lokal dipertahankan';
+              }
+            } else {
+              const pushRes = await pushDatabaseToSpreadsheet(
+                accessToken,
+                linkedSheetId,
+                result.db,
+                session.nama
+              );
+              const savedMetaDb = await savePengaturanRecord(session, {
+                ...result.db.pengaturan,
+                spreadsheetId: pushRes.spreadsheetId,
+                spreadsheetTitle: pushRes.title,
+                spreadsheetUrl: pushRes.spreadsheetUrl,
+                spreadsheetLastSyncAt: pushRes.syncedAt,
+                spreadsheetLastSyncDirection: 'push',
+              });
+              setDb({ ...savedMetaDb });
+              sheetsNote = ` • Sheets: ${pushRes.writtenRows} baris tersinkron`;
+            }
+          } catch {
+            sheetsNote = ' • Sheets perlu cek koneksi';
+          }
+        }
+      } else if (result.db.pengaturan.spreadsheetId) {
+        sheetsNote = ' • Sheets: Perlu Sign in Google';
       }
 
       const elapsed = Date.now() - startMs;
@@ -310,11 +626,11 @@ export default function App() {
         position: 'bottom-end',
         icon: 'success',
         title: 'Data Berhasil Disinkronkan',
-        text: `${result.totalShipments} shipment (${result.outstandingCount} outstanding) • ${updateSummary}${driveNote} • ${syncClock}`,
+        text: `${result.totalShipments} shipment (${result.outstandingCount} outstanding) • ${updateSummary}${driveNote}${sheetsNote} • ${syncClock}`,
         background: darkMode ? '#151B2B' : '#FFFFFF',
         color: darkMode ? '#F1F5F9' : '#0F172A',
         showConfirmButton: false,
-        timer: 3000,
+        timer: 3200,
         timerProgressBar: true,
       });
     } catch (err) {
@@ -342,7 +658,8 @@ export default function App() {
     const loadedDb = await ensureDbInitialized();
     setDb(loadedDb);
     setLastSyncedAt(new Date().toISOString());
-    setActiveView('dashboard');
+    const firstAllowed = getFirstAccessibleModule(newSession, loadedDb.pengaturan);
+    setActiveView(firstAllowed || 'dashboard');
   };
 
   const handleLogout = () => {
@@ -368,15 +685,37 @@ export default function App() {
   const handleConnectGoogleDrive = async () => {
     setDriveConnecting(true);
     try {
-      const { user } = await googleDriveSignIn();
+      const { user, accessToken } = await googleDriveSignIn();
       setDriveUserEmail(user.email || user.displayName || 'Google Drive Terhubung');
+
+      if (db && session) {
+        if (!db.pengaturan.spreadsheetId) {
+          const foundSheet = await findDatabaseSpreadsheet(accessToken, 'PTG_PPJK_DATABASE');
+          if (foundSheet) {
+            const askLink = await Swal.fire({
+              title: 'Ditemukan File Database Spreadsheet',
+              text: `Ditemukan file "${foundSheet.name}" di Google Drive Anda. Hubungkan database aplikasi dengan file tersebut sekarang?`,
+              icon: 'question',
+              showCancelButton: true,
+              confirmButtonColor: '#059669',
+              confirmButtonText: 'Ya, Hubungkan Spreadsheet',
+              cancelButtonText: 'Nanti Saja',
+              background: darkMode ? '#131926' : '#ffffff',
+              color: darkMode ? '#f1f5f9' : '#0f172a',
+            });
+            if (askLink.isConfirmed) {
+              await handleConnectExistingSpreadsheet(foundSheet.id);
+            }
+          }
+        }
+      }
     } catch (err) {
       await Swal.fire({
-        title: 'Koneksi Google Drive',
+        title: 'Koneksi Google Drive & Sheets',
         text:
           err instanceof Error
             ? err.message
-            : 'Gagal terhubung ke Google Drive. Silakan coba lagi.',
+            : 'Gagal terhubung ke akun Google. Silakan coba lagi.',
         icon: 'error',
       });
     } finally {
@@ -387,6 +726,362 @@ export default function App() {
   const handleDisconnectGoogleDrive = async () => {
     await googleDriveSignOut();
     setDriveUserEmail(null);
+  };
+
+  const handleCreateSpreadsheet = async (title: string) => {
+    if (!db || !session) return;
+    const accessToken = getGoogleDriveAccessToken();
+    if (!accessToken) {
+      await Swal.fire({
+        title: 'Login Google Diperlukan',
+        text: 'Klik "Sign in with Google" terlebih dahulu untuk membuat Google Spreadsheet.',
+        icon: 'info',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+      return;
+    }
+
+    const cleanTitle = (title || '').trim() || 'PTG_PPJK_DATABASE';
+    const confirm = await Swal.fire({
+      title: `Buat Google Spreadsheet "${cleanTitle}"?`,
+      text: `Akan dibuat file Google Spreadsheet baru berisi 11 tab database (${db.shipments.length} shipment, ${db.kontainers.length} kontainer, ${db.customers.length} customer, ${db.users.length} user) dan Auto-Sync Penuh akan diaktifkan.`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonColor: '#059669',
+      confirmButtonText: 'Ya, Buat & Sinkronkan',
+      cancelButtonText: 'Batal',
+      background: darkMode ? '#131926' : '#ffffff',
+      color: darkMode ? '#f1f5f9' : '#0f172a',
+    });
+    if (!confirm.isConfirmed) return;
+
+    setSyncingSheets(true);
+    try {
+      const created = await createDatabaseSpreadsheet(accessToken, cleanTitle, db, session.nama);
+      const nextDb = await savePengaturanRecord(session, {
+        ...db.pengaturan,
+        spreadsheetId: created.spreadsheetId,
+        spreadsheetTitle: created.title,
+        spreadsheetUrl: created.spreadsheetUrl,
+        spreadsheetAutoSync: true,
+        spreadsheetLastSyncAt: created.syncedAt,
+        spreadsheetLastSyncDirection: 'create',
+      });
+      setDb({ ...nextDb });
+      setLastSyncedAt(created.syncedAt);
+      await Swal.fire({
+        title: 'Google Spreadsheet Siap!',
+        text: `File "${created.title}" berhasil dibuat (${created.writtenTabs} tab, ${created.writtenRows} baris data) dan Auto-Sync aktif.`,
+        icon: 'success',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+    } catch (err) {
+      await Swal.fire({
+        title: 'Gagal Membuat Spreadsheet',
+        text: err instanceof Error ? err.message : 'Terjadi kesalahan saat membuat Spreadsheet.',
+        icon: 'error',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+    } finally {
+      setSyncingSheets(false);
+    }
+  };
+
+  const handlePushToSpreadsheet = async (overrideId?: string) => {
+    if (!db || !session) return;
+    const accessToken = getGoogleDriveAccessToken();
+    const targetId = overrideId || db.pengaturan.spreadsheetId || '';
+    if (!accessToken || !targetId) {
+      await Swal.fire({
+        title: 'Koneksi Google & Spreadsheet Diperlukan',
+        text: 'Pastikan Anda sudah Sign in with Google dan memilih Google Spreadsheet tujuan.',
+        icon: 'info',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+      return;
+    }
+
+    const confirm = await Swal.fire({
+      title: 'Kirim Data Lokal ke Google Spreadsheet?',
+      text: `Isi 11 tab pada file "${db.pengaturan.spreadsheetTitle || targetId}" akan diperbarui dengan data lokal saat ini (${db.shipments.length} shipment, ${db.kontainers.length} kontainer, ${db.customers.length} customer).`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#059669',
+      confirmButtonText: 'Ya, Perbarui Spreadsheet',
+      cancelButtonText: 'Batal',
+      background: darkMode ? '#131926' : '#ffffff',
+      color: darkMode ? '#f1f5f9' : '#0f172a',
+    });
+    if (!confirm.isConfirmed) return;
+
+    setSyncingSheets(true);
+    try {
+      const pushRes = await pushDatabaseToSpreadsheet(accessToken, targetId, db, session.nama);
+      const nextDb = await savePengaturanRecord(session, {
+        ...db.pengaturan,
+        spreadsheetId: pushRes.spreadsheetId,
+        spreadsheetTitle: pushRes.title,
+        spreadsheetUrl: pushRes.spreadsheetUrl,
+        spreadsheetLastSyncAt: pushRes.syncedAt,
+        spreadsheetLastSyncDirection: 'push',
+      });
+      setDb({ ...nextDb });
+      setLastSyncedAt(pushRes.syncedAt);
+      await Swal.fire({
+        title: 'Push ke Google Spreadsheet Berhasil',
+        text: `${pushRes.writtenRows} baris pada ${pushRes.writtenTabs} tab di "${pushRes.title}" telah diperbarui.`,
+        icon: 'success',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+    } catch (err) {
+      await Swal.fire({
+        title: 'Gagal Mengirim ke Spreadsheet',
+        text: err instanceof Error ? err.message : 'Gagal memperbarui Google Spreadsheet.',
+        icon: 'error',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+    } finally {
+      setSyncingSheets(false);
+    }
+  };
+
+  const handlePullFromSpreadsheet = async (overrideId?: string) => {
+    if (!db || !session) return;
+    const accessToken = getGoogleDriveAccessToken();
+    const targetId = overrideId || db.pengaturan.spreadsheetId || '';
+    if (!accessToken || !targetId) {
+      await Swal.fire({
+        title: 'Koneksi Google & Spreadsheet Diperlukan',
+        text: 'Pastikan Anda sudah Sign in with Google dan menghubungkan Spreadsheet.',
+        icon: 'info',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+      return;
+    }
+
+    setSyncingSheets(true);
+    try {
+      const pulled = await pullDatabaseFromSpreadsheet(accessToken, targetId, db);
+      const diff = computeSpreadsheetSyncDiffSummary(db, pulled.db);
+
+      const confirm = await Swal.fire({
+        title: `Tarik Database dari "${pulled.title}"?`,
+        text: `Data aplikasi lokal (${diff.localCounts.shipments} shipment, ${diff.localCounts.customers} customer) akan diganti dengan data dari Google Spreadsheet (${diff.remoteCounts.shipments} shipment, ${diff.remoteCounts.customers} customer dari ${pulled.matchedTabs.length} tab).`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#7C3AED',
+        confirmButtonText: 'Ya, Tarik & Terapkan',
+        cancelButtonText: 'Batal',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+      if (!confirm.isConfirmed) return;
+
+      const imported = await importDatabaseSnapshot({
+        ...pulled.db,
+        pengaturan: {
+          ...pulled.db.pengaturan,
+          spreadsheetId: pulled.spreadsheetId,
+          spreadsheetTitle: pulled.title,
+          spreadsheetUrl: pulled.spreadsheetUrl,
+          spreadsheetAutoSync:
+            pulled.db.pengaturan.spreadsheetAutoSync ?? db.pengaturan.spreadsheetAutoSync ?? true,
+          spreadsheetLastSyncAt: new Date().toISOString(),
+          spreadsheetLastSyncDirection: 'pull',
+        },
+      });
+      setDb({ ...imported });
+      setLastSyncedAt(new Date().toISOString());
+      const syncedSession = await syncSessionWithDb(session);
+      if (syncedSession) setSession(syncedSession);
+
+      await Swal.fire({
+        title: 'Data Berhasil Ditarik dari Spreadsheet',
+        text: `Database lokal telah diperbarui dengan ${imported.shipments.length} shipment dari "${pulled.title}".`,
+        icon: 'success',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+    } catch (err) {
+      await Swal.fire({
+        title: 'Gagal Menarik Data Spreadsheet',
+        text: err instanceof Error ? err.message : 'Pastikan format tab spreadsheet sesuai.',
+        icon: 'error',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+    } finally {
+      setSyncingSheets(false);
+    }
+  };
+
+  const handleConnectExistingSpreadsheet = async (spreadsheetId: string) => {
+    if (!db || !session) return;
+    const accessToken = getGoogleDriveAccessToken();
+    if (!accessToken) {
+      await Swal.fire({
+        title: 'Login Google Diperlukan',
+        text: 'Klik "Sign in with Google" terlebih dahulu untuk menghubungkan Spreadsheet.',
+        icon: 'info',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+      return;
+    }
+
+    setSyncingSheets(true);
+    try {
+      const meta = await fetchSpreadsheetMetadata(accessToken, spreadsheetId);
+      const hasShipmentsTab = meta.sheets.some((s) => s.title === 'Shipments');
+
+      const choice = await Swal.fire({
+        title: `Hubungkan "${meta.title}"`,
+        text: hasShipmentsTab
+          ? `Spreadsheet memiliki ${meta.sheets.length} tab termasuk tab "Shipments". Pilih tindakan awal:`
+          : `Spreadsheet memiliki ${meta.sheets.length} tab (${meta.sheets.map((s) => s.title).join(', ')}). Kirim database lokal ke Spreadsheet ini untuk menyiapkan 11 tab database?`,
+        icon: 'question',
+        showDenyButton: hasShipmentsTab,
+        showCancelButton: true,
+        confirmButtonColor: '#059669',
+        denyButtonColor: '#7C3AED',
+        confirmButtonText: 'Kirim Data Lokal → Spreadsheet',
+        denyButtonText: 'Tarik dari Spreadsheet → Lokal',
+        cancelButtonText: 'Batal',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+
+      if (choice.isConfirmed) {
+        const pushRes = await pushDatabaseToSpreadsheet(
+          accessToken,
+          meta.spreadsheetId,
+          db,
+          session.nama
+        );
+        const nextDb = await savePengaturanRecord(session, {
+          ...db.pengaturan,
+          spreadsheetId: pushRes.spreadsheetId,
+          spreadsheetTitle: pushRes.title,
+          spreadsheetUrl: pushRes.spreadsheetUrl,
+          spreadsheetAutoSync: true,
+          spreadsheetLastSyncAt: pushRes.syncedAt,
+          spreadsheetLastSyncDirection: 'push',
+        });
+        setDb({ ...nextDb });
+        setLastSyncedAt(pushRes.syncedAt);
+        await Swal.fire({
+          title: 'Spreadsheet Terhubung & Tersinkron',
+          text: `"${pushRes.title}" siap digunakan dengan Auto-Sync aktif.`,
+          icon: 'success',
+          background: darkMode ? '#131926' : '#ffffff',
+          color: darkMode ? '#f1f5f9' : '#0f172a',
+        });
+      } else if (choice.isDenied && hasShipmentsTab) {
+        const pulled = await pullDatabaseFromSpreadsheet(accessToken, meta.spreadsheetId, db);
+        const imported = await importDatabaseSnapshot({
+          ...pulled.db,
+          pengaturan: {
+            ...pulled.db.pengaturan,
+            spreadsheetId: pulled.spreadsheetId,
+            spreadsheetTitle: pulled.title,
+            spreadsheetUrl: pulled.spreadsheetUrl,
+            spreadsheetAutoSync: true,
+            spreadsheetLastSyncAt: new Date().toISOString(),
+            spreadsheetLastSyncDirection: 'pull',
+          },
+        });
+        setDb({ ...imported });
+        setLastSyncedAt(new Date().toISOString());
+        const syncedSession = await syncSessionWithDb(session);
+        if (syncedSession) setSession(syncedSession);
+        await Swal.fire({
+          title: 'Spreadsheet Terhubung (Data Ditarik)',
+          text: `${imported.shipments.length} shipment dari "${pulled.title}" telah dimuat dan Auto-Sync aktif.`,
+          icon: 'success',
+          background: darkMode ? '#131926' : '#ffffff',
+          color: darkMode ? '#f1f5f9' : '#0f172a',
+        });
+      }
+    } catch (err) {
+      await Swal.fire({
+        title: 'Gagal Menghubungkan Spreadsheet',
+        text:
+          err instanceof Error
+            ? err.message
+            : 'Periksa kembali ID atau izin akses Google Spreadsheet.',
+        icon: 'error',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+    } finally {
+      setSyncingSheets(false);
+    }
+  };
+
+  const handleToggleAutoSyncSpreadsheet = async (enabled: boolean) => {
+    if (!db || !session) return;
+    if (enabled) {
+      const confirm = await Swal.fire({
+        title: 'Aktifkan Sinkronisasi Otomatis Penuh?',
+        text: `Setiap perubahan shipment, kontainer, master data, dokumen, catatan, dan pengaturan akan otomatis memperbarui file Google Spreadsheet "${db.pengaturan.spreadsheetTitle || db.pengaturan.spreadsheetId}".`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#059669',
+        confirmButtonText: 'Ya, Aktifkan Auto-Sync',
+        cancelButtonText: 'Batal',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+      if (!confirm.isConfirmed) return;
+    }
+
+    const nextDb = await savePengaturanRecord(session, {
+      ...db.pengaturan,
+      spreadsheetAutoSync: enabled,
+    });
+    setDb({ ...nextDb });
+  };
+
+  const handleDisconnectSpreadsheet = async () => {
+    if (!db || !session) return;
+    const confirm = await Swal.fire({
+      title: 'Putuskan Hubungan Spreadsheet?',
+      text: `Aplikasi akan berhenti menyinkronkan database dengan "${db.pengaturan.spreadsheetTitle || db.pengaturan.spreadsheetId}". File asli di Google Drive Anda tidak akan dihapus.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#D64545',
+      confirmButtonText: 'Ya, Putuskan',
+      cancelButtonText: 'Batal',
+      background: darkMode ? '#131926' : '#ffffff',
+      color: darkMode ? '#f1f5f9' : '#0f172a',
+    });
+    if (!confirm.isConfirmed) return;
+
+    const nextDb = await savePengaturanRecord(session, {
+      ...db.pengaturan,
+      spreadsheetId: '',
+      spreadsheetTitle: '',
+      spreadsheetUrl: '',
+      spreadsheetAutoSync: false,
+      spreadsheetLastSyncAt: '',
+      spreadsheetLastSyncDirection: '',
+    });
+    setDb({ ...nextDb });
+  };
+
+  const handleListUserSpreadsheets = async () => {
+    const accessToken = getGoogleDriveAccessToken();
+    if (!accessToken) {
+      throw new Error('Silakan Sign in with Google terlebih dahulu.');
+    }
+    return listUserSpreadsheets(accessToken, 20);
   };
 
   const uploadSingleDocument = async (
@@ -474,7 +1169,7 @@ export default function App() {
         );
       }
     }
-    setDb({ ...latestDb });
+    await applyDbUpdate(latestDb);
     await Swal.fire({
       title: 'Tersimpan',
       text:
@@ -504,14 +1199,14 @@ export default function App() {
     });
     if (!confirm.isConfirmed) return;
     const nextDb = await deleteShipmentRecord(session, kodeOs);
-    setDb({ ...nextDb });
+    await applyDbUpdate(nextDb);
     setDetailKodeOs(null);
   };
 
   const handleAddComment = async (kodeOs: string, isi: string) => {
     if (!session) return;
     const nextDb = await addShipmentComment(session, kodeOs, isi);
-    setDb({ ...nextDb });
+    await applyDbUpdate(nextDb);
   };
 
   const handleUploadDocument = async (
@@ -528,7 +1223,7 @@ export default function App() {
       file,
       db?.pengaturan.driveParentFolderId
     );
-    if (nextDb) setDb({ ...nextDb });
+    if (nextDb) await applyDbUpdate(nextDb);
   };
 
   const handleUpdateStatusDokumen = async (
@@ -537,7 +1232,7 @@ export default function App() {
   ) => {
     if (!session) return;
     const nextDb = await updateShipmentStatusDokumen(session, kodeOs, nextStatus);
-    setDb({ ...nextDb });
+    await applyDbUpdate(nextDb);
   };
 
   const handleUpdateBc11 = async (
@@ -548,7 +1243,7 @@ export default function App() {
   ) => {
     if (!session) return;
     const nextDb = await updateShipmentBc11(session, kodeOs, bc11Terbit, noBc11, tglBc11);
-    setDb({ ...nextDb });
+    await applyDbUpdate(nextDb);
   };
 
   const handleUpdateDoPelayaran = async (
@@ -581,7 +1276,7 @@ export default function App() {
     const prevTarget = db?.shipments.find((s) => s.kodeOs === kodeOs);
     const wasEligible = prevTarget ? isShipmentBillingEligible(prevTarget) : false;
     const nextDb = await updateShipmentDoPelayaran(session, kodeOs, payload);
-    setDb({ ...nextDb });
+    await applyDbUpdate(nextDb);
     const updatedTarget = nextDb.shipments.find((s) => s.kodeOs === kodeOs);
     if (!wasEligible && updatedTarget && isShipmentBillingEligible(updatedTarget)) {
       void Swal.fire({
@@ -606,7 +1301,7 @@ export default function App() {
       action: 'notify_owner',
       via,
     });
-    setDb({ ...nextDb });
+    await applyDbUpdate(nextDb);
   };
 
   const handleSaveBillingInvoice = async (
@@ -627,7 +1322,7 @@ export default function App() {
       action: 'save_invoice',
       ...payload,
     });
-    setDb({ ...nextDb });
+    await applyDbUpdate(nextDb);
   };
 
   const handleCreateShipmentFromDo = async (
@@ -636,7 +1331,7 @@ export default function App() {
   ): Promise<Shipment | undefined> => {
     if (!session) return undefined;
     const res = await saveShipmentRecord(session, shipment, containers, true);
-    setDb({ ...res.db });
+    await applyDbUpdate(res.db);
     const sjInfo = res.saved.suratJalanNomor
       ? ` & Surat Jalan ${res.saved.suratJalanNomor} terbit`
       : '';
@@ -683,7 +1378,7 @@ export default function App() {
     }
 
     const nextDb = await deleteShipmentDocument(session, doc.id);
-    setDb({ ...nextDb });
+    await applyDbUpdate(nextDb);
   };
 
   const handleListDriveFiles = async () => {
@@ -722,9 +1417,10 @@ export default function App() {
   }
 
   if (!session || !db) {
-    return <LoginView onLoginSuccess={handleLoginSuccess} />;
+    return <LoginView onLoginSuccess={handleLoginSuccess} pengaturan={db?.pengaturan} />;
   }
 
+  const ppjkIdentity = getPpjkIdentity(db.pengaturan);
   const outstandingCount = db.shipments.filter((s) =>
     isShipmentOutstanding(s, db.pengaturan.checklistItems)
   ).length;
@@ -736,13 +1432,25 @@ export default function App() {
   const pendingBillingCount =
     billingSummary.siapInfoOwnerCount + billingSummary.ownerNotifiedCount;
 
+  const moduleAccess = resolveUserModuleAccess(session, db.pengaturan);
   const canCreate = canPerformAction(session.role, 'create_shipment');
   const canAccessMaster =
-    canPerformAction(session.role, 'manage_master') ||
-    canPerformAction(session.role, 'manage_users');
+    (canPerformAction(session.role, 'manage_master') ||
+      canPerformAction(session.role, 'manage_users')) &&
+    Boolean(moduleAccess.master);
+  const canAccessSetup =
+    canPerformAction(session.role, 'manage_setup') || Boolean(moduleAccess.setup);
 
-  const effectiveView: AppView =
-    activeView === 'master' && !canAccessMaster ? 'dashboard' : activeView;
+  const isViewAllowed = (v: AppView): boolean => {
+    if (v === 'master') return canAccessMaster;
+    if (v === 'setup') return canAccessSetup;
+    return Boolean(moduleAccess[v]);
+  };
+
+  const firstAllowedModule = getFirstAccessibleModule(session, db.pengaturan);
+  const effectiveView: AppView | null = isViewAllowed(activeView)
+    ? activeView
+    : firstAllowedModule;
 
   const detailShipment = detailKodeOs
     ? db.shipments.find((s) => s.kodeOs === detailKodeOs) || null
@@ -761,15 +1469,18 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#F5F7FA] dark:bg-[#090C15] text-slate-900 dark:text-slate-100 flex overflow-x-hidden transition-colors duration-200">
       <Sidebar
-        activeView={effectiveView}
+        activeView={effectiveView || 'dashboard'}
         onSelectView={(view) => {
-          if (view === 'master' && !canAccessMaster) return;
+          if (!isViewAllowed(view)) return;
           if (view !== 'shipments') {
             setTableCheckerFilter('');
             setTableSearchQuery('');
           }
           if (view !== 'checker') {
             setSelectedRecapChecker('');
+          }
+          if (view === 'master') {
+            setMasterInitialTab('customer');
           }
           setActiveView(view);
         }}
@@ -783,6 +1494,9 @@ export default function App() {
         doBelumCount={doBelumCount}
         suratJalanCount={suratJalanCount}
         pendingBillingCount={pendingBillingCount}
+        isOnline={isOnline}
+        pendingSyncCount={offlineSyncQueue.length}
+        pengaturan={db.pengaturan}
       />
 
       <div
@@ -793,32 +1507,37 @@ export default function App() {
         {/* Top Bar matching dark ERP aesthetic */}
         <header className="sticky top-0 z-30 h-16 bg-[#0B2545] dark:bg-[#0D111C]/95 dark:backdrop-blur-md text-white px-4 sm:px-6 flex items-center justify-between gap-3 border-b border-white/10 dark:border-white/[0.06] no-print">
           {/* Left: Mobile Menu + Workspace Indicator */}
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 xl:flex-none xl:shrink-0">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
               aria-label="Buka menu navigasi"
-              className="lg:hidden inline-flex items-center justify-center w-10 h-10 rounded-xl bg-white/10 hover:bg-white/20 dark:bg-white/[0.06] text-white cursor-pointer shrink-0"
+              className="lg:hidden inline-flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/10 hover:bg-white/20 dark:bg-white/[0.06] text-white cursor-pointer shrink-0"
             >
               <Menu className="w-5 h-5" />
             </button>
 
-            <div className="hidden xl:flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-white/10 dark:bg-[#151B2B] border border-white/10 dark:border-white/[0.07] min-w-0">
+            <div className="hidden xl:flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-white/10 dark:bg-[#151B2B] border border-white/10 dark:border-white/[0.07] shrink-0">
               <Building2 className="w-4 h-4 text-[#F28C28] dark:text-[#A78BFA] shrink-0" />
-              <span className="text-xs font-semibold text-white truncate max-w-[145px]">
-                {effectiveView === 'dashboard'
-                  ? 'PTG PPJK — Tracking'
+              <span
+                data-testid="header-brand-title"
+                className="text-xs font-semibold text-white truncate max-w-[190px]"
+              >
+                {effectiveView === 'dashboard' || !effectiveView
+                  ? `${ppjkIdentity.brandName} — Tracking`
                   : VIEW_TITLES[effectiveView]}
               </span>
             </div>
 
-            <h1 className="xl:hidden text-xs sm:text-sm font-semibold text-white truncate">
-              {effectiveView === 'dashboard' ? 'Dashboard' : VIEW_TITLES[effectiveView]}
+            <h1 className="xl:hidden text-xs sm:text-sm font-semibold text-white truncate min-w-0">
+              {effectiveView === 'dashboard' || !effectiveView
+                ? `${ppjkIdentity.brandName}`
+                : VIEW_TITLES[effectiveView]}
             </h1>
           </div>
 
           {/* Center: Global Search Input (Ctrl + K) */}
-          <div ref={searchBoxRef} className="relative hidden md:block flex-1 min-w-[215px] max-w-sm lg:max-w-md mx-1.5">
+          <div ref={searchBoxRef} className="relative hidden md:block flex-1 min-w-[140px] max-w-xs lg:max-w-sm xl:max-w-md mx-1">
             <div className="relative">
               <Search className="w-4 h-4 text-white/50 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
@@ -839,9 +1558,9 @@ export default function App() {
                   }
                 }}
                 placeholder="Cari OS, BL..."
-                className="w-full h-9 pl-9 pr-3 xl:pr-16 rounded-xl bg-white/10 dark:bg-[#151B2B] border border-white/15 dark:border-white/[0.08] text-xs text-white placeholder:text-white/50 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/50 focus:border-[#7C3AED]"
+                className="w-full h-9 pl-9 pr-3 2xl:pr-16 rounded-xl bg-white/10 dark:bg-[#151B2B] border border-white/15 dark:border-white/[0.08] text-xs text-white placeholder:text-white/50 dark:placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#7C3AED]/50 focus:border-[#7C3AED]"
               />
-              <kbd className="hidden xl:inline-flex absolute right-2 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded bg-white/10 dark:bg-white/[0.06] border border-white/10 text-[10px] font-mono-code text-white/70 dark:text-slate-400 pointer-events-none">
+              <kbd className="hidden 2xl:inline-flex absolute right-2 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded bg-white/10 dark:bg-white/[0.06] border border-white/10 text-[10px] font-mono-code text-white/70 dark:text-slate-400 pointer-events-none">
                 Ctrl + K
               </kbd>
             </div>
@@ -973,6 +1692,42 @@ export default function App() {
               {darkMode ? <Sun className="w-4 h-4 text-amber-300" /> : <Moon className="w-4 h-4" />}
             </button>
 
+            {canAccessMaster && (
+              <button
+                type="button"
+                data-testid="header-sheets-status-btn"
+                onClick={() => {
+                  setMasterInitialTab('spreadsheet');
+                  setActiveView('master');
+                }}
+                title={
+                  db.pengaturan.spreadsheetId
+                    ? `Database Spreadsheet: ${db.pengaturan.spreadsheetTitle || 'Terhubung'} (${
+                        driveUserEmail ? 'Google Terhubung' : 'Perlu Sign in Google'
+                      })`
+                    : 'Hubungkan Database ke Google Spreadsheet'
+                }
+                className={`hidden md:inline-flex items-center gap-1.5 h-9 px-2.5 rounded-xl border text-[11px] font-semibold cursor-pointer transition-colors ${
+                  db.pengaturan.spreadsheetId && driveUserEmail
+                    ? 'bg-emerald-500/15 border-emerald-400/35 text-emerald-100 hover:bg-emerald-500/25'
+                    : db.pengaturan.spreadsheetId
+                      ? 'bg-amber-500/15 border-amber-400/35 text-amber-100 hover:bg-amber-500/25'
+                      : 'bg-white/10 border-white/15 text-white/90 hover:bg-white/20'
+                }`}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden xl:inline">
+                  {syncingSheets
+                    ? 'Sync Sheets...'
+                    : db.pengaturan.spreadsheetId
+                      ? driveUserEmail
+                        ? 'Sheets Aktif'
+                        : 'Sheets (Login)'
+                      : 'Sheets DB'}
+                </span>
+              </button>
+            )}
+
             {driveUserEmail ? (
               <div className="hidden xl:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-400/30 text-[11px] font-medium text-emerald-100">
                 <HardDrive className="w-3.5 h-3.5 text-emerald-300" />
@@ -982,8 +1737,8 @@ export default function App() {
                 <button
                   type="button"
                   onClick={handleDisconnectGoogleDrive}
-                  title="Putuskan koneksi Google Drive"
-                  aria-label="Putuskan koneksi Google Drive"
+                  title="Putuskan koneksi Google Drive & Sheets"
+                  aria-label="Putuskan koneksi Google Drive & Sheets"
                   className="ml-1 p-0.5 rounded hover:bg-white/10 text-emerald-200 cursor-pointer"
                 >
                   <LogOutIcon className="w-3 h-3" />
@@ -1033,12 +1788,13 @@ export default function App() {
             {/* User Profile Pill matching mockup */}
             <div
               data-testid="active-role-badge"
-              className="hidden md:flex items-center gap-2 pl-2 pr-3 py-1 rounded-xl bg-white/10 dark:bg-[#151B2B] border border-white/10 dark:border-white/[0.07]"
+              title={`${session.nama} (${session.role})`}
+              className="hidden md:flex items-center gap-2 px-1.5 2xl:pl-2 2xl:pr-3 py-1 rounded-xl bg-white/10 dark:bg-[#151B2B] border border-white/10 dark:border-white/[0.07]"
             >
               <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0">
                 {userInitials || 'U'}
               </div>
-              <div className="leading-tight min-w-0">
+              <div className="hidden 2xl:block leading-tight min-w-0">
                 <div className="text-[11.5px] font-semibold text-white truncate max-w-[110px]">
                   {session.nama}
                 </div>
@@ -1065,6 +1821,27 @@ export default function App() {
 
         {/* Main Viewport */}
         <main className="flex-1 min-w-0 p-4 sm:p-6 max-w-[1440px] w-full mx-auto">
+          {!effectiveView && (
+            <div
+              data-testid="all-modules-locked-notice"
+              className="max-w-lg mx-auto mt-10 bg-white dark:bg-[#131926] rounded-2xl border border-amber-200 dark:border-amber-500/35 p-6 text-center space-y-3"
+            >
+              <div className="text-sm font-bold text-slate-900 dark:text-white">
+                Akses Modul Dinonaktifkan oleh Owner (Super Admin)
+              </div>
+              <p className="text-xs text-slate-600 dark:text-slate-300">
+                Seluruh modul aplikasi untuk akun Anda sedang dinonaktifkan melalui Kontrol Super Admin Owner. Silakan hubungi Owner untuk mengaktifkan kembali modul yang diperlukan.
+              </p>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="inline-flex items-center justify-center px-4 py-2 rounded-xl bg-[#0B2545] dark:bg-violet-600 text-white text-xs font-semibold cursor-pointer"
+              >
+                Keluar / Ganti Akun
+              </button>
+            </div>
+          )}
+
           {effectiveView === 'dashboard' && (
             <DashboardView
               shipments={db.shipments}
@@ -1073,14 +1850,21 @@ export default function App() {
               checklistItems={db.pengaturan.checklistItems}
               userName={session.nama}
               userRole={session.role}
+              moduleAccess={moduleAccess}
+              ppjkBrandName={ppjkIdentity.brandName}
               darkMode={darkMode}
               onOpenDetail={(kodeOs) => setDetailKodeOs(kodeOs)}
-              onNavigateView={(v) => setActiveView(v)}
+              onNavigateView={(v) => {
+                if (isViewAllowed(v)) setActiveView(v);
+              }}
               onOpenChecker={(checkerName) => {
+                if (!isViewAllowed('checker')) return;
                 setSelectedRecapChecker(checkerName);
                 setActiveView('checker');
               }}
-              onGoToOutstanding={() => setActiveView('outstanding')}
+              onGoToOutstanding={() => {
+                if (isViewAllowed('outstanding')) setActiveView('outstanding');
+              }}
             />
           )}
 
@@ -1180,23 +1964,65 @@ export default function App() {
               pengaturan={db.pengaturan}
               userRole={session.role}
               currentUsername={session.username}
+              dbSnapshot={db}
+              initialTab={masterInitialTab}
+              driveUserEmail={driveUserEmail}
+              driveConnecting={driveConnecting}
+              syncingSheets={syncingSheets}
+              darkMode={darkMode}
+              onConnectGoogle={handleConnectGoogleDrive}
+              onDisconnectGoogle={handleDisconnectGoogleDrive}
+              onCreateSpreadsheet={handleCreateSpreadsheet}
+              onConnectExistingSpreadsheet={handleConnectExistingSpreadsheet}
+              onPushToSpreadsheet={handlePushToSpreadsheet}
+              onPullFromSpreadsheet={handlePullFromSpreadsheet}
+              onToggleAutoSyncSpreadsheet={handleToggleAutoSyncSpreadsheet}
+              onDisconnectSpreadsheet={handleDisconnectSpreadsheet}
+              onListSpreadsheets={handleListUserSpreadsheets}
+              isOnline={isOnline}
+              idbStatus={idbStatus}
+              offlineSyncQueue={offlineSyncQueue}
+              syncingOfflineQueue={syncingOfflineQueue}
+              onRefreshIdbStatus={async () => {
+                await refreshOfflineTelemetry(db);
+              }}
+              onForceSaveIdbSnapshot={async () => {
+                await saveDatabaseToIndexedDB(db);
+                await refreshOfflineTelemetry(db);
+                await Swal.fire({
+                  toast: true,
+                  position: 'bottom-end',
+                  icon: 'success',
+                  title: 'Snapshot IndexedDB Tersimpan',
+                  text: `${db.shipments.length} shipment & seluruh master data tersinkron ke IndexedDB.`,
+                  background: darkMode ? '#151B2B' : '#FFFFFF',
+                  color: darkMode ? '#F1F5F9' : '#0F172A',
+                  showConfirmButton: false,
+                  timer: 2600,
+                });
+              }}
+              onReplayOfflineQueue={handleReplayOfflineQueue}
+              onClearOfflineQueue={async () => {
+                await clearOfflineSyncQueue();
+                await refreshOfflineTelemetry(db);
+              }}
               onSaveCustomer={async (c: Customer) => {
-                setDb({ ...(await saveCustomerMaster(session, c)) });
+                await applyDbUpdate(await saveCustomerMaster(session, c));
               }}
               onDeleteCustomer={async (kode: string) => {
-                setDb({ ...(await deleteCustomerMaster(session, kode)) });
+                await applyDbUpdate(await deleteCustomerMaster(session, kode));
               }}
               onSaveImportir={async (i: Importir) => {
-                setDb({ ...(await saveImportirMaster(session, i)) });
+                await applyDbUpdate(await saveImportirMaster(session, i));
               }}
               onDeleteImportir={async (kode: string) => {
-                setDb({ ...(await deleteImportirMaster(session, kode)) });
+                await applyDbUpdate(await deleteImportirMaster(session, kode));
               }}
               onSaveShipper={async (s: Shipper) => {
-                setDb({ ...(await saveShipperMaster(session, s)) });
+                await applyDbUpdate(await saveShipperMaster(session, s));
               }}
               onDeleteShipper={async (nama: string) => {
-                setDb({ ...(await deleteShipperMaster(session, nama)) });
+                await applyDbUpdate(await deleteShipperMaster(session, nama));
               }}
               onSaveUser={async (u: {
                 username: string;
@@ -1206,18 +2032,49 @@ export default function App() {
                 aktif: boolean;
                 mustChangePassword?: boolean;
                 phasePermissions?: PhasePermissions;
+                modulePermissions?: ModulePermissionsMap;
               }) => {
                 const nextDb = await saveUserRecord(session, u);
-                setDb({ ...nextDb });
+                await applyDbUpdate(nextDb);
                 if (u.username.toLowerCase() === session.username.toLowerCase()) {
                   const synced = await syncSessionWithDb(session);
                   if (synced) setSession(synced);
                 }
               }}
               onSavePengaturan={async (p: Pengaturan) => {
-                setDb({ ...(await savePengaturanRecord(session, p)) });
+                await applyDbUpdate(await savePengaturanRecord(session, p));
               }}
               onResetDatabase={handleResetDb}
+            />
+          )}
+
+          {effectiveView === 'setup' && canAccessSetup && (
+            <SetupAppView
+              pengaturan={db.pengaturan}
+              users={db.users}
+              logs={db.logs}
+              userRole={session.role}
+              currentUsername={session.username}
+              onSavePengaturan={async (p: Pengaturan) => {
+                await applyDbUpdate(await savePengaturanRecord(session, p));
+              }}
+              onSaveUser={async (u: {
+                username: string;
+                nama: string;
+                role: UserRole;
+                password?: string;
+                aktif: boolean;
+                mustChangePassword?: boolean;
+                phasePermissions?: PhasePermissions;
+                modulePermissions?: ModulePermissionsMap;
+              }) => {
+                const nextDb = await saveUserRecord(session, u);
+                await applyDbUpdate(nextDb);
+                if (u.username.toLowerCase() === session.username.toLowerCase()) {
+                  const synced = await syncSessionWithDb(session);
+                  if (synced) setSession(synced);
+                }
+              }}
             />
           )}
         </main>
@@ -1292,6 +2149,15 @@ export default function App() {
           onSubmit={handleSaveShipment}
         />
       )}
+
+      <OfflineIndicator
+        isOnline={isOnline}
+        pendingSyncCount={offlineSyncQueue.length}
+        syncing={syncingOfflineQueue}
+        onSyncPending={() => {
+          void handleReplayOfflineQueue();
+        }}
+      />
     </div>
   );
 }

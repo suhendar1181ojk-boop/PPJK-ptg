@@ -17,6 +17,7 @@ import {
   generateSuratJalanNomor,
   getBillingEligibilityReason,
   getDoValidityMeta,
+  getPpjkIdentity,
   getShipmentProcessSignal,
   hasSptnpIssue,
   isContainerGateOut,
@@ -174,16 +175,22 @@ export function exportShipmentsToCSV(rows: Shipment[], filename = 'PTG_PPJK_Ship
 
 export function exportShipmentsToPDF(
   rows: Shipment[],
-  title = 'Laporan PTG PPJK Outstanding',
-  filename = 'PTG_PPJK_Laporan.pdf'
+  title?: string,
+  filename = 'PTG_PPJK_Laporan.pdf',
+  pengaturan?: Pengaturan
 ): void {
+  const identity = getPpjkIdentity(pengaturan);
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
   doc.setFontSize(14);
   doc.setTextColor(11, 37, 69);
-  doc.text(title, 40, 38);
+  doc.text(title || `Laporan ${identity.brandName} Outstanding`, 40, 38);
   doc.setFontSize(9);
   doc.setTextColor(100, 116, 139);
-  doc.text(`Dicetak pada: ${new Date().toLocaleString('id-ID')} · Total: ${rows.length} shipment`, 40, 54);
+  doc.text(
+    `${identity.companyName} · Dicetak pada: ${new Date().toLocaleString('id-ID')} · Total: ${rows.length} shipment`,
+    40,
+    54
+  );
 
   autoTable(doc, {
     startY: 66,
@@ -278,15 +285,21 @@ export function exportCheckerSummaryToCSV(
 export function exportCheckerSummaryToPDF(
   checkers: CheckerSummary[],
   statusList: string[],
-  filename = 'PTG_Rekap_Checker.pdf'
+  filename = 'PTG_Rekap_Checker.pdf',
+  pengaturan?: Pengaturan
 ): void {
+  const identity = getPpjkIdentity(pengaturan);
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
   doc.setFontSize(14);
   doc.setTextColor(11, 37, 69);
-  doc.text('Rekapan Dokumen Checker & Summary Status PTG PPJK', 40, 38);
+  doc.text(`Rekapan Dokumen Checker & Summary Status ${identity.brandName}`, 40, 38);
   doc.setFontSize(9);
   doc.setTextColor(100, 116, 139);
-  doc.text(`Dicetak pada: ${new Date().toLocaleString('id-ID')} · Total Checker: ${checkers.length}`, 40, 54);
+  doc.text(
+    `${identity.companyName} · Dicetak pada: ${new Date().toLocaleString('id-ID')} · Total Checker: ${checkers.length}`,
+    40,
+    54
+  );
 
   autoTable(doc, {
     startY: 66,
@@ -437,7 +450,11 @@ export function exportDoReadinessToCSV(
   URL.revokeObjectURL(url);
 }
 
-export function exportSuratJalanToPDF(shipment: Shipment): void {
+export function exportSuratJalanToPDF(
+  shipment: Shipment,
+  pengaturan?: Pengaturan
+): void {
+  const identity = getPpjkIdentity(pengaturan);
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
   const sjNomor = shipment.suratJalanNomor?.trim() || generateSuratJalanNomor(shipment.kodeOs);
   const sjTanggal =
@@ -457,7 +474,7 @@ export function exportSuratJalanToPDF(shipment: Shipment): void {
   doc.text('SURAT JALAN PENGIRIMAN KONTAINER', 40, 36);
   doc.setFontSize(9.5);
   doc.setTextColor(226, 232, 240);
-  doc.text('PTG PPJK — Tracking Gate-Out & Pengiriman Armada', 40, 54);
+  doc.text(`${identity.brandName} (${identity.companyName}) — Tracking Gate-Out & Armada`, 40, 54);
   doc.setFontSize(11);
   doc.setTextColor(255, 255, 255);
   doc.text(`No. SJ: ${sjNomor}`, 555, 36, { align: 'right' });
@@ -533,24 +550,27 @@ export function exportSuratPenagihanToPDF(
   customer?: Customer,
   pengaturan?: Pengaturan
 ): void {
+  const identity = getPpjkIdentity(pengaturan);
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
   const auto = buildAutoBillingFields(shipment);
   const totals = calculateBillingTotals(auto.billingItems, auto.billingPpnPersen);
   const parsedContact = parseCustomerContact(customer?.kontak);
-  const adminName = pengaturan?.adminName?.trim() || DEFAULT_PENGATURAN.adminName || 'Admin Billing PTG';
+  const adminName = pengaturan?.adminName?.trim() || DEFAULT_PENGATURAN.adminName || 'Admin Billing PPJK';
   const bankInfo =
     pengaturan?.billingBankInfo?.trim() ||
     DEFAULT_PENGATURAN.billingBankInfo ||
-    'Bank Mandiri · PT PTG Logistik Kepabeanan';
+    `Bank Mandiri · ${identity.companyName}`;
 
   doc.setFillColor(11, 37, 69);
   doc.rect(0, 0, 595, 90, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(17);
-  doc.text('SURAT PENAGIHAN JASA PPJK', 40, 36);
+  doc.text('SURAT PENAGIHAN JASA PPJK', 40, 34);
   doc.setFontSize(9.5);
   doc.setTextColor(226, 232, 240);
-  doc.text('PTG PPJK — Kepabeanan, D/O Pelayaran & Trucking Kontainer', 40, 54);
+  doc.text(`${identity.companyName} — ${identity.tagline}`, 40, 52);
+  doc.setFontSize(8);
+  doc.text(`${identity.address} · Telp: ${identity.phone} · NPWP: ${identity.npwp}`, 40, 68);
   doc.setFontSize(11);
   doc.setTextColor(255, 255, 255);
   doc.text(`No. ${auto.billingNomor}`, 555, 36, { align: 'right' });
@@ -810,8 +830,10 @@ export function exportNopenRecapToPDF(
   rows: Shipment[],
   summary: NopenRecapSummary,
   importirs: Importir[] = [],
-  filename?: string
+  filename?: string,
+  pengaturan?: Pengaturan
 ): void {
+  const identity = getPpjkIdentity(pengaturan);
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
   const impMap = new Map(
     importirs.map((i) => [(i.kodeImportir || '').trim().toUpperCase(), i.namaImportir])
@@ -821,10 +843,10 @@ export function exportNopenRecapToPDF(
   doc.rect(0, 0, 842, 66, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(14);
-  doc.text('LAPORAN REKAPAN DOKUMEN BERDASARKAN NO. NOPEN (PIB)', 32, 28);
+  doc.text(`LAPORAN REKAPAN DOKUMEN BERDASARKAN NO. NOPEN (PIB) — ${identity.brandName}`, 32, 28);
   doc.setFontSize(9.5);
   doc.setTextColor(226, 232, 240);
-  doc.text(`Periode: ${summary.periodLabel}`, 32, 47);
+  doc.text(`${identity.companyName} · Periode: ${summary.periodLabel}`, 32, 47);
   doc.text(
     `Total Dok: ${summary.totalMatched} | Terbit NOPEN: ${summary.totalWithNopen} | SPPB: ${summary.totalSppb} | Gate-Out: ${summary.totalGateOut} | Nilai BM/PDRI: ${summary.totalBmPdri > 0 ? formatRupiah(summary.totalBmPdri) : '-'}`,
     810,

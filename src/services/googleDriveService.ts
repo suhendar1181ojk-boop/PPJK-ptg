@@ -22,6 +22,7 @@ export const SCOPES = [
   'https://www.googleapis.com/auth/drive.photos.readonly',
   'https://www.googleapis.com/auth/drive.readonly',
   'https://www.googleapis.com/auth/drive.scripts',
+  'https://www.googleapis.com/auth/spreadsheets',
 ] as const;
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);

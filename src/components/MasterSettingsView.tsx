@@ -1,9 +1,25 @@
-import React, { useState } from 'react';
-import { Lock, Pencil, Power, RotateCcw, ShieldCheck, Trash2, UserPlus } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import {
+  FileSpreadsheet,
+  Lock,
+  Pencil,
+  Power,
+  RotateCcw,
+  ShieldCheck,
+  Trash2,
+  UserPlus,
+} from 'lucide-react';
 import { GasDeployView } from './GasDeployView';
+import { SpreadsheetDatabaseView } from './SpreadsheetDatabaseView';
+import { OfflineStorageSettingsCard } from './PWAStatusControls';
+import type { SpreadsheetDriveEntry } from '../services/googleSheetsService';
+import type { IndexedDbStatusSummary } from '../services/indexedDbService';
+import type { OfflineSyncTask } from '../utils/offlineDbLogic';
 import type {
   Customer,
+  DatabaseState,
   Importir,
+  ModulePermissionsMap,
   Pengaturan,
   PhasePermissions,
   Shipper,
@@ -15,6 +31,7 @@ import {
   canPerformAction,
   DEFAULT_PENGATURAN,
   getDefaultPhasePermissions,
+  isOwnerSuperAdmin,
   PHASE_META,
   resolveUserPhasePermissions,
   ROLE_LIMITS_INFO,
@@ -42,12 +59,43 @@ interface MasterSettingsViewProps {
     aktif: boolean;
     mustChangePassword?: boolean;
     phasePermissions?: PhasePermissions;
+    modulePermissions?: ModulePermissionsMap;
   }) => Promise<void>;
   onSavePengaturan: (p: Pengaturan) => Promise<void>;
   onResetDatabase: (mode: 'empty' | 'seed') => Promise<void>;
+  dbSnapshot: DatabaseState;
+  initialTab?: MasterTab;
+  driveUserEmail: string | null;
+  driveConnecting: boolean;
+  syncingSheets: boolean;
+  darkMode: boolean;
+  onConnectGoogle: () => Promise<void>;
+  onDisconnectGoogle: () => Promise<void>;
+  onCreateSpreadsheet: (title: string) => Promise<void>;
+  onConnectExistingSpreadsheet: (spreadsheetId: string) => Promise<void>;
+  onPushToSpreadsheet: (spreadsheetId?: string) => Promise<void>;
+  onPullFromSpreadsheet: (spreadsheetId?: string) => Promise<void>;
+  onToggleAutoSyncSpreadsheet: (enabled: boolean) => Promise<void>;
+  onDisconnectSpreadsheet: () => Promise<void>;
+  onListSpreadsheets: () => Promise<SpreadsheetDriveEntry[]>;
+  isOnline: boolean;
+  idbStatus: IndexedDbStatusSummary | null;
+  offlineSyncQueue: OfflineSyncTask[];
+  syncingOfflineQueue: boolean;
+  onRefreshIdbStatus: () => Promise<void>;
+  onForceSaveIdbSnapshot: () => Promise<void>;
+  onReplayOfflineQueue: () => Promise<void>;
+  onClearOfflineQueue: () => Promise<void>;
 }
 
-type MasterTab = 'customer' | 'importir' | 'shipper' | 'users' | 'settings' | 'gas';
+export type MasterTab =
+  | 'customer'
+  | 'importir'
+  | 'shipper'
+  | 'users'
+  | 'settings'
+  | 'spreadsheet'
+  | 'gas';
 
 export function MasterSettingsView({
   customers,
@@ -66,10 +114,40 @@ export function MasterSettingsView({
   onSaveUser,
   onSavePengaturan,
   onResetDatabase,
+  dbSnapshot,
+  initialTab,
+  driveUserEmail,
+  driveConnecting,
+  syncingSheets,
+  darkMode,
+  onConnectGoogle,
+  onDisconnectGoogle,
+  onCreateSpreadsheet,
+  onConnectExistingSpreadsheet,
+  onPushToSpreadsheet,
+  onPullFromSpreadsheet,
+  onToggleAutoSyncSpreadsheet,
+  onDisconnectSpreadsheet,
+  onListSpreadsheets,
+  isOnline,
+  idbStatus,
+  offlineSyncQueue,
+  syncingOfflineQueue,
+  onRefreshIdbStatus,
+  onForceSaveIdbSnapshot,
+  onReplayOfflineQueue,
+  onClearOfflineQueue,
 }: MasterSettingsViewProps) {
-  const [tab, setTab] = useState<MasterTab>('customer');
+  const [tab, setTab] = useState<MasterTab>(initialTab || 'customer');
   const isAdmin = canPerformAction(userRole, 'manage_users');
+  const isOwner = isOwnerSuperAdmin(userRole);
   const canViewGas = canPerformAction(userRole, 'view_gas_code');
+
+  useEffect(() => {
+    if (initialTab) {
+      setTab(initialTab);
+    }
+  }, [initialTab]);
 
   // Form states
   const [custForm, setCustForm] = useState<Customer>({
@@ -327,6 +405,15 @@ export function MasterSettingsView({
             </button>
           </>
         )}
+        <button
+          type="button"
+          data-testid="tab-master-spreadsheet"
+          onClick={() => setTab('spreadsheet')}
+          className={`inline-flex items-center gap-1.5 ${tabBtnCls(tab === 'spreadsheet')}`}
+        >
+          <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
+          <span>Database Spreadsheet</span>
+        </button>
         {canViewGas && (
           <button
             type="button"
@@ -571,6 +658,7 @@ export function MasterSettingsView({
                   className={`${inputCls} font-medium`}
                 >
                   <option value="Admin">Admin</option>
+                  {isOwner && <option value="Owner">Owner (Super Admin)</option>}
                   <option value="Checker">Checker</option>
                   <option value="Drafter">Drafter</option>
                   <option value="Operasional">Operasional</option>
@@ -691,10 +779,14 @@ export function MasterSettingsView({
             <div className="divide-y divide-slate-200 dark:divide-white/[0.08] border border-slate-200 dark:border-white/[0.08] rounded-xl overflow-hidden">
               {users.map((u) => {
                 const isSelf = u.username.toLowerCase() === currentUsername.toLowerCase();
+                const isProtectedOwner = u.role === 'Owner' && !isOwner;
                 const resolvedPerms = resolveUserPhasePermissions(u.role, u.phasePermissions);
                 const defaultPerms = getDefaultPhasePermissions(u.role);
                 const isCustom = !arePhasePermissionsEqual(resolvedPerms, defaultPerms);
-                const lockSelfAdminToggles = isSelf && u.role === 'Admin';
+                const lockSelfAdminToggles =
+                  (isSelf && (u.role === 'Admin' || u.role === 'Owner')) ||
+                  u.role === 'Owner' ||
+                  isProtectedOwner;
 
                 return (
                   <div
@@ -734,16 +826,18 @@ export function MasterSettingsView({
                         >
                           {u.aktif ? 'Aktif' : 'Nonaktif'}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => startEditUser(u)}
-                          aria-label={`Edit user ${u.username}`}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-[#1F2940] text-[11px] font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
-                        >
-                          <Pencil className="w-3 h-3" />
-                          <span>Edit</span>
-                        </button>
-                        {!isSelf && (
+                        {!isProtectedOwner && (
+                          <button
+                            type="button"
+                            onClick={() => startEditUser(u)}
+                            aria-label={`Edit user ${u.username}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-[#1F2940] text-[11px] font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                          >
+                            <Pencil className="w-3 h-3" />
+                            <span>Edit</span>
+                          </button>
+                        )}
+                        {!isSelf && u.role !== 'Owner' && (
                           <button
                             type="button"
                             onClick={() => handleToggleUserActive(u)}
@@ -843,7 +937,7 @@ export function MasterSettingsView({
                 <span>Matriks Batasan Pengguna Aplikasi</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {(['Admin', 'Checker', 'Drafter', 'Operasional', 'Manajer'] as const).map((roleKey) => {
+                {(['Owner', 'Admin', 'Checker', 'Drafter', 'Operasional', 'Manajer'] as const).map((roleKey) => {
                   const info = ROLE_LIMITS_INFO[roleKey];
                   return (
                     <div
@@ -1045,6 +1139,17 @@ export function MasterSettingsView({
               </button>
             </form>
 
+            <OfflineStorageSettingsCard
+              isOnline={isOnline}
+              idbStatus={idbStatus}
+              syncQueue={offlineSyncQueue}
+              syncingQueue={syncingOfflineQueue}
+              onRefreshIdbStatus={onRefreshIdbStatus}
+              onForceSaveSnapshot={onForceSaveIdbSnapshot}
+              onReplayOfflineQueue={onReplayOfflineQueue}
+              onClearOfflineQueue={onClearOfflineQueue}
+            />
+
             <div className="pt-4 border-t border-slate-200 dark:border-white/[0.08] flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="text-xs font-semibold text-slate-800 dark:text-white">
@@ -1072,6 +1177,26 @@ export function MasterSettingsView({
               </div>
             </div>
           </div>
+        )}
+
+        {tab === 'spreadsheet' && (
+          <SpreadsheetDatabaseView
+            db={dbSnapshot}
+            driveUserEmail={driveUserEmail}
+            driveConnecting={driveConnecting}
+            syncingSheets={syncingSheets}
+            darkMode={darkMode}
+            isAdmin={isAdmin}
+            onConnectGoogle={onConnectGoogle}
+            onDisconnectGoogle={onDisconnectGoogle}
+            onCreateSpreadsheet={onCreateSpreadsheet}
+            onConnectExistingSpreadsheet={onConnectExistingSpreadsheet}
+            onPushToSpreadsheet={onPushToSpreadsheet}
+            onPullFromSpreadsheet={onPullFromSpreadsheet}
+            onToggleAutoSync={onToggleAutoSyncSpreadsheet}
+            onDisconnectSpreadsheet={onDisconnectSpreadsheet}
+            onListSpreadsheets={onListSpreadsheets}
+          />
         )}
 
         {tab === 'gas' && canViewGas && (
