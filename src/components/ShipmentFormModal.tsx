@@ -95,6 +95,7 @@ export function ShipmentFormModal({
   const [form, setForm] = useState<Shipment>(() => {
     if (initialShipment) {
       const cloned = JSON.parse(JSON.stringify(initialShipment)) as Shipment;
+      cloned.kodeManualDokOs = cloned.kodeManualDokOs || '';
       cloned.statusDokumen = normalizeStatusDokumen(cloned.statusDokumen);
       cloned.doPelayaranStatus = normalizeStatusDoPelayaran(cloned.doPelayaranStatus);
       cloned.doGatePassStatus = normalizeStatusGatePass(cloned.doGatePassStatus);
@@ -111,6 +112,7 @@ export function ShipmentFormModal({
     }
     return {
       kodeOs: 'OTOMATIS (OS-YYMM-NNNN)',
+      kodeManualDokOs: '',
       ship: '',
       kodeCustomer: '',
       namaCustomer: '',
@@ -401,6 +403,25 @@ export function ShipmentFormModal({
           {phase === 1 && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="md:col-span-2 p-3.5 rounded-xl bg-amber-50/70 dark:bg-amber-500/[0.08] border border-amber-200/80 dark:border-amber-500/25">
+                  <label htmlFor="kodeManualDokOsInput" className={fieldLabelCls}>
+                    Dok. OS — Kode Manual Terima Dokumen (Kode Dok Pemilik)
+                  </label>
+                  <input
+                    id="kodeManualDokOsInput"
+                    type="text"
+                    autoFocus={isNew && !isPhaseLocked(1)}
+                    disabled={isPhaseLocked(1)}
+                    value={form.kodeManualDokOs || ''}
+                    onChange={(e) => updateField('kodeManualDokOs', e.target.value)}
+                    placeholder="Contoh: TN-196 (kode dokumen milik pemilik / customer)"
+                    className={`${inputCls} font-mono-code font-semibold`}
+                  />
+                  <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1">
+                    Input awal terima dokumen · Ditampilkan pada kolom urutan ke-2 setelah Kode OS di tabel Dokumen Outstanding.
+                  </p>
+                </div>
+
                 <div>
                   <label htmlFor="kodeCustomerInput" className={fieldLabelCls}>
                     Kode Customer <span className="text-red-600 dark:text-red-400">*</span>

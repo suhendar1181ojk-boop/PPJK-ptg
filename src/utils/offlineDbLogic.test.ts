@@ -80,11 +80,31 @@ function createSampleDb(): DatabaseState {
     logs: [],
     catatan: [],
     dokumen: [],
+    pengeluaranOps: [
+      {
+        id: 'kop-1',
+        kodePengeluaran: 'KOP-2611-0001',
+        noTandaTerima: 'TT-KOP-2611-0001',
+        kodeOs: 'OS-2611-0001',
+        tanggal: '2026-11-15',
+        kategori: 'D/O & Pelayaran',
+        keterangan: 'Perpanjangan D/O',
+        nominal: 950000,
+        metodePembayaran: 'Transfer Bank',
+        statusPengeluaran: 'Sudah Dibayar',
+        petugasOps: 'Slamet Riyadi',
+        diberikanOleh: 'Admin',
+        createdAt: '2026-11-15T00:00:00Z',
+        createdBy: 'admin',
+        updatedAt: '2026-11-15T00:00:00Z',
+        updatedBy: 'admin',
+      },
+    ],
     pengaturan: { ...DEFAULT_PENGATURAN },
   };
 }
 
-test('buildCollectionEntries and assembleDatabaseFromEntries round-trip all 10 IndexedDB collections', () => {
+test('buildCollectionEntries and assembleDatabaseFromEntries round-trip all 11 IndexedDB collections', () => {
   const db = createSampleDb();
   const entries = buildCollectionEntries(db, '2026-11-16T03:00:00.000Z');
   assert.equal(entries.length, OFFLINE_DB_COLLECTIONS.length);
@@ -94,8 +114,16 @@ test('buildCollectionEntries and assembleDatabaseFromEntries round-trip all 10 I
   assert.equal(restored.shipments.length, 1);
   assert.equal(restored.shipments[0].kodeOs, 'OS-2611-0001');
   assert.equal(restored.kontainers.length, 1);
+  assert.equal(restored.pengeluaranOps.length, 1);
+  assert.equal(restored.pengeluaranOps[0].kodePengeluaran, 'KOP-2611-0001');
   assert.equal(restored.users[0].username, 'admin');
   assert.equal(assembleDatabaseFromEntries([]), null);
+
+  // Legacy entries missing pengeluaranOps still restore safely
+  const legacyEntries = entries.filter((e) => e.key !== 'pengeluaranOps');
+  const legacyRestored = assembleDatabaseFromEntries(legacyEntries);
+  assert.ok(legacyRestored);
+  assert.deepEqual(legacyRestored.pengeluaranOps, []);
 });
 
 test('enqueueCoalescedSyncTask coalesces repeated offline mutations for the same spreadsheetId', () => {
@@ -141,6 +169,7 @@ test('computeCollectionCounts, estimateDatabaseByteSize, and formatBytesReadable
   const counts = computeCollectionCounts(db);
   assert.equal(counts.shipments, 1);
   assert.equal(counts.kontainers, 1);
+  assert.equal(counts.pengeluaranOps, 1);
   assert.equal(counts.pengaturan, 1);
 
   const bytes = estimateDatabaseByteSize(db);

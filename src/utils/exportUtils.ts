@@ -7,8 +7,16 @@ import type {
   Importir,
   NopenRecapSummary,
   Pengaturan,
+  PengeluaranOpsItem,
+  PengeluaranOpsSummary,
   Shipment,
 } from '../types/ppjk';
+import {
+  buildKdiCoverDocument,
+  type KdiCoverDocument,
+  type KdiCoverOptions,
+} from './kdiCoverLogic';
+import { formatRupiahOps, hasBuktiPengeluaran } from './pengeluaranOpsLogic';
 import {
   buildAutoBillingFields,
   calculateBillingTotals,
@@ -37,6 +45,7 @@ export function exportShipmentsToExcel(rows: Shipment[], filename = 'PTG_PPJK_Sh
     const sig = getShipmentProcessSignal(s);
     return {
       'Kode OS': s.kodeOs,
+      'Dok. OS (Manual)': s.kodeManualDokOs || '',
       'Sinyal Proses': sig.active ? sig.detailLabel : '-',
       'Ship': s.ship,
       'Kode Customer': s.kodeCustomer,
@@ -116,6 +125,7 @@ export function exportShipmentsToExcel(rows: Shipment[], filename = 'PTG_PPJK_Sh
 export function exportShipmentsToCSV(rows: Shipment[], filename = 'PTG_PPJK_Shipment.csv'): void {
   const headers = [
     'Kode OS',
+    'Dok. OS (Manual)',
     'Sinyal Proses',
     'Nama Customer',
     'No. BL',
@@ -141,6 +151,7 @@ export function exportShipmentsToCSV(rows: Shipment[], filename = 'PTG_PPJK_Ship
       const sig = getShipmentProcessSignal(s);
       return [
         s.kodeOs,
+        s.kodeManualDokOs || '',
         sig.active ? sig.detailLabel : '-',
         s.namaCustomer,
         s.noBl,
@@ -195,10 +206,11 @@ export function exportShipmentsToPDF(
   autoTable(doc, {
     startY: 66,
     head: [
-      ['Kode OS', 'Customer', 'No. BL', 'Dok. Checker', 'ETD', 'ETA', 'CD ETA', 'Status', 'Jalur', 'No. AJU', 'Tgl SPPB'],
+      ['Kode OS', 'Dok. OS', 'Customer', 'No. BL', 'Dok. Checker', 'ETD', 'ETA', 'CD ETA', 'Status', 'Jalur', 'No. AJU', 'Tgl SPPB'],
     ],
     body: rows.map((s) => [
       s.kodeOs,
+      s.kodeManualDokOs || '-',
       s.namaCustomer,
       s.noBl,
       s.statusDokumen === 'Ready' ? 'Ready' : 'Draft',
@@ -912,4 +924,499 @@ export function exportNopenRecapToPDF(
   const safePeriod = (summary.dateFrom || summary.dateTo || 'All').replace(/[^0-9_-]/g, '');
   doc.save(filename || `PTG_PPJK_Rekap_NOPEN_${safePeriod}.pdf`);
 }
+
+export function exportTandaTerimaOpsPDF(
+  item: PengeluaranOpsItem,
+  shipment?: Shipment,
+  pengaturan?: Pengaturan
+): void {
+  const identity = getPpjkIdentity(pengaturan);
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+
+  doc.setFillColor(11, 37, 69);
+  doc.rect(0, 0, 595, 86, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(15);
+  doc.text('TANDA TERIMA PENGELUARAN OPERASIONAL', 32, 34);
+  doc.setFontSize(10);
+  doc.setTextColor(242, 140, 40);
+  doc.text(`${identity.brandName} · ${identity.companyName}`, 32, 52);
+  doc.setFontSize(8.5);
+  doc.setTextColor(226, 232, 240);
+  doc.text(`${identity.address} | Telp: ${identity.phone}`, 32, 68);
+
+  doc.setTextColor(15, 23, 42);
+  doc.setFontSize(10);
+  doc.text(`No. Tanda Terima : ${item.noTandaTerima}`, 32, 114);
+  doc.text(`Kode Pengeluaran : ${item.kodePengeluaran}`, 32, 130);
+  doc.text(`Tanggal Transaksi : ${item.tanggal || '-'}`, 360, 114);
+  doc.text(`Status : ${item.statusPengeluaran}`, 360, 130);
+
+  autoTable(doc, {
+    startY: 148,
+    head: [['Informasi Dokumen & Rincian Pengeluaran', 'Keterangan']],
+    body: [
+      ['Dokumen / Kode OS', item.kodeOs],
+      ['No. B/L', shipment?.noBl || item.noBl || '-'],
+      ['Customer / Importir', shipment?.namaCustomer || item.namaCustomer || '-'],
+      ['No. Kontainer', shipment?.noCont || '-'],
+      ['Kategori Biaya', item.kategori],
+      ['Uraian Pengeluaran', item.keterangan],
+      ['Metode Pembayaran', item.metodePembayaran],
+      ['Nominal Diserahkan', formatRupiahOps(item.nominal)],
+      ['Petugas Ops (Penerima)', item.petugasOps],
+      ['Diserahkan Oleh (Keuangan/Admin)', item.diberikanOleh],
+      [
+        'Bukti Pembayaran / Lampiran',
+        hasBuktiPengeluaran(item)
+          ? item.buktiNamaFile || item.buktiLinkDrive || 'Lampiran Bukti Tersimpan'
+          : 'Belum dilampirkan — mohon unggah bukti/nota',
+      ],
+      ['Catatan Audit', item.catatanAudit || '-'],
+    ],
+    styles: { fontSize: 9.5, cellPadding: 6 },
+    headStyles: { fillColor: [11, 37, 69], textColor: 255 },
+    columnStyles: {
+      0: { cellWidth: 190, fontStyle: 'bold', fillColor: [248, 250, 252] },
+    },
+  });
+
+  const finalY = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY || 480;
+  const sigY = Math.min(finalY + 34, 690);
+
+  doc.setFontSize(9.5);
+  doc.setTextColor(51, 65, 85);
+  doc.text('Yang Menyerahkan (Keuangan / Admin),', 54, sigY);
+  doc.text('Penerima Dana (Petugas Operasional),', 350, sigY);
+
+  doc.line(54, sigY + 62, 224, sigY + 62);
+  doc.line(350, sigY + 62, 520, sigY + 62);
+
+  doc.setFontSize(9.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(item.diberikanOleh || '-', 54, sigY + 76);
+  doc.text(item.petugasOps || '-', 350, sigY + 76);
+
+  doc.setFontSize(8);
+  doc.setTextColor(100, 116, 139);
+  doc.text(identity.footerNote, 32, 808);
+
+  const safeFile = item.noTandaTerima.replace(/[^A-Za-z0-9_-]/g, '_');
+  doc.save(`${safeFile}.pdf`);
+}
+
+export function exportPengeluaranOpsToPDF(
+  items: PengeluaranOpsItem[],
+  summary: PengeluaranOpsSummary,
+  shipments: Shipment[],
+  pengaturan?: Pengaturan
+): void {
+  const identity = getPpjkIdentity(pengaturan);
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+  const shipMap = new Map(shipments.map((s) => [s.kodeOs.trim().toUpperCase(), s]));
+
+  doc.setFillColor(11, 37, 69);
+  doc.rect(0, 0, 842, 66, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(14);
+  doc.text(`LAPORAN KEUANGAN PENGELUARAN OPERASIONAL — ${identity.brandName}`, 32, 28);
+  doc.setFontSize(9.5);
+  doc.setTextColor(226, 232, 240);
+  doc.text(`${identity.companyName} · Dicetak: ${new Date().toLocaleDateString('id-ID')}`, 32, 47);
+  doc.text(
+    `Total Transaksi: ${summary.totalTransaksi} | Total Pengeluaran: ${formatRupiahOps(summary.totalNominal)} | Kasbon: ${formatRupiahOps(summary.totalKasbonNominal)} | Dok OS: ${summary.dokumenTercatatCount}`,
+    810,
+    47,
+    { align: 'right' }
+  );
+
+  autoTable(doc, {
+    startY: 78,
+    head: [
+      [
+        'No',
+        'Kode / Tanda Terima',
+        'Tanggal',
+        'Kode OS & Customer',
+        'Kategori',
+        'Keterangan',
+        'Nominal',
+        'Metode',
+        'Petugas Ops',
+        'Status',
+        'Bukti',
+      ],
+    ],
+    body: items.map((item, idx) => {
+      const s = shipMap.get((item.kodeOs || '').trim().toUpperCase());
+      return [
+        String(idx + 1),
+        `${item.kodePengeluaran}\n${item.noTandaTerima}`,
+        item.tanggal || '-',
+        `${item.kodeOs}\n${s?.namaCustomer || item.namaCustomer || '-'}`,
+        item.kategori,
+        item.keterangan,
+        formatRupiahOps(item.nominal),
+        item.metodePembayaran,
+        item.petugasOps,
+        item.statusPengeluaran,
+        hasBuktiPengeluaran(item) ? item.buktiNamaFile || 'Ada Bukti' : 'Belum Ada',
+      ];
+    }),
+    styles: { fontSize: 7.5, cellPadding: 4 },
+    headStyles: { fillColor: [11, 37, 69], textColor: 255 },
+    columnStyles: {
+      0: { cellWidth: 22, halign: 'center' },
+      6: { halign: 'right', fontStyle: 'bold' },
+    },
+  });
+
+  doc.save(`PTG_PPJK_Pengeluaran_Operasional_${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
+export function exportPengeluaranOpsToExcel(
+  items: PengeluaranOpsItem[],
+  summary: PengeluaranOpsSummary,
+  shipments: Shipment[],
+  filename?: string
+): void {
+  const shipMap = new Map(shipments.map((s) => [s.kodeOs.trim().toUpperCase(), s]));
+
+  const listRows = items.map((item, idx) => {
+    const s = shipMap.get((item.kodeOs || '').trim().toUpperCase());
+    return {
+      'No.': idx + 1,
+      'Kode Pengeluaran': item.kodePengeluaran,
+      'No. Tanda Terima': item.noTandaTerima,
+      'Tanggal': item.tanggal,
+      'Kode OS': item.kodeOs,
+      'No. B/L': s?.noBl || item.noBl || '-',
+      'Customer': s?.namaCustomer || item.namaCustomer || '-',
+      'Kategori': item.kategori,
+      'Keterangan': item.keterangan,
+      'Nominal (Rp)': item.nominal,
+      'Metode Pembayaran': item.metodePembayaran,
+      'Status': item.statusPengeluaran,
+      'Petugas Ops Penerima': item.petugasOps,
+      'Diserahkan Oleh': item.diberikanOleh,
+      'Status Bukti': hasBuktiPengeluaran(item) ? 'Ada Bukti' : 'Belum Ada Bukti',
+      'Nama File Bukti': item.buktiNamaFile || '-',
+      'Link Drive Bukti': item.buktiLinkDrive || '-',
+      'Catatan Audit': item.catatanAudit || '-',
+    };
+  });
+
+  const docRows = summary.byDokumen.map((d) => ({
+    'Kode OS': d.kodeOs,
+    'No. B/L': d.noBl,
+    'Customer': d.namaCustomer,
+    'Status Shipment': d.shipStatus,
+    'Jumlah Pengeluaran': d.jumlahTransaksi,
+    'Total Biaya Ops (Rp)': d.totalNominal,
+    'Masih Kasbon (Rp)': d.nominalKasbon,
+    'Sudah Dibayar/Selesai (Rp)': d.nominalSelesai,
+    'Belum Ada Bukti': d.transaksiTanpaBukti,
+    'Nilai Tagihan Billing (Rp)': d.billingTotal,
+    'Selisih Margin Kotor (Rp)': d.selisihBilling,
+  }));
+
+  const petugasRows = summary.byPetugas.map((p) => ({
+    'Petugas Ops': p.petugasOps,
+    'Jumlah Tanda Terima': p.jumlahTransaksi,
+    'Dokumen OS Ditangani': p.dokumenCount,
+    'Total Dana Diterima (Rp)': p.totalDiterima,
+    'Kasbon Aktif (Rp)': p.kasbonAktifNominal,
+    'Sudah Dipertanggungjawabkan (Rp)': p.sudahDipertanggungjawabkanNominal,
+    'Ada Bukti': p.transaksiDenganBukti,
+    'Belum Ada Bukti': p.transaksiTanpaBukti,
+  }));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(listRows), 'Daftar Pengeluaran');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(docRows), 'Rekap per Dokumen OS');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(petugasRows), 'Rekap Petugas Ops');
+
+  XLSX.writeFile(
+    wb,
+    filename || `PTG_PPJK_Pengeluaran_Operasional_${new Date().toISOString().slice(0, 10)}.xlsx`
+  );
+}
+
+function truncatePdfText(text: string, maxLen: number): string {
+  const clean = (text || '').replace(/\s+/g, ' ').trim();
+  if (clean.length <= maxLen) return clean;
+  return `${clean.slice(0, Math.max(0, maxLen - 1))}…`;
+}
+
+function drawKdiCoverPage(doc: jsPDF, kdi: KdiCoverDocument): void {
+  const pageWidth = 595.28;
+  const marginX = 28;
+  const contentWidth = pageWidth - marginX * 2;
+  const { identity } = kdi;
+
+  // 1. KOP PPJK (Header Perusahaan PPJK)
+  doc.setFillColor(11, 37, 69);
+  doc.roundedRect(marginX, 20, 42, 42, 6, 6, 'F');
+  doc.setDrawColor(242, 140, 40);
+  doc.setLineWidth(1.2);
+  doc.roundedRect(marginX + 2, 22, 38, 38, 4, 4, 'S');
+
+  const initials =
+    identity.brandName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0]?.toUpperCase() || '')
+      .join('') || 'PPJK';
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(255, 255, 255);
+  doc.text(initials, marginX + 21, 41, { align: 'center' });
+  doc.setFontSize(6.5);
+  doc.setTextColor(242, 140, 40);
+  doc.text('PPJK', marginX + 21, 52, { align: 'center' });
+
+  const textX = marginX + 52;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(11, 37, 69);
+  doc.text(identity.companyName.toUpperCase(), textX, 31);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(217, 119, 25);
+  doc.text(`${identity.brandName} · ${identity.tagline}`, textX, 42);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(71, 85, 105);
+  const contactLine = [
+    identity.address,
+    identity.phone ? `Telp: ${identity.phone}` : '',
+    identity.email ? `Email: ${identity.email}` : '',
+  ]
+    .filter(Boolean)
+    .join(' | ');
+  doc.text(truncatePdfText(contactLine, 98), textX, 52);
+
+  const legalLine = [
+    identity.npwp ? `NPWP / Izin: ${identity.npwp}` : '',
+    identity.website || '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  if (legalLine) {
+    doc.text(truncatePdfText(legalLine, 96), textX, 61);
+  }
+
+  // Garis Kop Ganda (Navy + Gold)
+  doc.setDrawColor(11, 37, 69);
+  doc.setLineWidth(1.6);
+  doc.line(marginX, 68, pageWidth - marginX, 68);
+  doc.setDrawColor(242, 140, 40);
+  doc.setLineWidth(0.7);
+  doc.line(marginX, 71, pageWidth - marginX, 71);
+
+  // 2. Judul Dokumen KDI
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.setTextColor(15, 23, 42);
+  const titleText = 'KELENGKAPAN DOKUMEN IMPOR';
+  const titleWidth = doc.getTextWidth(titleText);
+  const centerX = pageWidth / 2;
+  doc.text(titleText, centerX, 86, { align: 'center' });
+  doc.setDrawColor(15, 23, 42);
+  doc.setLineWidth(0.8);
+  doc.line(centerX - titleWidth / 2, 88, centerX + titleWidth / 2, 88);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(51, 65, 85);
+  doc.text(truncatePdfText(kdi.subtitleLine, 92), centerX, 99, { align: 'center' });
+
+  // 3. Blok Metadata 2 Kolom (Persis Lembar Dasi Depan Bundel MAP)
+  const metaPairs: Array<{
+    lLabel: string;
+    lVal: string;
+    rLabel?: string;
+    rVal?: string;
+  }> = [
+    { lLabel: 'CONTAINER NO.', lVal: kdi.containerNo },
+    { lLabel: 'BL NO.', lVal: kdi.blNo, rLabel: 'TANGGAL', rVal: kdi.blTanggal },
+    { lLabel: 'SHIPPER', lVal: kdi.shipper },
+    { lLabel: 'CUSTOMER', lVal: kdi.customer },
+    { lLabel: 'COMMODITY', lVal: kdi.commodity },
+    { lLabel: 'CONSIGNEE', lVal: kdi.consignee },
+    { lLabel: 'VESSEL', lVal: kdi.vessel, rLabel: 'VOY', rVal: kdi.voy },
+    { lLabel: 'E.T.D', lVal: kdi.etd },
+    { lLabel: 'E.T.A', lVal: kdi.eta },
+    { lLabel: 'PORT OF LOADING', lVal: kdi.portOfLoading },
+    { lLabel: 'PORT OF DISCHARGE', lVal: kdi.portOfDischarge },
+    {
+      lLabel: 'NO. PENGAJUAN PIB',
+      lVal: kdi.noPengajuanPib,
+      rLabel: 'TANGGAL',
+      rVal: kdi.tglPengajuanPib,
+    },
+    { lLabel: 'NO. PIB', lVal: kdi.noPib, rLabel: 'TANGGAL', rVal: kdi.tglPib },
+    { lLabel: 'PFPB (BHDL)', lVal: kdi.pfpb, rLabel: 'TANGGAL', rVal: kdi.tglPfpb },
+    {
+      lLabel: 'PFPD (SPTNP/SPPB)',
+      lVal: kdi.pfpd,
+      rLabel: 'TANGGAL',
+      rVal: kdi.tglPfpd,
+    },
+    { lLabel: 'SPTNP NO.', lVal: kdi.sptnpNo, rLabel: 'TANGGAL', rVal: kdi.tglSptnp },
+    { lLabel: 'SPPB NO.', lVal: kdi.sppbNo, rLabel: 'TANGGAL', rVal: kdi.tglSppb },
+    { lLabel: 'ESLAH OLEH', lVal: kdi.eslahOleh, rLabel: 'TANGGAL', rVal: kdi.tglEslah },
+    { lLabel: 'TRUCKING SUPIR', lVal: kdi.truckingSupir, rLabel: 'NOPOL', rVal: kdi.nopol },
+  ];
+
+  const lLabelX = marginX + 6;
+  const lColonX = marginX + 114;
+  const lValX = marginX + 121;
+  const rLabelX = 358;
+  const rColonX = 412;
+  const rValX = 419;
+
+  let curY = 114;
+  const rowStep = 11.4;
+  doc.setFontSize(7.6);
+  doc.setTextColor(15, 23, 42);
+
+  for (const row of metaPairs) {
+    doc.setFont('helvetica', 'bold');
+    doc.text(row.lLabel, lLabelX, curY);
+    doc.text(':', lColonX, curY);
+    doc.setFont('helvetica', 'normal');
+    doc.text(truncatePdfText(row.lVal || '', row.rLabel ? 36 : 74), lValX, curY);
+
+    if (row.rLabel) {
+      doc.setFont('helvetica', 'bold');
+      doc.text(row.rLabel, rLabelX, curY);
+      doc.text(':', rColonX, curY);
+      doc.setFont('helvetica', 'normal');
+      doc.text(truncatePdfText(row.rVal || '', 26), rValX, curY);
+    }
+    curY += rowStep;
+  }
+
+  // 4. Tabel Checklist 20 Baris Kelengkapan Dokumen Impor
+  autoTable(doc, {
+    startY: curY + 4,
+    margin: { left: marginX, right: marginX },
+    tableWidth: contentWidth,
+    head: [['NO', 'URAIAN DOKUMEN', 'ADA', 'TIDAK', 'TERIMA TGL', 'VIA', 'KETERANGAN']],
+    body: kdi.rows.map((r) => [
+      String(r.no),
+      r.uraian,
+      '',
+      '',
+      r.terimaTgl || '',
+      r.via || '',
+      r.keterangan || '',
+    ]),
+    theme: 'grid',
+    styles: {
+      font: 'helvetica',
+      fontSize: 7.4,
+      cellPadding: { top: 3.1, bottom: 3.1, left: 4, right: 4 },
+      textColor: [15, 23, 42],
+      lineColor: [30, 41, 59],
+      lineWidth: 0.6,
+      valign: 'middle',
+      minCellHeight: 17.5,
+    },
+    headStyles: {
+      fillColor: [241, 245, 249],
+      textColor: [11, 37, 69],
+      fontStyle: 'bold',
+      fontSize: 7.6,
+      halign: 'center',
+      lineColor: [30, 41, 59],
+      lineWidth: 0.8,
+    },
+    columnStyles: {
+      0: { cellWidth: 23, halign: 'center' },
+      1: { cellWidth: 145, fontStyle: 'bold' },
+      2: { cellWidth: 36, halign: 'center' },
+      3: { cellWidth: 36, halign: 'center' },
+      4: { cellWidth: 72, halign: 'center' },
+      5: { cellWidth: 60, halign: 'center' },
+      6: { cellWidth: contentWidth - 372 },
+    },
+    didDrawCell: (hookData) => {
+      if (hookData.section !== 'body') return;
+      if (hookData.column.index !== 2 && hookData.column.index !== 3) return;
+      const rowData = kdi.rows[hookData.row.index];
+      if (!rowData) return;
+      const isChecked = hookData.column.index === 2 ? rowData.ada : rowData.tidak;
+      const boxW = 24;
+      const boxH = 11.5;
+      const bx = hookData.cell.x + (hookData.cell.width - boxW) / 2;
+      const by = hookData.cell.y + (hookData.cell.height - boxH) / 2;
+
+      doc.setDrawColor(15, 23, 42);
+      doc.setLineWidth(0.65);
+      doc.rect(bx, by, boxW, boxH, 'S');
+      if (isChecked) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(15, 23, 42);
+        doc.text('X', bx + boxW / 2, by + 8.5, { align: 'center' });
+      }
+    },
+  });
+
+  // 5. Footer Verifikasi Dokumen & Kop Note
+  const finalY =
+    (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ||
+    730;
+  const footerY = Math.min(finalY + 18, 792);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(15, 23, 42);
+  doc.text(`DOKUMEN CEK LIST BY : ${kdi.dokumenCekListBy || '-'}`, marginX + 14, footerY);
+  doc.text(`TANGGAL : ${kdi.tanggalCekList || ''}`, 310, footerY);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(100, 116, 139);
+  doc.text(
+    `${identity.companyName} · ${identity.footerNote}`,
+    marginX,
+    Math.min(footerY + 20, 822)
+  );
+}
+
+export function exportKdiCoverPDF(
+  shipment: Shipment,
+  options: KdiCoverOptions = {},
+  filename?: string
+): void {
+  const kdi = buildKdiCoverDocument(shipment, options);
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+  drawKdiCoverPage(doc, kdi);
+  const safeOs = shipment.kodeOs.replace(/[^A-Za-z0-9_-]/g, '_');
+  doc.save(filename || `KDI_${safeOs}.pdf`);
+}
+
+export function exportBatchKdiCoverPDF(
+  shipments: Shipment[],
+  options: Omit<KdiCoverOptions, 'customRows'> = {},
+  filename?: string
+): void {
+  if (shipments.length === 0) return;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+  shipments.forEach((s, index) => {
+    if (index > 0) doc.addPage();
+    const kdi = buildKdiCoverDocument(s, options);
+    drawKdiCoverPage(doc, kdi);
+  });
+  doc.save(filename || `KDI_Bundel_Outstanding_${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
+
 

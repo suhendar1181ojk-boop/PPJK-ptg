@@ -10,6 +10,7 @@ import type {
   LogPerubahan,
   ModulePermissionsMap,
   Pengaturan,
+  PengeluaranOpsItem,
   PhasePermissions,
   SessionUser,
   Shipment,
@@ -23,6 +24,12 @@ import type {
   UserAccount,
   UserRole,
 } from '../types/ppjk';
+import {
+  generateNextKodePengeluaran,
+  generateNoTandaTerima,
+  type PengeluaranOpsInputPayload,
+  validatePengeluaranOpsInput,
+} from '../utils/pengeluaranOpsLogic';
 import {
   buildAutoBillingFields,
   buildAutoSuratJalanFields,
@@ -147,6 +154,7 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
   const baseShipments: Shipment[] = [
     {
       kodeOs: `OS-${monthKey}-0001`,
+      kodeManualDokOs: 'TN-191',
       ship: 'MV EVER FORTUNE V.042',
       kodeCustomer: 'CUST-001',
       namaCustomer: 'PT Nusantara Baja Mandiri',
@@ -206,6 +214,7 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
     },
     {
       kodeOs: `OS-${monthKey}-0002`,
+      kodeManualDokOs: 'TN-192',
       ship: 'MSC OSCAR V.118S',
       kodeCustomer: 'CUST-002',
       namaCustomer: 'PT Karya Elektro Indonesia',
@@ -265,6 +274,7 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
     },
     {
       kodeOs: `OS-${monthKey}-0003`,
+      kodeManualDokOs: 'TN-193',
       ship: 'CMA CGM MARCO POLO',
       kodeCustomer: 'CUST-003',
       namaCustomer: 'CV Prima Kimia Sentosa',
@@ -324,6 +334,7 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
     },
     {
       kodeOs: `OS-${monthKey}-0004`,
+      kodeManualDokOs: 'TN-194',
       ship: 'OOCL JAKARTA V.081',
       kodeCustomer: 'CUST-001',
       namaCustomer: 'PT Nusantara Baja Mandiri',
@@ -383,6 +394,7 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
     },
     {
       kodeOs: `OS-${monthKey}-0005`,
+      kodeManualDokOs: 'TN-195',
       ship: 'MAERSK RUBICON V.214',
       kodeCustomer: 'CUST-004',
       namaCustomer: 'PT Agro Pangan Sejahtera',
@@ -462,6 +474,7 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
     },
     {
       kodeOs: `OS-${monthKey}-0006`,
+      kodeManualDokOs: 'TN-197',
       ship: 'HAPAG EXPRESS V.309',
       kodeCustomer: 'CUST-002',
       namaCustomer: 'PT Karya Elektro Indonesia',
@@ -524,6 +537,7 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
     },
     {
       kodeOs: `OS-${monthKey}-0007`,
+      kodeManualDokOs: 'TN-196',
       ship: 'ONE HARMONY V.019E',
       kodeCustomer: 'CUST-003',
       namaCustomer: 'CV Prima Kimia Sentosa',
@@ -662,9 +676,135 @@ function createSeedDatabase(users: UserAccount[]): DatabaseState {
         user: 'ops1',
       },
     ],
+    pengeluaranOps: [
+      {
+        id: 'kop-seed-1',
+        kodePengeluaran: `KOP-${monthKey}-0001`,
+        noTandaTerima: `TT-KOP-${monthKey}-0001`,
+        kodeOs: `OS-${monthKey}-0004`,
+        noBl: 'OOLU2689112004',
+        namaCustomer: 'PT Nusantara Baja Mandiri',
+        tanggal: formatDateOffset(-2),
+        kategori: 'D/O & Pelayaran',
+        keterangan: 'Penebusan D/O OOCL & Administrasi Pelayaran (1x40HC)',
+        nominal: 1650000,
+        metodePembayaran: 'Transfer Bank',
+        statusPengeluaran: 'Selesai / Dipertanggungjawabkan',
+        petugasOps: 'Budi Santoso (Operasional)',
+        diberikanOleh: 'Hendra Wijaya (Admin)',
+        tandaTerimaAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+        buktiNamaFile: 'Kwitansi_DO_OOCL_0004.pdf',
+        buktiMimeType: 'application/pdf',
+        buktiLinkDrive: 'https://drive.google.com/drive/folders/PTG_PPJK_DOKUMEN_ROOT',
+        source: 'simulasi',
+        catatanAudit: 'Tanda terima & kwitansi resmi OOCL sudah diverifikasi.',
+        createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+        createdBy: 'admin',
+        updatedAt: new Date(Date.now() - 86400000).toISOString(),
+        updatedBy: 'admin',
+      },
+      {
+        id: 'kop-seed-2',
+        kodePengeluaran: `KOP-${monthKey}-0002`,
+        noTandaTerima: `TT-KOP-${monthKey}-0002`,
+        kodeOs: `OS-${monthKey}-0004`,
+        noBl: 'OOLU2689112004',
+        namaCustomer: 'PT Nusantara Baja Mandiri',
+        tanggal: formatDateOffset(-1),
+        kategori: 'TILA / Eslah / Gate Pass',
+        keterangan: 'Biaya Gate Pass, TILA & Penumpukan Terminal Koja',
+        nominal: 875000,
+        metodePembayaran: 'Kas Tunai',
+        statusPengeluaran: 'Selesai / Dipertanggungjawabkan',
+        petugasOps: 'Slamet Riyadi (Ops Lapangan)',
+        diberikanOleh: 'Hendra Wijaya (Admin)',
+        tandaTerimaAt: new Date(Date.now() - 86400000).toISOString(),
+        buktiNamaFile: 'Struk_GatePass_Koja_0004.jpg',
+        buktiMimeType: 'image/jpeg',
+        source: 'simulasi',
+        catatanAudit: 'Diserahkan tunai ke Ops Lapangan beserta struk terminal.',
+        createdAt: new Date(Date.now() - 86400000).toISOString(),
+        createdBy: 'admin',
+        updatedAt: new Date(Date.now() - 3600000 * 12).toISOString(),
+        updatedBy: 'ops1',
+      },
+      {
+        id: 'kop-seed-3',
+        kodePengeluaran: `KOP-${monthKey}-0003`,
+        noTandaTerima: `TT-KOP-${monthKey}-0003`,
+        kodeOs: `OS-${monthKey}-0002`,
+        noBl: 'MSCUJK8829102',
+        namaCustomer: 'PT Karya Elektro Indonesia',
+        tanggal: formatDateOffset(-1),
+        kategori: 'Karantina / Behandle Merah',
+        keterangan: 'Uang muka / kasbon penanganan Behandle Jalur Merah di TPS Koja',
+        nominal: 2250000,
+        metodePembayaran: 'Uang Muka / Kasbon Ops',
+        statusPengeluaran: 'Uang Muka / Kasbon',
+        petugasOps: 'Budi Santoso (Operasional)',
+        diberikanOleh: 'Hendra Wijaya (Admin)',
+        tandaTerimaAt: new Date(Date.now() - 3600000 * 18).toISOString(),
+        source: 'simulasi',
+        catatanAudit: 'Menunggu nota buruh & foto BAPP pemeriksaan fisik dari petugas ops.',
+        createdAt: new Date(Date.now() - 3600000 * 18).toISOString(),
+        createdBy: 'admin',
+        updatedAt: new Date(Date.now() - 3600000 * 18).toISOString(),
+        updatedBy: 'admin',
+      },
+      {
+        id: 'kop-seed-4',
+        kodePengeluaran: `KOP-${monthKey}-0004`,
+        noTandaTerima: `TT-KOP-${monthKey}-0004`,
+        kodeOs: `OS-${monthKey}-0005`,
+        noBl: 'MAEU99100231',
+        namaCustomer: 'PT Agro Pangan Sejahtera',
+        tanggal: formatDateOffset(-3),
+        kategori: 'Trucking / Angkutan',
+        keterangan: 'Uang jalan trailer & kawalan pengantaran ke Gudang Cikarang',
+        nominal: 1450000,
+        metodePembayaran: 'Transfer Bank',
+        statusPengeluaran: 'Sudah Dibayar',
+        petugasOps: 'Agus Setiawan (Ops Trucking)',
+        diberikanOleh: 'Hendra Wijaya (Admin)',
+        tandaTerimaAt: new Date(Date.now() - 86400000 * 3).toISOString(),
+        buktiNamaFile: 'Bukti_Transfer_UangJalan_0005.png',
+        buktiMimeType: 'image/png',
+        source: 'simulasi',
+        catatanAudit: 'Transfer ke rekening koordinasi trucking.',
+        createdAt: new Date(Date.now() - 86400000 * 3).toISOString(),
+        createdBy: 'admin',
+        updatedAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+        updatedBy: 'admin',
+      },
+      {
+        id: 'kop-seed-5',
+        kodePengeluaran: `KOP-${monthKey}-0005`,
+        noTandaTerima: `TT-KOP-${monthKey}-0005`,
+        kodeOs: `OS-${monthKey}-0007`,
+        noBl: 'ONEYJKT26110318',
+        namaCustomer: 'CV Prima Kimia Sentosa',
+        tanggal: formatDateOffset(-2),
+        kategori: 'Handling / THC / Demurrage',
+        keterangan: 'Pelunasan THC & Eslah Terminal ONE Jakarta Utara',
+        nominal: 1920000,
+        metodePembayaran: 'Transfer Bank',
+        statusPengeluaran: 'Selesai / Dipertanggungjawabkan',
+        petugasOps: 'Slamet Riyadi (Ops Lapangan)',
+        diberikanOleh: 'Hendra Wijaya (Admin)',
+        tandaTerimaAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+        buktiNamaFile: 'Invoice_THC_ONE_0007.pdf',
+        buktiMimeType: 'application/pdf',
+        source: 'simulasi',
+        createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+        createdBy: 'admin',
+        updatedAt: new Date(Date.now() - 86400000).toISOString(),
+        updatedBy: 'admin',
+      },
+    ],
     pengaturan: {
       ...DEFAULT_PENGATURAN,
       seqByMonth: { [monthKey]: 7 },
+      seqPengeluaranByMonth: { [monthKey]: 5 },
     },
   };
 }
@@ -813,6 +953,10 @@ export async function ensureDbInitialized(): Promise<DatabaseState> {
       };
       changed = true;
     }
+    if (!Array.isArray(existing.pengeluaranOps)) {
+      existing.pengeluaranOps = [];
+      changed = true;
+    }
     // Recalculate dynamic countdown ETA, container summary, status normalizations, Surat Jalan & Billing, and seqByMonth
     const reconciled = reconcileAllShipmentsDerivedState(
       existing.shipments || [],
@@ -943,7 +1087,8 @@ export async function resetDatabase(mode: 'empty' | 'seed'): Promise<DatabaseSta
     logs: [],
     catatan: [],
     dokumen: [],
-    pengaturan: { ...DEFAULT_PENGATURAN, seqByMonth: {} },
+    pengeluaranOps: [],
+    pengaturan: { ...DEFAULT_PENGATURAN, seqByMonth: {}, seqPengeluaranByMonth: {} },
   };
   writeDbToStorage(emptyDb);
   await flushIndexedDbWrites();
@@ -972,6 +1117,7 @@ export async function importDatabaseSnapshot(snapshot: DatabaseState): Promise<D
     logs: Array.isArray(snapshot.logs) ? snapshot.logs : [],
     catatan: Array.isArray(snapshot.catatan) ? snapshot.catatan : [],
     dokumen: Array.isArray(snapshot.dokumen) ? snapshot.dokumen : [],
+    pengeluaranOps: Array.isArray(snapshot.pengeluaranOps) ? snapshot.pengeluaranOps : [],
     pengaturan: {
       ...DEFAULT_PENGATURAN,
       ...(snapshot.pengaturan || {}),
@@ -1154,6 +1300,7 @@ export async function saveShipmentRecord(
       kodeOs,
     }));
 
+  merged.kodeManualDokOs = (merged.kodeManualDokOs || '').trim();
   merged.noCont = formatContainerSummary(validContainers);
   merged.statusDokumen = normalizeStatusDokumen(merged.statusDokumen);
   merged.doPelayaranStatus = normalizeStatusDoPelayaran(merged.doPelayaranStatus);
@@ -1258,6 +1405,50 @@ export async function updateShipmentStatusDokumen(
     kolom: 'statusDokumen',
     nilaiLama: oldVal,
     nilaiBaru: newVal,
+  });
+  writeDbToStorage(db);
+  return db;
+}
+
+export async function updateShipmentKodeManualDokOs(
+  session: SessionUser,
+  kodeOs: string,
+  kodeManualDokOs: string
+): Promise<DatabaseState> {
+  const db = await ensureDbInitialized();
+  const activeUser = assertSessionActive(db, session);
+  const activePerms = resolveUserPhasePermissions(
+    activeUser.role,
+    activeUser.phasePermissions
+  );
+  if (!canUserEditPhase({ role: activeUser.role, phasePermissions: activePerms }, 1)) {
+    throw new Error(
+      'Akses ditolak: Anda tidak memiliki izin mengubah Kode Manual Terima Dokumen / Dok. OS (Fase 1).'
+    );
+  }
+  const idx = db.shipments.findIndex((s) => s.kodeOs === kodeOs);
+  if (idx === -1) throw new Error(`Shipment ${kodeOs} tidak ditemukan.`);
+
+  const target = db.shipments[idx];
+  const oldVal = (target.kodeManualDokOs || '').trim();
+  const newVal = (kodeManualDokOs || '').trim();
+  if (oldVal === newVal) return db;
+
+  const nowIso = new Date().toISOString();
+  db.shipments[idx] = {
+    ...target,
+    kodeManualDokOs: newVal,
+    updatedAt: nowIso,
+    updatedBy: activeUser.username,
+  };
+  db.logs.unshift({
+    id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    waktu: nowIso,
+    user: activeUser.username,
+    kodeOs,
+    kolom: 'kodeManualDokOs',
+    nilaiLama: oldVal || '-',
+    nilaiBaru: newVal || '-',
   });
   writeDbToStorage(db);
   return db;
@@ -2098,3 +2289,161 @@ export async function savePengaturanRecord(
   writeDbToStorage(db);
   return db;
 }
+
+export async function savePengeluaranOpsRecord(
+  session: SessionUser,
+  payload: PengeluaranOpsInputPayload,
+  isNew: boolean
+): Promise<{ db: DatabaseState; saved: PengeluaranOpsItem }> {
+  if (!canPerformAction(session.role, 'manage_pengeluaran_ops')) {
+    throw new Error('Akses ditolak: Anda tidak memiliki izin mencatat pengeluaran operasional.');
+  }
+
+  const validation = validatePengeluaranOpsInput(payload);
+  if (!validation.valid) {
+    const firstMsg = Object.values(validation.errors)[0] || 'Data pengeluaran tidak valid.';
+    throw new Error(firstMsg);
+  }
+
+  const db = await ensureDbInitialized();
+  const activeUser = assertSessionActive(db, session);
+  const existingList = Array.isArray(db.pengeluaranOps) ? db.pengeluaranOps : [];
+  const nowIso = new Date().toISOString();
+
+  const cleanKodeOs = payload.kodeOs.trim();
+  const linkedShipment = db.shipments.find(
+    (s) => s.kodeOs.trim().toUpperCase() === cleanKodeOs.toUpperCase()
+  );
+
+  const nextSeqMap = { ...(db.pengaturan.seqPengeluaranByMonth || {}) };
+  let savedItem: PengeluaranOpsItem;
+
+  if (isNew) {
+    const gen = generateNextKodePengeluaran(existingList, nextSeqMap, payload.tanggal);
+    nextSeqMap[gen.monthKey] = gen.nextSeq;
+    const kodePengeluaran = payload.kodePengeluaran?.trim() || gen.kodePengeluaran;
+    const noTandaTerima = payload.noTandaTerima?.trim() || generateNoTandaTerima(kodePengeluaran);
+
+    savedItem = {
+      id: payload.id || `kop_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      kodePengeluaran,
+      noTandaTerima,
+      kodeOs: linkedShipment ? linkedShipment.kodeOs : cleanKodeOs,
+      noBl: linkedShipment?.noBl || payload.noBl?.trim() || '',
+      namaCustomer: linkedShipment?.namaCustomer || payload.namaCustomer?.trim() || '',
+      tanggal: payload.tanggal.trim(),
+      kategori: payload.kategori,
+      keterangan: payload.keterangan.trim(),
+      nominal: Math.round(Number(payload.nominal) || 0),
+      metodePembayaran: payload.metodePembayaran,
+      statusPengeluaran: payload.statusPengeluaran,
+      petugasOps: payload.petugasOps.trim(),
+      diberikanOleh: payload.diberikanOleh?.trim() || activeUser.nama,
+      tandaTerimaAt: payload.tandaTerimaAt || nowIso,
+      buktiNamaFile: payload.buktiNamaFile?.trim() || undefined,
+      buktiMimeType: payload.buktiMimeType?.trim() || undefined,
+      buktiDataUrl: payload.buktiDataUrl || undefined,
+      buktiLinkDrive: payload.buktiLinkDrive?.trim() || undefined,
+      driveFileId: payload.driveFileId?.trim() || undefined,
+      source: payload.source || (payload.buktiDataUrl ? 'offline-local' : undefined),
+      catatanAudit: payload.catatanAudit?.trim() || undefined,
+      createdAt: nowIso,
+      createdBy: activeUser.username,
+      updatedAt: nowIso,
+      updatedBy: activeUser.username,
+    };
+
+    db.pengeluaranOps = [savedItem, ...existingList];
+    db.pengaturan = {
+      ...db.pengaturan,
+      seqPengeluaranByMonth: nextSeqMap,
+    };
+    db.logs.unshift({
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      waktu: nowIso,
+      user: activeUser.username,
+      kodeOs: savedItem.kodeOs,
+      kolom: 'KEUANGAN_OPS_CATAT',
+      nilaiLama: '-',
+      nilaiBaru: `${savedItem.kodePengeluaran} · ${savedItem.kategori} · Rp ${savedItem.nominal.toLocaleString('id-ID')} (${savedItem.petugasOps})`,
+    });
+  } else {
+    const idx = existingList.findIndex((item) => item.id === payload.id);
+    if (idx === -1) {
+      throw new Error('Data pengeluaran operasional tidak ditemukan.');
+    }
+    const prev = existingList[idx];
+    savedItem = {
+      ...prev,
+      kodeOs: linkedShipment ? linkedShipment.kodeOs : cleanKodeOs,
+      noBl: linkedShipment?.noBl || payload.noBl?.trim() || prev.noBl || '',
+      namaCustomer: linkedShipment?.namaCustomer || payload.namaCustomer?.trim() || prev.namaCustomer || '',
+      tanggal: payload.tanggal.trim(),
+      kategori: payload.kategori,
+      keterangan: payload.keterangan.trim(),
+      nominal: Math.round(Number(payload.nominal) || 0),
+      metodePembayaran: payload.metodePembayaran,
+      statusPengeluaran: payload.statusPengeluaran,
+      petugasOps: payload.petugasOps.trim(),
+      diberikanOleh: payload.diberikanOleh?.trim() || prev.diberikanOleh || activeUser.nama,
+      tandaTerimaAt: payload.tandaTerimaAt || prev.tandaTerimaAt || nowIso,
+      buktiNamaFile:
+        payload.buktiNamaFile !== undefined ? payload.buktiNamaFile.trim() || undefined : prev.buktiNamaFile,
+      buktiMimeType:
+        payload.buktiMimeType !== undefined ? payload.buktiMimeType.trim() || undefined : prev.buktiMimeType,
+      buktiDataUrl: payload.buktiDataUrl !== undefined ? payload.buktiDataUrl || undefined : prev.buktiDataUrl,
+      buktiLinkDrive:
+        payload.buktiLinkDrive !== undefined ? payload.buktiLinkDrive.trim() || undefined : prev.buktiLinkDrive,
+      driveFileId: payload.driveFileId !== undefined ? payload.driveFileId.trim() || undefined : prev.driveFileId,
+      source: payload.source ?? prev.source,
+      catatanAudit:
+        payload.catatanAudit !== undefined ? payload.catatanAudit.trim() || undefined : prev.catatanAudit,
+      updatedAt: nowIso,
+      updatedBy: activeUser.username,
+    };
+    const nextList = [...existingList];
+    nextList[idx] = savedItem;
+    db.pengeluaranOps = nextList;
+    db.logs.unshift({
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      waktu: nowIso,
+      user: activeUser.username,
+      kodeOs: savedItem.kodeOs,
+      kolom: 'KEUANGAN_OPS_UPDATE',
+      nilaiLama: `${prev.statusPengeluaran} · Rp ${prev.nominal.toLocaleString('id-ID')}`,
+      nilaiBaru: `${savedItem.statusPengeluaran} · Rp ${savedItem.nominal.toLocaleString('id-ID')}`,
+    });
+  }
+
+  writeDbToStorage(db);
+  return { db, saved: savedItem };
+}
+
+export async function deletePengeluaranOpsRecord(
+  session: SessionUser,
+  id: string
+): Promise<DatabaseState> {
+  if (!canPerformAction(session.role, 'delete_pengeluaran_ops')) {
+    throw new Error('Akses ditolak: Hanya Admin / Owner yang dapat menghapus catatan pengeluaran ops.');
+  }
+  const db = await ensureDbInitialized();
+  const activeUser = assertSessionActive(db, session);
+  const existingList = Array.isArray(db.pengeluaranOps) ? db.pengeluaranOps : [];
+  const target = existingList.find((item) => item.id === id);
+  if (!target) return db;
+
+  db.pengeluaranOps = existingList.filter((item) => item.id !== id);
+  db.logs.unshift({
+    id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    waktu: new Date().toISOString(),
+    user: activeUser.username,
+    kodeOs: target.kodeOs,
+    kolom: 'KEUANGAN_OPS_HAPUS',
+    nilaiLama: `${target.kodePengeluaran} · Rp ${target.nominal.toLocaleString('id-ID')}`,
+    nilaiBaru: 'Dihapus',
+  });
+
+  writeDbToStorage(db);
+  return db;
+}
+

@@ -108,6 +108,7 @@ export function SpreadsheetDatabaseView({
     Log_Perubahan: db.logs.length,
     Catatan: db.catatan.length,
     Dokumen: db.dokumen.length,
+    Pengeluaran_Ops: (db.pengeluaranOps || []).length,
     Pengaturan: 20,
     Sync_Metadata: 10,
   };

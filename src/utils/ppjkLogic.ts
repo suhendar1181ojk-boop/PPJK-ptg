@@ -82,6 +82,7 @@ export const DEFAULT_PENGATURAN: Pengaturan = {
   adminEmail: 'admin.billing@ptg-ppjk.co.id',
   billingBankInfo:
     'Bank Mandiri Cab. Tanjung Priok · No. Rek: 120-00-8899123-4 a.n. PT PTG Logistik Kepabeanan',
+  seqPengeluaranByMonth: {},
 };
 
 /**
@@ -1077,6 +1078,7 @@ export function validateShipmentInput(
 
 export const CHECKER_ALLOWED_FIELDS: Array<keyof Shipment> = [
   'ship', // keep read-only? No, checker Phase 1 & 4 + status
+  'kodeManualDokOs',
   'kodeCustomer',
   'namaCustomer',
   'tglTerimaDok',
@@ -1191,6 +1193,8 @@ export function canPerformAction(
     | 'manage_settings'
     | 'manage_setup'
     | 'manage_module_toggles'
+    | 'manage_pengeluaran_ops'
+    | 'delete_pengeluaran_ops'
     | 'view_gas_code'
     | 'export_report'
 ): boolean {
@@ -1200,9 +1204,12 @@ export function canPerformAction(
     case 'create_shipment':
       return role === 'Admin' || isCheckerRole(role);
     case 'delete_shipment':
+    case 'delete_pengeluaran_ops':
       return role === 'Admin';
     case 'edit_shipment':
       return role === 'Admin' || isCheckerRole(role) || isDrafterOrOpsRole(role);
+    case 'manage_pengeluaran_ops':
+      return role === 'Admin' || isCheckerRole(role) || role === 'Operasional';
     case 'upload_dokumen':
     case 'add_catatan':
       return role === 'Admin' || isCheckerRole(role) || isDrafterOrOpsRole(role);
@@ -1223,6 +1230,7 @@ export function canPerformAction(
 }
 
 export const PHASE_1_FIELDS: Array<keyof Shipment> = [
+  'kodeManualDokOs',
   'kodeCustomer',
   'namaCustomer',
   'tglTerimaDok',
@@ -1695,6 +1703,7 @@ export function filterShipments(
     if (q) {
       const hay = [
         s.kodeOs,
+        s.kodeManualDokOs || '',
         s.dokumenChecker,
         normalizeStatusDokumen(s.statusDokumen),
         s.kodeCustomer,
@@ -3083,6 +3092,14 @@ export const APP_MODULE_META: AppModuleMeta[] = [
     category: 'Operasional',
   },
   {
+    id: 'keuangan-ops',
+    label: 'Keuangan Pengeluaran Ops',
+    shortLabel: 'Keuangan Ops',
+    description:
+      'Catat biaya operasional per dokumen OS, tanda terima petugas ops & bukti pembayaran.',
+    category: 'Operasional',
+  },
+  {
     id: 'shipments',
     label: 'Semua Data Shipment',
     shortLabel: 'Semua Shipment',
@@ -3122,6 +3139,7 @@ export function getDefaultModuleAccessForRole(role: UserRole): ModulePermissions
       do: true,
       'surat-jalan': true,
       penagihan: true,
+      'keuangan-ops': true,
       shipments: true,
       'report-nopen': true,
       master: true,
@@ -3136,6 +3154,7 @@ export function getDefaultModuleAccessForRole(role: UserRole): ModulePermissions
       do: true,
       'surat-jalan': true,
       penagihan: true,
+      'keuangan-ops': true,
       shipments: true,
       'report-nopen': true,
       master: true,
@@ -3150,6 +3169,7 @@ export function getDefaultModuleAccessForRole(role: UserRole): ModulePermissions
       do: true,
       'surat-jalan': true,
       penagihan: true,
+      'keuangan-ops': true,
       shipments: true,
       'report-nopen': true,
       master: true,
@@ -3163,6 +3183,7 @@ export function getDefaultModuleAccessForRole(role: UserRole): ModulePermissions
     do: true,
     'surat-jalan': true,
     penagihan: true,
+    'keuangan-ops': true,
     shipments: true,
     'report-nopen': true,
     master: false,

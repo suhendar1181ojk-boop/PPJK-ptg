@@ -57,6 +57,7 @@ export interface KontainerItem {
 export interface Shipment {
   // 1-8: Dokumen & Customer
   kodeOs: string;           // 1. Kode OS (OS-YYMM-NNNN)
+  kodeManualDokOs?: string; // Kode manual terima dokumen / kode dok pemilik (mis. TN-196)
   ship: string;             // 2. Ship (Vessel / Voyage)
   kodeCustomer: string;     // 3. Kode Customer
   namaCustomer: string;     // 4. Nama Customer
@@ -270,6 +271,119 @@ export interface Pengaturan {
   spreadsheetAutoSync?: boolean;
   spreadsheetLastSyncAt?: string;
   spreadsheetLastSyncDirection?: 'push' | 'pull' | 'create' | '';
+  seqPengeluaranByMonth?: Record<string, number>;
+}
+
+export type KategoriPengeluaranOps =
+  | 'D/O & Pelayaran'
+  | 'TILA / Eslah / Gate Pass'
+  | 'Handling / THC / Demurrage'
+  | 'Trucking / Angkutan'
+  | 'Karantina / Behandle Merah'
+  | 'Jasa Lapangan / Ops'
+  | 'SPTNP / Denda'
+  | 'Lainnya';
+
+export type MetodePembayaranOps =
+  | 'Kas Tunai'
+  | 'Transfer Bank'
+  | 'Uang Muka / Kasbon Ops'
+  | 'Reimburse';
+
+export type StatusPengeluaranOps =
+  | 'Uang Muka / Kasbon'
+  | 'Sudah Dibayar'
+  | 'Selesai / Dipertanggungjawabkan';
+
+export interface PengeluaranOpsItem {
+  id: string;
+  kodePengeluaran: string; // e.g., KOP-2611-0001
+  noTandaTerima: string; // e.g., TT-KOP-2611-0001
+  kodeOs: string; // e.g., OS-2611-0001 or 'UMUM / NON-OS'
+  noBl?: string;
+  namaCustomer?: string;
+  tanggal: string; // YYYY-MM-DD
+  kategori: KategoriPengeluaranOps;
+  keterangan: string;
+  nominal: number;
+  metodePembayaran: MetodePembayaranOps;
+  statusPengeluaran: StatusPengeluaranOps;
+  petugasOps: string; // Nama petugas operasional penerima uang/tanda terima
+  diberikanOleh: string; // Admin/keuangan pemberi dana
+  tandaTerimaAt?: string; // ISO timestamp penyerahan
+  buktiNamaFile?: string;
+  buktiMimeType?: string;
+  buktiDataUrl?: string; // Offline-first compressed preview data URL
+  buktiLinkDrive?: string;
+  driveFileId?: string;
+  source?: 'google-drive' | 'offline-local' | 'simulasi';
+  catatanAudit?: string;
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+export interface PengeluaranOpsFilterCriteria {
+  search?: string;
+  periodMode?: 'all' | 'month' | 'range';
+  month?: string; // YYYY-MM
+  dateFrom?: string; // YYYY-MM-DD
+  dateTo?: string; // YYYY-MM-DD
+  kodeOs?: string;
+  petugasOps?: string;
+  kategori?: '' | KategoriPengeluaranOps;
+  statusPengeluaran?: '' | StatusPengeluaranOps;
+  buktiFilter?: 'all' | 'with-bukti' | 'missing-bukti';
+}
+
+export interface PengeluaranOpsDokumenRecap {
+  kodeOs: string;
+  noBl: string;
+  namaCustomer: string;
+  shipStatus: string;
+  jumlahTransaksi: number;
+  totalNominal: number;
+  nominalKasbon: number;
+  nominalSelesai: number;
+  transaksiTanpaBukti: number;
+  billingTotal: number;
+  selisihBilling: number;
+  items: PengeluaranOpsItem[];
+}
+
+export interface PengeluaranOpsPetugasRecap {
+  petugasOps: string;
+  jumlahTransaksi: number;
+  totalDiterima: number;
+  kasbonAktifNominal: number;
+  sudahDipertanggungjawabkanNominal: number;
+  transaksiDenganBukti: number;
+  transaksiTanpaBukti: number;
+  dokumenCount: number;
+}
+
+export interface PengeluaranOpsKategoriRecap {
+  kategori: KategoriPengeluaranOps;
+  jumlahTransaksi: number;
+  totalNominal: number;
+}
+
+export interface PengeluaranOpsSummary {
+  totalTransaksi: number;
+  totalNominal: number;
+  totalKasbonNominal: number;
+  kasbonCount: number;
+  totalSudahDibayarNominal: number;
+  sudahDibayarCount: number;
+  totalSelesaiNominal: number;
+  selesaiCount: number;
+  dokumenTercatatCount: number;
+  denganBuktiCount: number;
+  belumAdaBuktiCount: number;
+  byDokumen: PengeluaranOpsDokumenRecap[];
+  byPetugas: PengeluaranOpsPetugasRecap[];
+  byKategori: PengeluaranOpsKategoriRecap[];
 }
 
 export interface DatabaseState {
@@ -282,6 +396,7 @@ export interface DatabaseState {
   logs: LogPerubahan[];
   catatan: Catatan[];
   dokumen: DokumenItem[];
+  pengeluaranOps: PengeluaranOpsItem[];
   pengaturan: Pengaturan;
 }
 
@@ -448,6 +563,7 @@ export type AppView =
   | 'do'
   | 'surat-jalan'
   | 'penagihan'
+  | 'keuangan-ops'
   | 'report-nopen'
   | 'shipments'
   | 'outstanding'

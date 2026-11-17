@@ -1683,7 +1683,7 @@ test('getPpjkIdentity provides defaults and propagates custom company identity i
 });
 
 test('resolveUserModuleAccess enforces role matrix, per-user overrides, Owner immunity, and all-locked handling', () => {
-  assert.equal(APP_MODULE_META.length, 10);
+  assert.equal(APP_MODULE_META.length, 11);
 
   const pengaturanWithPolicy: Pick<Pengaturan, 'roleModuleAccess'> = {
     roleModuleAccess: {
@@ -1695,13 +1695,15 @@ test('resolveUserModuleAccess enforces role matrix, per-user overrides, Owner im
   // Owner stays 100% immune even if user.modulePermissions tries to lock them out
   const ownerAccount = {
     role: 'Owner' as const,
-    modulePermissions: { dashboard: false, do: false, setup: false },
+    modulePermissions: { dashboard: false, do: false, setup: false, 'keuangan-ops': false },
   };
   const ownerAccess = resolveUserModuleAccess(ownerAccount, pengaturanWithPolicy);
   assert.equal(ownerAccess.setup, true);
   assert.equal(ownerAccess.do, true);
+  assert.equal(ownerAccess['keuangan-ops'], true);
   assert.equal(canUserAccessModule(ownerAccount, 'setup', pengaturanWithPolicy), true);
   assert.equal(canUserAccessModule(ownerAccount, 'do', pengaturanWithPolicy), true);
+  assert.equal(canUserAccessModule(ownerAccount, 'keuangan-ops', pengaturanWithPolicy), true);
 
   // Checker inherits role policy (do=false, penagihan=false), except explicit per-user override (penagihan=true)
   const checkerAccess = resolveUserModuleAccess(
@@ -1792,19 +1794,29 @@ test('buildUserMonitoringRows aggregates log activity counts, resolved modules, 
   assert.equal(rows.length, 2);
 
   const ownerRow = rows[0];
-  assert.equal(ownerRow.totalModulesCount, 10);
-  assert.equal(ownerRow.enabledModulesCount, 10);
+  assert.equal(ownerRow.totalModulesCount, 11);
+  assert.equal(ownerRow.enabledModulesCount, 11);
   assert.equal(ownerRow.activePhasesCount, 4);
   assert.equal(ownerRow.activityCount, 0);
 
   const checkerRow = rows[1];
-  assert.equal(checkerRow.totalModulesCount, 9); // excludes owner-exclusive setup module
-  assert.equal(checkerRow.enabledModulesCount, 7); // 9 - 2 disabled
+  assert.equal(checkerRow.totalModulesCount, 10); // excludes owner-exclusive setup module
+  assert.equal(checkerRow.enabledModulesCount, 8); // 10 - 2 disabled
   assert.equal(checkerRow.hasCustomModuleOverrides, true);
   assert.equal(checkerRow.activePhasesCount, 1);
   assert.equal(checkerRow.activityCount, 2);
   assert.equal(checkerRow.lastActivityAt, '2026-11-16T11:30:00Z');
   assert.equal(checkerRow.lastKodeOs, 'OS-2611-0002');
+});
+
+test('kodeManualDokOs belongs to Phase 1 fields and is searchable in filterShipments', () => {
+  assert.equal(PHASE_1_FIELDS.includes('kodeManualDokOs'), true);
+  const s1 = makeShipment({ kodeOs: 'OS-2611-0001', kodeManualDokOs: 'TN-196' });
+  const s2 = makeShipment({ kodeOs: 'OS-2611-0002', kodeManualDokOs: 'TN-199' });
+  const matched = filterShipments([s1, s2], { mode: 'outstanding', search: 'tn-196' });
+  assert.equal(matched.length, 1);
+  assert.equal(matched[0].kodeOs, 'OS-2611-0001');
+  assert.equal(matched[0].kodeManualDokOs, 'TN-196');
 });
 
 

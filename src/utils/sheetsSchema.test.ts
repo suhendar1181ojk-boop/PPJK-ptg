@@ -24,6 +24,7 @@ function makeSampleDb(): DatabaseState {
     shipments: [
       {
         kodeOs: 'OS-2611-0001',
+        kodeManualDokOs: 'TN-196',
         ship: 'MV EVERGREEN TEST',
         kodeCustomer: 'CUST-001',
         namaCustomer: 'PT Nusantara Baja Mandiri',
@@ -162,9 +163,35 @@ function makeSampleDb(): DatabaseState {
         source: 'google-drive',
       },
     ],
+    pengeluaranOps: [
+      {
+        id: 'kop-1',
+        kodePengeluaran: 'KOP-2611-0001',
+        noTandaTerima: 'TT-KOP-2611-0001',
+        kodeOs: 'OS-2611-0001',
+        noBl: 'BL-9988',
+        namaCustomer: 'PT Nusantara Baja Mandiri',
+        tanggal: '2026-11-15',
+        kategori: 'D/O & Pelayaran',
+        keterangan: 'Perpanjangan D/O & Gate Pass Priok',
+        nominal: 1750000,
+        metodePembayaran: 'Uang Muka / Kasbon Ops',
+        statusPengeluaran: 'Selesai / Dipertanggungjawabkan',
+        petugasOps: 'Slamet Riyadi (Ops)',
+        diberikanOleh: 'Hendra Wijaya (Admin)',
+        tandaTerimaAt: '2026-11-15T09:00:00Z',
+        buktiNamaFile: 'bukti_do_priok.jpg',
+        source: 'offline-local',
+        createdAt: '2026-11-15T09:00:00Z',
+        createdBy: 'admin',
+        updatedAt: '2026-11-15T10:00:00Z',
+        updatedBy: 'admin',
+      },
+    ],
     pengaturan: {
       ...DEFAULT_PENGATURAN,
       seqByMonth: { '2611': 1 },
+      seqPengeluaranByMonth: { '2611': 1 },
       spreadsheetId: '1AbCDefGhIjKlMnOpQrStUvWxYz_12345',
       spreadsheetTitle: 'PTG_PPJK_DATABASE',
       spreadsheetUrl: 'https://docs.google.com/spreadsheets/d/1AbCDefGhIjKlMnOpQrStUvWxYz_12345/edit',
@@ -194,7 +221,7 @@ test('extractSpreadsheetIdFromInput extracts ID from URLs or raw IDs and rejects
   assert.equal(extractSpreadsheetIdFromInput(''), '');
 });
 
-test('serializeDatabaseToSheetMatrixMap and parseSheetMatrixMapToDatabase round-trip all 11 tabs losslessly', () => {
+test('serializeDatabaseToSheetMatrixMap and parseSheetMatrixMapToDatabase round-trip all 12 tabs losslessly', () => {
   const sample = makeSampleDb();
   const matrixMap = serializeDatabaseToSheetMatrixMap(sample, 'admin', '2026-11-16T10:00:00Z');
 
@@ -203,6 +230,7 @@ test('serializeDatabaseToSheetMatrixMap and parseSheetMatrixMapToDatabase round-
   assert.equal(matrixMap.Kontainer.length, 2);
   assert.equal(matrixMap.Master_Customer.length, 2);
   assert.equal(matrixMap.Users.length, 2);
+  assert.equal(matrixMap.Pengeluaran_Ops.length, 2);
 
   // Also test resilience if columns in Shipments are reversed/reordered inside Google Sheets
   const reversedShipments = matrixMap.Shipments.map((row) => [...row].reverse());
@@ -217,6 +245,7 @@ test('serializeDatabaseToSheetMatrixMap and parseSheetMatrixMapToDatabase round-
   assert.equal(parsed.shipments.length, 1);
   const s = parsed.shipments[0];
   assert.equal(s.kodeOs, 'OS-2611-0001');
+  assert.equal(s.kodeManualDokOs, 'TN-196');
   assert.equal(s.ship, 'MV EVERGREEN TEST');
   assert.equal(s.bc11Terbit, true);
   assert.equal(s.terimaDok.items['Packinglist'], true);
@@ -228,10 +257,15 @@ test('serializeDatabaseToSheetMatrixMap and parseSheetMatrixMapToDatabase round-
   assert.equal(s.nopen, '448905');
   assert.equal(parsed.kontainers.length, 1);
   assert.equal(parsed.customers[0].namaCustomer, 'PT Nusantara Baja Mandiri');
+  assert.equal(parsed.pengeluaranOps.length, 1);
+  assert.equal(parsed.pengeluaranOps[0].kodePengeluaran, 'KOP-2611-0001');
+  assert.equal(parsed.pengeluaranOps[0].nominal, 1750000);
+  assert.equal(parsed.pengeluaranOps[0].petugasOps, 'Slamet Riyadi (Ops)');
   assert.equal(parsed.users[0].phasePermissions?.phase3, true);
   assert.deepEqual(parsed.users[0].modulePermissions, { do: false, penagihan: true });
   assert.equal(parsed.pengaturan.spreadsheetAutoSync, true);
   assert.equal(parsed.pengaturan.seqByMonth['2611'], 1);
+  assert.equal(parsed.pengaturan.seqPengeluaranByMonth?.['2611'], 1);
   assert.equal(parsed.pengaturan.ppjkBrandName, 'SAMUDERA PPJK');
   assert.equal(parsed.pengaturan.ppjkCompanyName, 'PT Samudera Kepabeanan');
   assert.equal(parsed.pengaturan.ppjkNpwp, '09.876.543.2-041.000');
@@ -242,5 +276,7 @@ test('serializeDatabaseToSheetMatrixMap and parseSheetMatrixMapToDatabase round-
   const diff = computeSpreadsheetSyncDiffSummary(sample, parsed);
   assert.equal(diff.localCounts.shipments, 1);
   assert.equal(diff.remoteCounts.shipments, 1);
+  assert.equal(diff.localCounts.pengeluaranOps, 1);
+  assert.equal(diff.remoteCounts.pengeluaranOps, 1);
   assert.equal(diff.totalLocalRows, diff.totalRemoteRows);
 });

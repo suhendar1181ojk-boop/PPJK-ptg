@@ -21,6 +21,7 @@ import {
   Ship,
   SlidersHorizontal,
   UserCheck,
+  Wallet,
 } from 'lucide-react';
 import type {
   AppView,
@@ -421,6 +422,14 @@ export function DashboardView({
       icon: Receipt,
       iconBoxClass: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/25',
       visible: canOpenModule('penagihan'),
+    },
+    {
+      id: 'keuangan-ops',
+      label: 'Keuangan Ops',
+      subtitle: 'Biaya Dokumen, Bukti & Tanda Terima',
+      icon: Wallet,
+      iconBoxClass: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25',
+      visible: canOpenModule('keuangan-ops'),
     },
     {
       id: 'shipments',

@@ -11,12 +11,14 @@ import {
   Package,
   Paperclip,
   Pencil,
+  Printer,
   Receipt,
   Save,
   Send,
   Square,
   Trash2,
   Upload,
+  Wallet,
   X,
 } from 'lucide-react';
 import type {
@@ -25,6 +27,8 @@ import type {
   GatePassJenisType,
   KontainerItem,
   LogPerubahan,
+  Pengaturan,
+  PengeluaranOpsItem,
   PhasePermissions,
   Shipment,
   StatusDokumenType,
@@ -34,6 +38,12 @@ import type {
   StatusSuratJalanType,
   UserRole,
 } from '../types/ppjk';
+import {
+  formatRupiahOps,
+  getStatusPengeluaranMeta,
+  hasBuktiPengeluaran,
+} from '../utils/pengeluaranOpsLogic';
+import { KdiPrintModal } from './KdiPrintModal';
 import type { DriveFileEntry } from '../services/googleDriveService';
 import {
   buildAutoBillingFields,
@@ -56,7 +66,10 @@ import {
   normalizeStatusSuratJalan,
   normalizeStatusTrucking,
 } from '../utils/ppjkLogic';
-import { exportSuratJalanToPDF } from '../utils/exportUtils';
+import {
+  exportSuratJalanToPDF,
+  exportTandaTerimaOpsPDF,
+} from '../utils/exportUtils';
 import {
   CountdownBadge,
   DoValidityBadge,
@@ -79,6 +92,8 @@ interface ShipmentDetailDrawerProps {
   containers: KontainerItem[];
   comments: Catatan[];
   documents: DokumenItem[];
+  opsExpenses?: PengeluaranOpsItem[];
+  pengaturan?: Pengaturan;
   logs: LogPerubahan[];
   checklistItems: string[];
   userRole: UserRole;
@@ -92,6 +107,7 @@ interface ShipmentDetailDrawerProps {
   onEdit: (kodeOs: string) => void;
   onDelete: (kodeOs: string) => void;
   onOpenBilling?: (kodeOs: string, tab?: 'owner' | 'customer') => void;
+  onOpenKeuanganOps?: (kodeOs: string) => void;
   onAddComment: (kodeOs: string, isi: string) => Promise<void>;
   onUploadDocument: (
     kodeOs: string,
@@ -142,6 +158,8 @@ export function ShipmentDetailDrawer({
   containers,
   comments,
   documents,
+  opsExpenses = [],
+  pengaturan,
   logs,
   checklistItems,
   userRole,
@@ -155,6 +173,7 @@ export function ShipmentDetailDrawer({
   onEdit,
   onDelete,
   onOpenBilling,
+  onOpenKeuanganOps,
   onAddComment,
   onUploadDocument,
   onUpdateStatusDokumen,
@@ -195,6 +214,7 @@ export function ShipmentDetailDrawer({
   const [gateOutNoteDraft, setGateOutNoteDraft] = useState(shipment.gateOutCatatan || '');
   const [bindSelesaiDraft, setBindSelesaiDraft] = useState(true);
   const [sjModalOpen, setSjModalOpen] = useState(false);
+  const [kdiModalOpen, setKdiModalOpen] = useState(false);
   const [driveFiles, setDriveFiles] = useState<DriveFileEntry[] | null>(null);
   const [loadingDriveFiles, setLoadingDriveFiles] = useState(false);
   const [driveListError, setDriveListError] = useState('');
@@ -271,6 +291,7 @@ export function ShipmentDetailDrawer({
       title: 'Fase 1: Dokumen & Customer',
       fields: [
         ['1. Kode OS', shipment.kodeOs],
+        ['Dok. OS (Kode Manual Pemilik)', shipment.kodeManualDokOs || '-'],
         ['3. Kode Customer', shipment.kodeCustomer],
         ['4. Nama Customer', shipment.namaCustomer],
         ['5. Tgl. Terima Dok', shipment.tglTerimaDok],
@@ -394,6 +415,7 @@ export function ShipmentDetailDrawer({
   ];
 
   return (
+    <>
     <div
       className="fixed inset-0 z-50 bg-slate-900/60 dark:bg-black/75 backdrop-blur-xs flex justify-end no-print"
       onClick={(e) => {
@@ -412,6 +434,11 @@ export function ShipmentDetailDrawer({
               <span className="font-mono-code text-xs font-bold text-[#F28C28] dark:text-violet-400">
                 {shipment.kodeOs}
               </span>
+              {shipment.kodeManualDokOs && (
+                <span className="font-mono-code text-[11px] font-bold px-2 py-0.5 rounded bg-white/15 text-amber-200 border border-white/20">
+                  Dok. OS: {shipment.kodeManualDokOs}
+                </span>
+              )}
               <ProcessSignalBadge shipment={shipment} compact />
               <StatusDokumenBadge statusDokumen={shipment.statusDokumen} />
               <StatusBadge status={shipment.status} />
@@ -427,6 +454,15 @@ export function ShipmentDetailDrawer({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setKdiModalOpen(true)}
+              title="Print Kelengkapan Dokumen Impor (KDI) / Dasi Depan Bundel MAP"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs font-semibold cursor-pointer"
+            >
+              <Printer className="w-3.5 h-3.5 text-[#F28C28]" />
+              <span>Cetak KDI</span>
+            </button>
             {canEdit && (
               <button
                 type="button"
@@ -1428,6 +1464,88 @@ export function ShipmentDetailDrawer({
             )}
           </section>
 
+          {/* Pengeluaran Operasional Terkait Dokumen OS */}
+          <section className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-white/[0.08] pb-1.5">
+              <h3 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#0B2545] dark:text-violet-300">
+                <Wallet className="w-3.5 h-3.5" />
+                <span>
+                  Pengeluaran Operasional ({opsExpenses.length}) ·{' '}
+                  {formatRupiahOps(
+                    opsExpenses.reduce((acc, item) => acc + (Number(item.nominal) || 0), 0)
+                  )}
+                </span>
+              </h3>
+              {onOpenKeuanganOps && (
+                <button
+                  type="button"
+                  onClick={() => onOpenKeuanganOps(shipment.kodeOs)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#0B2545] dark:bg-violet-600 text-white text-[11px] font-semibold hover:opacity-95 cursor-pointer"
+                >
+                  <Wallet className="w-3 h-3" />
+                  <span>Kelola / Catat Biaya Ops</span>
+                </button>
+              )}
+            </div>
+
+            {opsExpenses.length === 0 ? (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Belum ada pengeluaran operasional tercatat untuk dokumen {shipment.kodeOs}.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {opsExpenses.map((exp) => {
+                  const stMeta = getStatusPengeluaranMeta(exp.statusPengeluaran);
+                  return (
+                    <div
+                      key={exp.id}
+                      className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 rounded-lg bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.07] text-xs"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-mono-code font-bold text-[#0B2545] dark:text-violet-300">
+                            {exp.kodePengeluaran}
+                          </span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold ${stMeta.badgeClass}`}
+                          >
+                            {stMeta.shortLabel}
+                          </span>
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {exp.kategori}
+                          </span>
+                        </div>
+                        <div className="text-slate-800 dark:text-slate-200 mt-0.5">
+                          {exp.keterangan}
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          Ops: {exp.petugasOps} · {exp.tanggal} ·{' '}
+                          {hasBuktiPengeluaran(exp)
+                            ? `Bukti: ${exp.buktiNamaFile || 'Tersedia'}`
+                            : 'Belum ada bukti'}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="font-bold text-slate-900 dark:text-white tabular-nums">
+                          {formatRupiahOps(exp.nominal)}
+                        </span>
+                        <button
+                          type="button"
+                          title="Cetak PDF Tanda Terima"
+                          aria-label={`Unduh PDF tanda terima ${exp.noTandaTerima}`}
+                          onClick={() => exportTandaTerimaOpsPDF(exp, shipment, pengaturan)}
+                          className="p-1.5 rounded border border-slate-200 dark:border-white/10 hover:bg-white dark:hover:bg-[#1F2940] text-[#0B2545] dark:text-violet-300 cursor-pointer"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
           {/* Catatan / Komentar */}
           <section className="space-y-3">
             <h3 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#0B2545] dark:text-violet-300 border-b border-slate-200 dark:border-white/[0.08] pb-1.5">
@@ -1516,5 +1634,14 @@ export function ShipmentDetailDrawer({
         />
       )}
     </div>
+
+    <KdiPrintModal
+      isOpen={kdiModalOpen}
+      initialShipment={shipment}
+      pengaturan={pengaturan}
+      pengeluaranOps={opsExpenses}
+      onClose={() => setKdiModalOpen(false)}
+    />
+    </>
   );
 }

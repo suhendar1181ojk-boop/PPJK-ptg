@@ -14,6 +14,7 @@ import {
   Ship,
   SlidersHorizontal,
   UserCheck,
+  Wallet,
   Wifi,
   WifiOff,
   X,
@@ -39,6 +40,7 @@ interface SidebarProps {
   doBelumCount?: number;
   suratJalanCount?: number;
   pendingBillingCount?: number;
+  opsExpenseMissingProofCount?: number;
   isOnline?: boolean;
   pendingSyncCount?: number;
   pengaturan?: Pengaturan;
@@ -57,6 +59,7 @@ export function Sidebar({
   doBelumCount = 0,
   suratJalanCount = 0,
   pendingBillingCount = 0,
+  opsExpenseMissingProofCount = 0,
   isOnline = true,
   pendingSyncCount = 0,
   pengaturan,
@@ -106,6 +109,13 @@ export function Sidebar({
       icon: Receipt,
       badge: pendingBillingCount,
       visible: Boolean(moduleAccess.penagihan),
+    },
+    {
+      id: 'keuangan-ops',
+      label: 'Keuangan Ops',
+      icon: Wallet,
+      badge: opsExpenseMissingProofCount,
+      visible: Boolean(moduleAccess['keuangan-ops']),
     },
     { id: 'shipments', label: 'Semua Shipment', icon: FileSpreadsheet, visible: Boolean(moduleAccess.shipments) },
     { id: 'report-nopen', label: 'Report NOPEN (PIB)', icon: FileText, visible: Boolean(moduleAccess['report-nopen']) },

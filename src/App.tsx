@@ -44,6 +44,7 @@ import {
   DB_STORAGE_KEY,
   deleteCustomerMaster,
   deleteImportirMaster,
+  deletePengeluaranOpsRecord,
   deleteShipmentDocument,
   deleteShipmentRecord,
   deleteShipperMaster,
@@ -57,6 +58,7 @@ import {
   saveCustomerMaster,
   saveImportirMaster,
   savePengaturanRecord,
+  savePengeluaranOpsRecord,
   saveShipmentRecord,
   saveShipperMaster,
   saveStoredSession,
@@ -65,6 +67,7 @@ import {
   updateShipmentBc11,
   updateShipmentBilling,
   updateShipmentDoPelayaran,
+  updateShipmentKodeManualDokOs,
   updateShipmentStatusDokumen,
 } from './services/gasSimulator';
 import {
@@ -103,7 +106,10 @@ import {
   pullDatabaseFromSpreadsheet,
   pushDatabaseToSpreadsheet,
 } from './services/googleSheetsService';
-import { computeSpreadsheetSyncDiffSummary } from './utils/sheetsSchema';
+import {
+  computeSpreadsheetSyncDiffSummary,
+  DATABASE_SHEET_TABS,
+} from './utils/sheetsSchema';
 import {
   canPerformAction,
   computeBillingSummary,
@@ -118,6 +124,10 @@ import {
   normalizeStatusDoPelayaran,
   resolveUserModuleAccess,
 } from './utils/ppjkLogic';
+import {
+  hasBuktiPengeluaran,
+  type PengeluaranOpsInputPayload,
+} from './utils/pengeluaranOpsLogic';
 import { LoginView } from './components/LoginView';
 import { Sidebar } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
@@ -130,6 +140,7 @@ import { CheckerSummaryView } from './components/CheckerSummaryView';
 import { DoPelayaranView } from './components/DoPelayaranView';
 import { SuratJalanView } from './components/SuratJalanView';
 import { PenagihanView } from './components/PenagihanView';
+import { KeuanganOpsView } from './components/KeuanganOpsView';
 import { NopenReportView } from './components/NopenReportView';
 import { BillingModal } from './components/BillingModal';
 import { GoogleSignInButton } from './components/GoogleDriveButton';
@@ -141,6 +152,7 @@ const VIEW_TITLES: Record<AppView, string> = {
   do: 'Kesiapan D/O Pelayaran',
   'surat-jalan': 'Surat Jalan & Tracking Pengiriman',
   penagihan: 'Info Owner (WA/Email) & Surat Penagihan',
+  'keuangan-ops': 'Keuangan Pengeluaran Operasional',
   'report-nopen': 'Report Rekapan Dokumen No. NOPEN (PIB)',
   outstanding: 'Dokumen Outstanding',
   shipments: 'Semua Data Shipment',
@@ -164,6 +176,7 @@ export default function App() {
   const [tableCheckerFilter, setTableCheckerFilter] = useState<string>('');
   const [selectedRecapChecker, setSelectedRecapChecker] = useState<string>('');
   const [tableSearchQuery, setTableSearchQuery] = useState<string>('');
+  const [keuanganOpsFilterKodeOs, setKeuanganOpsFilterKodeOs] = useState<string>('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -893,7 +906,7 @@ export default function App() {
     const cleanTitle = (title || '').trim() || 'PTG_PPJK_DATABASE';
     const confirm = await Swal.fire({
       title: `Buat Google Spreadsheet "${cleanTitle}"?`,
-      text: `Akan dibuat file Google Spreadsheet baru berisi 11 tab database (${db.shipments.length} shipment, ${db.kontainers.length} kontainer, ${db.customers.length} customer, ${db.users.length} user) dan Auto-Sync Penuh akan diaktifkan.`,
+      text: `Akan dibuat file Google Spreadsheet baru berisi ${DATABASE_SHEET_TABS.length} tab database (${db.shipments.length} shipment, ${db.kontainers.length} kontainer, ${db.customers.length} customer, ${db.users.length} user) dan Auto-Sync Penuh akan diaktifkan.`,
       icon: 'question',
       showCancelButton: true,
       confirmButtonColor: '#059669',
@@ -955,7 +968,7 @@ export default function App() {
 
     const confirm = await Swal.fire({
       title: 'Kirim Data Lokal ke Google Spreadsheet?',
-      text: `Isi 11 tab pada file "${db.pengaturan.spreadsheetTitle || targetId}" akan diperbarui dengan data lokal saat ini (${db.shipments.length} shipment, ${db.kontainers.length} kontainer, ${db.customers.length} customer).`,
+      text: `Isi ${DATABASE_SHEET_TABS.length} tab pada file "${db.pengaturan.spreadsheetTitle || targetId}" akan diperbarui dengan data lokal saat ini (${db.shipments.length} shipment, ${db.kontainers.length} kontainer, ${db.customers.length} customer).`,
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#059669',
@@ -1093,7 +1106,7 @@ export default function App() {
         title: `Hubungkan "${meta.title}"`,
         text: hasShipmentsTab
           ? `Spreadsheet memiliki ${meta.sheets.length} tab termasuk tab "Shipments". Pilih tindakan awal:`
-          : `Spreadsheet memiliki ${meta.sheets.length} tab (${meta.sheets.map((s) => s.title).join(', ')}). Kirim database lokal ke Spreadsheet ini untuk menyiapkan 11 tab database?`,
+          : `Spreadsheet memiliki ${meta.sheets.length} tab (${meta.sheets.map((s) => s.title).join(', ')}). Kirim database lokal ke Spreadsheet ini untuk menyiapkan ${DATABASE_SHEET_TABS.length} tab database?`,
         icon: 'question',
         showDenyButton: hasShipmentsTab,
         showCancelButton: true,
@@ -1383,6 +1396,15 @@ export default function App() {
     await applyDbUpdate(nextDb);
   };
 
+  const handleUpdateKodeManualDokOs = async (
+    kodeOs: string,
+    nextCode: string
+  ) => {
+    if (!session) return;
+    const nextDb = await updateShipmentKodeManualDokOs(session, kodeOs, nextCode);
+    await applyDbUpdate(nextDb);
+  };
+
   const handleUpdateBc11 = async (
     kodeOs: string,
     bc11Terbit: boolean,
@@ -1391,6 +1413,74 @@ export default function App() {
   ) => {
     if (!session) return;
     const nextDb = await updateShipmentBc11(session, kodeOs, bc11Terbit, noBc11, tglBc11);
+    await applyDbUpdate(nextDb);
+  };
+
+  const handleSavePengeluaranOps = async (
+    payload: PengeluaranOpsInputPayload,
+    isNew: boolean,
+    proofFile?: File
+  ) => {
+    if (!session || !db) return;
+    let finalPayload: PengeluaranOpsInputPayload = { ...payload };
+    let driveNote = '';
+
+    const accessToken = getGoogleDriveAccessToken();
+    if (proofFile && accessToken) {
+      try {
+        const uploaded = await uploadFileToGoogleDrive({
+          accessToken,
+          file: proofFile,
+          kodeOs: payload.kodeOs || 'UMUM_NON_OS',
+          parentFolderSetting: db.pengaturan.driveParentFolderId,
+          jenisDokumen: `Bukti_Ops_${payload.kategori}`,
+        });
+        finalPayload = {
+          ...finalPayload,
+          buktiNamaFile: uploaded.name,
+          buktiLinkDrive: uploaded.webViewLink,
+          driveFileId: uploaded.fileId,
+          source: 'google-drive',
+        };
+        driveNote = ' Bukti berhasil diupload ke Google Drive.';
+      } catch (err) {
+        driveNote = ` (Bukti disimpan lokal offline: ${
+          err instanceof Error ? err.message : 'Drive tidak terjangkau'
+        })`;
+        finalPayload.source = finalPayload.buktiDataUrl ? 'offline-local' : 'simulasi';
+      }
+    } else if (proofFile) {
+      finalPayload.source = finalPayload.buktiDataUrl ? 'offline-local' : 'simulasi';
+    }
+
+    const res = await savePengeluaranOpsRecord(session, finalPayload, isNew);
+    await applyDbUpdate(res.db);
+    await Swal.fire({
+      title: isNew ? 'Pengeluaran Ops Tercatat' : 'Pengeluaran Ops Diperbarui',
+      text: `${res.saved.kodePengeluaran} (${res.saved.noTandaTerima}) tersimpan untuk ${res.saved.kodeOs}.${driveNote}`,
+      icon: 'success',
+      timer: 2000,
+      showConfirmButton: false,
+      background: darkMode ? '#131926' : '#ffffff',
+      color: darkMode ? '#f1f5f9' : '#0f172a',
+    });
+  };
+
+  const handleDeletePengeluaranOps = async (id: string) => {
+    if (!session) return;
+    const confirm = await Swal.fire({
+      title: 'Hapus Catatan Pengeluaran Ops?',
+      text: 'Catatan pengeluaran dan nomor tanda terima terkait akan dihapus dari log operasional.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#D64545',
+      cancelButtonText: 'Batal',
+      confirmButtonText: 'Ya, Hapus',
+      background: darkMode ? '#131926' : '#ffffff',
+      color: darkMode ? '#f1f5f9' : '#0f172a',
+    });
+    if (!confirm.isConfirmed) return;
+    const nextDb = await deletePengeluaranOpsRecord(session, id);
     await applyDbUpdate(nextDb);
   };
 
@@ -1579,6 +1669,9 @@ export default function App() {
   const billingSummary = computeBillingSummary(db.shipments);
   const pendingBillingCount =
     billingSummary.siapInfoOwnerCount + billingSummary.ownerNotifiedCount;
+  const opsExpenseMissingProofCount = (db.pengeluaranOps || []).filter(
+    (item) => !hasBuktiPengeluaran(item)
+  ).length;
 
   const moduleAccess = resolveUserModuleAccess(session, db.pengaturan);
   const canCreate = canPerformAction(session.role, 'create_shipment');
@@ -1627,6 +1720,9 @@ export default function App() {
           if (view !== 'checker') {
             setSelectedRecapChecker('');
           }
+          if (view !== 'keuangan-ops') {
+            setKeuanganOpsFilterKodeOs('');
+          }
           if (view === 'master') {
             setMasterInitialTab('customer');
           }
@@ -1642,6 +1738,7 @@ export default function App() {
         doBelumCount={doBelumCount}
         suratJalanCount={suratJalanCount}
         pendingBillingCount={pendingBillingCount}
+        opsExpenseMissingProofCount={opsExpenseMissingProofCount}
         isOnline={isOnline}
         pendingSyncCount={offlineSyncQueue.length}
         pengaturan={db.pengaturan}
@@ -1969,7 +2066,12 @@ export default function App() {
 
         {/* Main Viewport */}
         <main className="flex-1 min-w-0 p-4 sm:p-6 max-w-[1440px] w-full mx-auto">
-          {!effectiveView && (
+          <div
+            key={effectiveView || 'locked'}
+            data-testid="module-fade-wrapper"
+            className="animate-module-fade-in"
+          >
+            {!effectiveView && (
             <div
               data-testid="all-modules-locked-notice"
               className="max-w-lg mx-auto mt-10 bg-white dark:bg-[#131926] rounded-2xl border border-amber-200 dark:border-amber-500/35 p-6 text-center space-y-3"
@@ -2073,6 +2175,21 @@ export default function App() {
             />
           )}
 
+          {effectiveView === 'keuangan-ops' && (
+            <KeuanganOpsView
+              items={db.pengeluaranOps || []}
+              shipments={db.shipments}
+              users={db.users}
+              pengaturan={db.pengaturan}
+              session={session}
+              googleDriveEmail={driveUserEmail || undefined}
+              initialFilterKodeOs={keuanganOpsFilterKodeOs}
+              onSavePengeluaran={handleSavePengeluaranOps}
+              onDeletePengeluaran={handleDeletePengeluaranOps}
+              onOpenShipmentDetail={(kodeOs) => setDetailKodeOs(kodeOs)}
+            />
+          )}
+
           {effectiveView === 'report-nopen' && (
             <NopenReportView
               shipments={db.shipments}
@@ -2089,6 +2206,8 @@ export default function App() {
               mode={effectiveView === 'outstanding' ? 'outstanding' : 'all'}
               shipments={db.shipments}
               importirs={db.importirs}
+              pengaturan={db.pengaturan}
+              pengeluaranOps={db.pengeluaranOps || []}
               statusList={db.pengaturan.statusList}
               jalurList={db.pengaturan.jalurList}
               checklistItems={db.pengaturan.checklistItems}
@@ -2100,6 +2219,7 @@ export default function App() {
               onEditShipment={openEditForm}
               onCreateShipment={openCreateForm}
               onUpdateStatusDokumen={handleUpdateStatusDokumen}
+              onUpdateKodeManualDokOs={handleUpdateKodeManualDokOs}
             />
           )}
 
@@ -2225,6 +2345,7 @@ export default function App() {
               }}
             />
           )}
+          </div>
         </main>
       </div>
 
@@ -2235,6 +2356,10 @@ export default function App() {
           containers={db.kontainers.filter((k) => k.kodeOs === detailShipment.kodeOs)}
           comments={db.catatan.filter((c) => c.kodeOs === detailShipment.kodeOs)}
           documents={db.dokumen.filter((d) => d.kodeOs === detailShipment.kodeOs)}
+          opsExpenses={(db.pengeluaranOps || []).filter(
+            (e) => e.kodeOs.trim().toUpperCase() === detailShipment.kodeOs.trim().toUpperCase()
+          )}
+          pengaturan={db.pengaturan}
           logs={db.logs.filter((l) => l.kodeOs === detailShipment.kodeOs)}
           checklistItems={db.pengaturan.checklistItems}
           userRole={session.role}
@@ -2250,6 +2375,13 @@ export default function App() {
           onOpenBilling={(kodeOs, tab = 'owner') => {
             setDetailKodeOs(null);
             setBillingModalState({ kodeOs, tab });
+          }}
+          onOpenKeuanganOps={(kodeOs) => {
+            setDetailKodeOs(null);
+            if (isViewAllowed('keuangan-ops')) {
+              setKeuanganOpsFilterKodeOs(kodeOs);
+              setActiveView('keuangan-ops');
+            }
           }}
           onAddComment={handleAddComment}
           onUploadDocument={handleUploadDocument}

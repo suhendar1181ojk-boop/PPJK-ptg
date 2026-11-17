@@ -10,6 +10,7 @@ export const OFFLINE_DB_COLLECTIONS = [
   'logs',
   'catatan',
   'dokumen',
+  'pengeluaranOps',
   'pengaturan',
 ] as const;
 
@@ -83,6 +84,9 @@ export function assembleDatabaseFromEntries(
       : [],
     dokumen: Array.isArray(map.get('dokumen'))
       ? (map.get('dokumen') as DatabaseState['dokumen'])
+      : [],
+    pengeluaranOps: Array.isArray(map.get('pengeluaranOps'))
+      ? (map.get('pengeluaranOps') as DatabaseState['pengeluaranOps'])
       : [],
     pengaturan,
   };
@@ -164,6 +168,7 @@ export function computeCollectionCounts(db: DatabaseState): Record<string, numbe
     logs: db.logs?.length || 0,
     catatan: db.catatan?.length || 0,
     dokumen: db.dokumen?.length || 0,
+    pengeluaranOps: db.pengeluaranOps?.length || 0,
     pengaturan: 1,
   };
 }

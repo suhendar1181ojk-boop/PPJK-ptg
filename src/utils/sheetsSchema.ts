@@ -7,14 +7,18 @@ import type {
   DokumenItem,
   Importir,
   JalurType,
+  KategoriPengeluaranOps,
   KontainerItem,
   LogPerubahan,
+  MetodePembayaranOps,
   ModulePermissionsMap,
   Pengaturan,
+  PengeluaranOpsItem,
   PhasePermissions,
   RoleModuleAccessMap,
   Shipment,
   Shipper,
+  StatusPengeluaranOps,
   UserAccount,
   UserRole,
 } from '../types/ppjk';
@@ -33,6 +37,7 @@ export interface SheetTabSchema {
 
 export const SHIPMENT_SHEET_HEADERS = [
   'kodeOs',
+  'kodeManualDokOs',
   'ship',
   'kodeCustomer',
   'namaCustomer',
@@ -155,6 +160,37 @@ export const DATABASE_SHEET_TABS: SheetTabSchema[] = [
       'source',
     ],
   },
+  {
+    title: 'Pengeluaran_Ops',
+    headers: [
+      'id',
+      'kodePengeluaran',
+      'noTandaTerima',
+      'kodeOs',
+      'noBl',
+      'namaCustomer',
+      'tanggal',
+      'kategori',
+      'keterangan',
+      'nominal',
+      'metodePembayaran',
+      'statusPengeluaran',
+      'petugasOps',
+      'diberikanOleh',
+      'tandaTerimaAt',
+      'buktiNamaFile',
+      'buktiMimeType',
+      'buktiDataUrl',
+      'buktiLinkDrive',
+      'driveFileId',
+      'source',
+      'catatanAudit',
+      'createdAt',
+      'createdBy',
+      'updatedAt',
+      'updatedBy',
+    ],
+  },
   { title: 'Pengaturan', headers: ['key', 'value'] },
   { title: 'Sync_Metadata', headers: ['key', 'value'] },
 ];
@@ -169,6 +205,7 @@ export interface SpreadsheetSyncDiffSummary {
     users: number;
     dokumen: number;
     catatan: number;
+    pengeluaranOps: number;
   };
   remoteCounts: {
     shipments: number;
@@ -179,6 +216,7 @@ export interface SpreadsheetSyncDiffSummary {
     users: number;
     dokumen: number;
     catatan: number;
+    pengeluaranOps: number;
   };
   totalLocalRows: number;
   totalRemoteRows: number;
@@ -252,6 +290,7 @@ export function serializeDatabaseToSheetMatrixMap(
     [...SHIPMENT_SHEET_HEADERS],
     ...db.shipments.map((s) => [
       toSheetStr(s.kodeOs),
+      toSheetStr(s.kodeManualDokOs),
       toSheetStr(s.ship),
       toSheetStr(s.kodeCustomer),
       toSheetStr(s.namaCustomer),
@@ -442,8 +481,73 @@ export function serializeDatabaseToSheetMatrixMap(
     ]),
   ];
 
+  const pengeluaranOpsRows: string[][] = [
+    [
+      'id',
+      'kodePengeluaran',
+      'noTandaTerima',
+      'kodeOs',
+      'noBl',
+      'namaCustomer',
+      'tanggal',
+      'kategori',
+      'keterangan',
+      'nominal',
+      'metodePembayaran',
+      'statusPengeluaran',
+      'petugasOps',
+      'diberikanOleh',
+      'tandaTerimaAt',
+      'buktiNamaFile',
+      'buktiMimeType',
+      'buktiDataUrl',
+      'buktiLinkDrive',
+      'driveFileId',
+      'source',
+      'catatanAudit',
+      'createdAt',
+      'createdBy',
+      'updatedAt',
+      'updatedBy',
+    ],
+    ...(db.pengeluaranOps || []).map((p) => {
+      // Google Sheets cells max 50,000 chars; strip oversized base64 DataURL only for cell safety
+      const safeDataUrl =
+        p.buktiDataUrl && p.buktiDataUrl.length <= 45000 ? p.buktiDataUrl : '';
+      return [
+        toSheetStr(p.id),
+        toSheetStr(p.kodePengeluaran),
+        toSheetStr(p.noTandaTerima),
+        toSheetStr(p.kodeOs),
+        toSheetStr(p.noBl),
+        toSheetStr(p.namaCustomer),
+        toSheetStr(p.tanggal),
+        toSheetStr(p.kategori),
+        toSheetStr(p.keterangan),
+        String(Number(p.nominal) || 0),
+        toSheetStr(p.metodePembayaran),
+        toSheetStr(p.statusPengeluaran),
+        toSheetStr(p.petugasOps),
+        toSheetStr(p.diberikanOleh),
+        toSheetStr(p.tandaTerimaAt),
+        toSheetStr(p.buktiNamaFile),
+        toSheetStr(p.buktiMimeType),
+        safeDataUrl,
+        toSheetStr(p.buktiLinkDrive),
+        toSheetStr(p.driveFileId),
+        toSheetStr(p.source),
+        toSheetStr(p.catatanAudit),
+        toSheetStr(p.createdAt),
+        toSheetStr(p.createdBy),
+        toSheetStr(p.updatedAt),
+        toSheetStr(p.updatedBy),
+      ];
+    }),
+  ];
+
   const pengaturanEntries: Array<[string, string]> = [
     ['seqByMonth', safeJsonStringify(db.pengaturan.seqByMonth || {}, '{}')],
+    ['seqPengeluaranByMonth', safeJsonStringify(db.pengaturan.seqPengeluaranByMonth || {}, '{}')],
     ['driveParentFolderId', toSheetStr(db.pengaturan.driveParentFolderId)],
     ['statusList', safeJsonStringify(db.pengaturan.statusList || [], '[]')],
     ['jalurList', safeJsonStringify(db.pengaturan.jalurList || [], '[]')],
@@ -489,6 +593,7 @@ export function serializeDatabaseToSheetMatrixMap(
     ['totalImportirs', String(db.importirs.length)],
     ['totalShippers', String(db.shippers.length)],
     ['totalUsers', String(db.users.length)],
+    ['totalPengeluaranOps', String((db.pengeluaranOps || []).length)],
   ];
 
   return {
@@ -501,6 +606,7 @@ export function serializeDatabaseToSheetMatrixMap(
     Log_Perubahan: logRows,
     Catatan: catatanRows,
     Dokumen: dokumenRows,
+    Pengeluaran_Ops: pengeluaranOpsRows,
     Pengaturan: pengaturanRows,
     Sync_Metadata: metadataRows,
   };
@@ -639,6 +745,10 @@ export function parseSheetMatrixMapToDatabase(
           : fallbackDb.pengaturan.spreadsheetAutoSync,
     spreadsheetLastSyncAt: new Date().toISOString(),
     spreadsheetLastSyncDirection: 'pull',
+    seqPengeluaranByMonth: safeJsonParse<Record<string, number>>(
+      settingsMap.get('seqPengeluaranByMonth'),
+      fallbackDb.pengaturan.seqPengeluaranByMonth || {}
+    ),
   };
 
   // 2. Parse Kontainer
@@ -676,6 +786,7 @@ export function parseSheetMatrixMapToDatabase(
 
           return {
             kodeOs: r.kodeOs.trim(),
+            kodeManualDokOs: (r.kodeManualDokOs || '').trim(),
             ship: r.ship || '',
             kodeCustomer: r.kodeCustomer || '',
             namaCustomer: r.namaCustomer || '',
@@ -872,6 +983,39 @@ export function parseSheetMatrixMapToDatabase(
         }))
     : fallbackDb.dokumen;
 
+  const pengeluaranOps: PengeluaranOpsItem[] = sheetsData.Pengeluaran_Ops
+    ? mapRowsByHeader(sheetsData.Pengeluaran_Ops)
+        .filter((r) => Boolean(r.kodePengeluaran?.trim() || r.keterangan?.trim()))
+        .map((r, idx) => ({
+          id: r.id?.trim() || `kop-sheet-${idx + 1}`,
+          kodePengeluaran: r.kodePengeluaran?.trim() || `KOP-SHEET-${idx + 1}`,
+          noTandaTerima: r.noTandaTerima?.trim() || '',
+          kodeOs: r.kodeOs?.trim() || 'UMUM / NON-OS',
+          noBl: r.noBl || '',
+          namaCustomer: r.namaCustomer || '',
+          tanggal: r.tanggal || '',
+          kategori: (r.kategori as KategoriPengeluaranOps) || 'Lainnya',
+          keterangan: r.keterangan || '',
+          nominal: Number(r.nominal) || 0,
+          metodePembayaran: (r.metodePembayaran as MetodePembayaranOps) || 'Kas Tunai',
+          statusPengeluaran: (r.statusPengeluaran as StatusPengeluaranOps) || 'Sudah Dibayar',
+          petugasOps: r.petugasOps || '',
+          diberikanOleh: r.diberikanOleh || '',
+          tandaTerimaAt: r.tandaTerimaAt || '',
+          buktiNamaFile: r.buktiNamaFile || '',
+          buktiMimeType: r.buktiMimeType || '',
+          buktiDataUrl: r.buktiDataUrl || '',
+          buktiLinkDrive: r.buktiLinkDrive || '',
+          driveFileId: r.driveFileId || undefined,
+          source: (r.source as PengeluaranOpsItem['source']) || undefined,
+          catatanAudit: r.catatanAudit || '',
+          createdAt: r.createdAt || new Date().toISOString(),
+          createdBy: r.createdBy || 'sheet-sync',
+          updatedAt: r.updatedAt || new Date().toISOString(),
+          updatedBy: r.updatedBy || 'sheet-sync',
+        }))
+    : fallbackDb.pengeluaranOps || [];
+
   const reconciled = reconcileAllShipmentsDerivedState(
     parsedShipments,
     kontainers,
@@ -888,6 +1032,7 @@ export function parseSheetMatrixMapToDatabase(
     logs,
     catatan,
     dokumen,
+    pengeluaranOps,
     pengaturan: {
       ...pengaturan,
       seqByMonth: reconciled.seqByMonth,
@@ -908,6 +1053,7 @@ export function computeSpreadsheetSyncDiffSummary(
     users: localDb.users.length,
     dokumen: localDb.dokumen.length,
     catatan: localDb.catatan.length,
+    pengeluaranOps: (localDb.pengeluaranOps || []).length,
   };
   const remoteCounts = {
     shipments: remoteDb.shipments.length,
@@ -918,6 +1064,7 @@ export function computeSpreadsheetSyncDiffSummary(
     users: remoteDb.users.length,
     dokumen: remoteDb.dokumen.length,
     catatan: remoteDb.catatan.length,
+    pengeluaranOps: (remoteDb.pengeluaranOps || []).length,
   };
   const sumObj = (o: Record<string, number>) =>
     Object.values(o).reduce((acc, n) => acc + n, 0);

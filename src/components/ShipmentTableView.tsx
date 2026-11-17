@@ -3,9 +3,11 @@ import {
   AlertTriangle,
   ArrowUpDown,
   Building2,
+  Check,
   Download,
   FileSpreadsheet,
   FileText,
+  Pencil,
   Plus,
   Printer,
   RotateCcw,
@@ -15,6 +17,8 @@ import {
 import type {
   Importir,
   JalurType,
+  Pengaturan,
+  PengeluaranOpsItem,
   PhasePermissions,
   Shipment,
   ShipmentDateFilterField,
@@ -39,6 +43,7 @@ import {
   exportShipmentsToExcel,
   exportShipmentsToPDF,
 } from '../utils/exportUtils';
+import { KdiPrintModal } from './KdiPrintModal';
 import {
   CountdownBadge,
   DoValidityBadge,
@@ -58,6 +63,8 @@ interface ShipmentTableViewProps {
   mode: 'all' | 'outstanding';
   shipments: Shipment[];
   importirs?: Importir[];
+  pengaturan?: Pengaturan;
+  pengeluaranOps?: PengeluaranOpsItem[];
   statusList: string[];
   jalurList: JalurType[];
   checklistItems: string[];
@@ -69,10 +76,12 @@ interface ShipmentTableViewProps {
   onEditShipment: (kodeOs: string) => void;
   onCreateShipment: () => void;
   onUpdateStatusDokumen?: (kodeOs: string, nextStatus: StatusDokumenType) => Promise<void>;
+  onUpdateKodeManualDokOs?: (kodeOs: string, nextCode: string) => Promise<void>;
 }
 
 type SortKey =
   | 'kodeOs'
+  | 'kodeManualDokOs'
   | 'dokumenChecker'
   | 'statusDokumen'
   | 'kodeCustomer'
@@ -117,6 +126,8 @@ export function ShipmentTableView({
   mode,
   shipments,
   importirs = [],
+  pengaturan,
+  pengeluaranOps = [],
   statusList,
   jalurList,
   checklistItems,
@@ -128,6 +139,7 @@ export function ShipmentTableView({
   onEditShipment,
   onCreateShipment,
   onUpdateStatusDokumen,
+  onUpdateKodeManualDokOs,
 }: ShipmentTableViewProps) {
   const [search, setSearch] = useState(initialSearchQuery);
   const [filterStatus, setFilterStatus] = useState('');
@@ -142,6 +154,12 @@ export function ShipmentTableView({
   const [dateTo, setDateTo] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('kodeOs');
   const [sortAsc, setSortAsc] = useState(false);
+  const [kdiPreviewShipment, setKdiPreviewShipment] = useState<Shipment | null>(null);
+  const [editingManualOs, setEditingManualOs] = useState<{
+    kodeOs: string;
+    value: string;
+  } | null>(null);
+  const [savingManualOs, setSavingManualOs] = useState(false);
 
   useEffect(() => {
     setFilterChecker(initialCheckerFilter);
@@ -292,6 +310,7 @@ export function ShipmentTableView({
 
   const outstandingColumns: Array<{ key: SortKey; label: string }> = [
     { key: 'kodeOs', label: 'Kode OS' },
+    { key: 'kodeManualDokOs', label: 'Dok. OS' },
     { key: 'dokumenChecker', label: 'Checker' },
     { key: 'kodeCustomer', label: 'Kode Customer' },
     { key: 'kodeImportir', label: 'Kode Importir' },
@@ -305,6 +324,104 @@ export function ShipmentTableView({
     { key: 'noAju', label: 'No. AJU' },
     { key: 'tglSppb', label: 'Tgl SPPB' },
   ];
+
+  const handleSaveManualDokOs = async () => {
+    if (!editingManualOs || !onUpdateKodeManualDokOs || savingManualOs) return;
+    setSavingManualOs(true);
+    try {
+      await onUpdateKodeManualDokOs(editingManualOs.kodeOs, editingManualOs.value);
+      setEditingManualOs(null);
+    } finally {
+      setSavingManualOs(false);
+    }
+  };
+
+  const renderDokOsCellContent = (s: Shipment) => {
+    const isEditing = editingManualOs?.kodeOs === s.kodeOs;
+    if (isEditing && editingManualOs) {
+      return (
+        <div
+          className="inline-flex items-center gap-1"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="text"
+            autoFocus
+            aria-label={`Input Dok. OS ${s.kodeOs}`}
+            value={editingManualOs.value}
+            onChange={(e) =>
+              setEditingManualOs({ kodeOs: s.kodeOs, value: e.target.value })
+            }
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                void handleSaveManualDokOs();
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                setEditingManualOs(null);
+              }
+            }}
+            placeholder="TN-196"
+            className="w-20 px-1.5 py-0.5 rounded border border-[#F28C28] dark:border-violet-400 bg-white dark:bg-[#182032] font-mono-code text-[11px] font-semibold text-slate-900 dark:text-white focus:outline-none"
+          />
+          <button
+            type="button"
+            disabled={savingManualOs}
+            aria-label={`Simpan Dok. OS ${s.kodeOs}`}
+            onClick={() => void handleSaveManualDokOs()}
+            className="p-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer disabled:opacity-50"
+          >
+            <Check className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            aria-label={`Batal edit Dok. OS ${s.kodeOs}`}
+            onClick={() => setEditingManualOs(null)}
+            className="p-1 rounded bg-slate-200 dark:bg-white/10 hover:bg-slate-300 dark:hover:bg-white/20 text-slate-700 dark:text-slate-200 cursor-pointer"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      );
+    }
+
+    const code = (s.kodeManualDokOs || '').trim();
+    return (
+      <div
+        className="inline-flex items-center gap-1 group/dokos"
+        onClick={(e) => {
+          if (canEditPhase1 && onUpdateKodeManualDokOs) {
+            e.stopPropagation();
+          }
+        }}
+      >
+        {code ? (
+          <span
+            title="Kode Manual Terima Dokumen (Kode Dok Pemilik)"
+            className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-500/15 border border-amber-200 dark:border-amber-500/35 font-mono-code font-bold text-[#0B2545] dark:text-amber-200"
+          >
+            {code}
+          </span>
+        ) : (
+          <span className="text-slate-400 dark:text-slate-500 font-mono-code">-</span>
+        )}
+        {canEditPhase1 && onUpdateKodeManualDokOs && (
+          <button
+            type="button"
+            aria-label={`Ubah Dok. OS ${s.kodeOs}`}
+            title="Ubah Kode Manual Terima Dokumen / Dok. OS"
+            onClick={(e) => {
+              e.stopPropagation();
+              setEditingManualOs({ kodeOs: s.kodeOs, value: code });
+            }}
+            className="p-1 rounded text-slate-400 hover:text-[#0B2545] dark:hover:text-violet-300 hover:bg-slate-100 dark:hover:bg-white/10 opacity-75 group-hover/dokos:opacity-100 cursor-pointer"
+          >
+            <Pencil className="w-2.5 h-2.5" />
+          </button>
+        )}
+      </div>
+    );
+  };
 
   const renderSortButton = (key: SortKey, label: string) => (
     <button
@@ -358,7 +475,7 @@ export function ShipmentTableView({
               aria-label="Cari shipment"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Cari Kode OS, Kode/Nama Importir, No. BL, Packinglist, AJU, NOPEN, Kontainer, Customer..."
+              placeholder="Cari Kode OS, Dok. OS (TN-196), Kode/Nama Importir, No. BL, Packinglist, AJU, NOPEN, Kontainer, Customer..."
               className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-[#182032] text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#F28C28]/40 dark:focus:ring-violet-500/40 focus:border-[#F28C28] dark:focus:border-violet-500"
             />
           </div>
@@ -397,7 +514,9 @@ export function ShipmentTableView({
                   filtered,
                   mode === 'outstanding'
                     ? 'Laporan Dokumen Outstanding PTG PPJK'
-                    : 'Laporan Seluruh Shipment PTG PPJK'
+                    : 'Laporan Seluruh Shipment PTG PPJK',
+                  mode === 'outstanding' ? 'PTG_Outstanding.pdf' : 'PTG_Semua_Shipment.pdf',
+                  pengaturan
                 )
               }
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#182032] hover:bg-slate-50 dark:hover:bg-[#1F2940] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
@@ -413,6 +532,20 @@ export function ShipmentTableView({
               <Printer className="w-3.5 h-3.5" />
               <span>Cetak</span>
             </button>
+            {mode === 'outstanding' && (
+              <button
+                type="button"
+                disabled={filtered.length === 0}
+                onClick={() => {
+                  if (filtered.length > 0) setKdiPreviewShipment(filtered[0]);
+                }}
+                title="Print Lembar Kelengkapan Dokumen Impor (KDI) / Dasi Depan Bundel MAP dengan Kop PPJK"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#0B2545] dark:bg-gradient-to-r dark:from-violet-600 dark:to-indigo-600 hover:bg-[#143764] disabled:opacity-50 text-xs font-semibold text-white cursor-pointer"
+              >
+                <Printer className="w-3.5 h-3.5 text-[#F28C28] dark:text-white" />
+                <span>Print KDI (MAP)</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -953,6 +1086,12 @@ export function ShipmentTableView({
                       <th className="py-2.5 px-2.5 font-semibold whitespace-nowrap md:sticky md:left-0 z-20 bg-slate-50 dark:bg-[#182032] border-r border-slate-200 dark:border-white/[0.08]">
                         {renderSortButton('kodeOs', 'Kode OS')}
                       </th>
+                      <th
+                        title="Kode Manual Terima Dokumen / Kode Dok Pemilik"
+                        className="py-2.5 px-2 font-semibold whitespace-nowrap"
+                      >
+                        {renderSortButton('kodeManualDokOs', 'Dok. OS (Manual)')}
+                      </th>
                       <th className="py-2.5 px-2 font-semibold whitespace-nowrap">
                         {renderSortButton('dokumenChecker', 'Checker')}
                       </th>
@@ -1118,7 +1257,12 @@ export function ShipmentTableView({
                             </div>
                           </td>
 
-                          {/* 3. Checker */}
+                          {/* 3. Kode Manual Terima Dokumen / Dok. OS */}
+                          <td className="py-2 px-2 whitespace-nowrap">
+                            {renderDokOsCellContent(s)}
+                          </td>
+
+                          {/* 4. Checker */}
                           <td className="py-2 px-2 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
                             {s.dokumenChecker || '-'}
                           </td>
@@ -1463,7 +1607,9 @@ export function ShipmentTableView({
                         {renderSortButton(col.key, col.label)}
                       </th>
                     ))}
-                    <th className="py-2.5 px-1.5 font-semibold text-right no-print">Aksi</th>
+                    <th className="py-2.5 px-2 font-semibold text-right no-print md:sticky md:right-0 z-10 bg-slate-50 dark:bg-[#182032] border-l border-slate-200 dark:border-white/[0.08]">
+                      Aksi
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-white/[0.06]">
@@ -1472,6 +1618,9 @@ export function ShipmentTableView({
                     const processSignal = getShipmentProcessSignal(s);
                     const isHighlighted = urgent || processSignal.active;
                     const cellPx = 'px-1.5';
+                    const stickyActionBg = isHighlighted
+                      ? 'bg-red-50 dark:bg-[#2A141A]'
+                      : 'bg-white dark:bg-[#131926]';
                     return (
                       <tr
                         key={s.kodeOs}
@@ -1495,6 +1644,9 @@ export function ShipmentTableView({
                               </div>
                             )}
                           </div>
+                        </td>
+                        <td className={`py-2 ${cellPx} whitespace-nowrap`}>
+                          {renderDokOsCellContent(s)}
                         </td>
                         <td className={`py-2 ${cellPx} max-w-[90px]`}>
                           <div className="font-medium text-slate-800 dark:text-slate-200 truncate" title={s.dokumenChecker || '-'}>
@@ -1557,10 +1709,20 @@ export function ShipmentTableView({
                           {s.tglSppb || '-'}
                         </td>
                         <td
-                          className="py-2 px-1.5 text-right whitespace-nowrap no-print"
+                          className={`py-2 px-2 text-right whitespace-nowrap no-print md:sticky md:right-0 z-10 border-l border-slate-200 dark:border-white/[0.08] ${stickyActionBg}`}
                           onClick={(e) => e.stopPropagation()}
                         >
                           <div className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              aria-label={`Print KDI ${s.kodeOs}`}
+                              title="Print Kelengkapan Dokumen Impor (KDI) / Dasi Depan Bundel MAP"
+                              onClick={() => setKdiPreviewShipment(s)}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-[#0B2545]/25 dark:border-violet-500/35 bg-[#0B2545]/5 dark:bg-violet-500/15 hover:bg-[#0B2545]/10 dark:hover:bg-violet-500/25 text-[11px] font-semibold text-[#0B2545] dark:text-violet-200 cursor-pointer"
+                            >
+                              <Printer className="w-3 h-3" />
+                              <span>KDI</span>
+                            </button>
                             <button
                               type="button"
                               onClick={() => onOpenDetail(s.kodeOs)}
@@ -1608,8 +1770,15 @@ export function ShipmentTableView({
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <div className="font-mono-code text-xs font-bold text-[#0B2545] dark:text-violet-300">
-                        {mode === 'all' ? `#${idx + 1} · ${s.kodeOs}` : s.kodeOs}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-mono-code text-xs font-bold text-[#0B2545] dark:text-violet-300">
+                          {mode === 'all' ? `#${idx + 1} · ${s.kodeOs}` : s.kodeOs}
+                        </span>
+                        {s.kodeManualDokOs && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-500/15 border border-amber-200 dark:border-amber-500/35 font-mono-code text-[10px] font-bold text-[#0B2545] dark:text-amber-200">
+                            Dok. OS: {s.kodeManualDokOs}
+                          </span>
+                        )}
                       </div>
                       <div className="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
                         {s.namaCustomer}
@@ -1752,7 +1921,17 @@ export function ShipmentTableView({
                     <JalurBadge jalur={s.jalur} />
                   </div>
 
-                  <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-white/[0.06]">
+                  <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100 dark:border-white/[0.06]">
+                    {mode === 'outstanding' && (
+                      <button
+                        type="button"
+                        onClick={() => setKdiPreviewShipment(s)}
+                        className="inline-flex items-center justify-center gap-1 min-h-[44px] px-3 py-2 rounded-lg bg-[#0B2545] dark:bg-violet-600/25 border border-[#0B2545]/20 dark:border-violet-500/35 text-xs font-semibold text-white dark:text-violet-200 cursor-pointer"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>KDI</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => onOpenDetail(s.kodeOs)}
@@ -1776,6 +1955,16 @@ export function ShipmentTableView({
           </div>
         </>
       )}
+
+      <KdiPrintModal
+        isOpen={Boolean(kdiPreviewShipment)}
+        initialShipment={kdiPreviewShipment}
+        availableShipments={filtered}
+        importirs={importirs}
+        pengaturan={pengaturan}
+        pengeluaranOps={pengeluaranOps}
+        onClose={() => setKdiPreviewShipment(null)}
+      />
     </div>
   );
 }
