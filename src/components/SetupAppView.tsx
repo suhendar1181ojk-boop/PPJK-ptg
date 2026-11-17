@@ -5,7 +5,9 @@ import {
   ChevronDown,
   ChevronUp,
   Crown,
+  FileImage,
   Globe,
+  ImagePlus,
   Lock,
   Mail,
   MapPin,
@@ -17,6 +19,8 @@ import {
   ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
+  Trash2,
+  Upload,
   Users,
 } from 'lucide-react';
 import type {
@@ -38,6 +42,7 @@ import {
   getPpjkIdentity,
   isOwnerSuperAdmin,
   PHASE_META,
+  prepareBrandingImageDataUrl,
   resolveUserPhasePermissions,
 } from '../utils/ppjkLogic';
 
@@ -98,6 +103,11 @@ export function SetupAppView({
   const [ppjkEmail, setPpjkEmail] = useState(initialId.email);
   const [ppjkWebsite, setPpjkWebsite] = useState(initialId.website);
   const [ppjkFooterNote, setPpjkFooterNote] = useState(initialId.footerNote);
+  const [ppjkLogoDataUrl, setPpjkLogoDataUrl] = useState(initialId.logoDataUrl);
+  const [ppjkLogoFileName, setPpjkLogoFileName] = useState(initialId.logoFileName);
+  const [ppjkKopSuratDataUrl, setPpjkKopSuratDataUrl] = useState(initialId.kopSuratDataUrl);
+  const [ppjkKopSuratFileName, setPpjkKopSuratFileName] = useState(initialId.kopSuratFileName);
+  const [uploadingAsset, setUploadingAsset] = useState<'logo' | 'kop' | null>(null);
 
   useEffect(() => {
     const id = getPpjkIdentity(pengaturan);
@@ -110,6 +120,10 @@ export function SetupAppView({
     setPpjkEmail(id.email);
     setPpjkWebsite(id.website);
     setPpjkFooterNote(id.footerNote);
+    setPpjkLogoDataUrl(id.logoDataUrl);
+    setPpjkLogoFileName(id.logoFileName);
+    setPpjkKopSuratDataUrl(id.kopSuratDataUrl);
+    setPpjkKopSuratFileName(id.kopSuratFileName);
   }, [pengaturan]);
 
   // Monitoring filters
@@ -168,12 +182,54 @@ export function SetupAppView({
         ppjkEmail: ppjkEmail.trim(),
         ppjkWebsite: ppjkWebsite.trim(),
         ppjkFooterNote: ppjkFooterNote.trim(),
+        ppjkLogoDataUrl: ppjkLogoDataUrl.trim(),
+        ppjkLogoFileName: ppjkLogoFileName.trim(),
+        ppjkKopSuratDataUrl: ppjkKopSuratDataUrl.trim(),
+        ppjkKopSuratFileName: ppjkKopSuratFileName.trim(),
       });
-      notify('Identitas aplikasi & profil perusahaan PPJK berhasil diperbarui.');
+      notify('Identitas aplikasi, Logo PT & Kop Surat PPJK berhasil diperbarui.');
     } catch (err) {
       notifyErr(err, 'Gagal menyimpan identitas PPJK.');
     } finally {
       setSavingIdentity(false);
+    }
+  };
+
+  const handleBrandingFileUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    variant: 'logo' | 'kop'
+  ) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setUploadingAsset(variant);
+    setErrorMsg('');
+    try {
+      const result = await prepareBrandingImageDataUrl(file, variant);
+      if (variant === 'logo') {
+        setPpjkLogoDataUrl(result.dataUrl);
+        setPpjkLogoFileName(file.name);
+        notify(
+          result.note ||
+            `Logo PT "${file.name}" siap. Klik "Simpan Identitas PPJK" untuk menerapkan ke seluruh aplikasi.`
+        );
+      } else {
+        setPpjkKopSuratDataUrl(result.dataUrl);
+        setPpjkKopSuratFileName(file.name);
+        notify(
+          result.note ||
+            `Kop Surat PPJK "${file.name}" siap. Klik "Simpan Identitas PPJK" untuk menerapkan ke seluruh cetakan PDF/KDI.`
+        );
+      }
+    } catch (err) {
+      notifyErr(
+        err,
+        variant === 'logo'
+          ? 'Gagal memproses file Logo PT.'
+          : 'Gagal memproses file Kop Surat PPJK.'
+      );
+    } finally {
+      setUploadingAsset(null);
     }
   };
 
@@ -187,6 +243,10 @@ export function SetupAppView({
     setPpjkEmail(DEFAULT_PENGATURAN.ppjkEmail || '');
     setPpjkWebsite(DEFAULT_PENGATURAN.ppjkWebsite || '');
     setPpjkFooterNote(DEFAULT_PENGATURAN.ppjkFooterNote || '');
+    setPpjkLogoDataUrl('');
+    setPpjkLogoFileName('');
+    setPpjkKopSuratDataUrl('');
+    setPpjkKopSuratFileName('');
   };
 
   const getEffectiveRoleModuleValue = (role: UserRole, moduleId: AppView): boolean => {
@@ -654,12 +714,170 @@ export function SetupAppView({
                   className={inputCls}
                 />
               </div>
+
+              {/* Upload Logo PT & Upload Kop Surat PPJK */}
+              <div className="sm:col-span-2 pt-2 border-t border-slate-100 dark:border-white/[0.06] space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-xs font-bold text-[#0B2545] dark:text-white flex items-center gap-1.5">
+                      <ImagePlus className="w-3.5 h-3.5 text-[#F28C28] dark:text-violet-400" />
+                      <span>Upload Logo PT. &amp; Kop Surat PPJK</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      Format PNG, JPG, WebP, atau SVG (dikompresi otomatis agar ringan untuk offline &amp; sinkron Google Sheets).
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {/* Card 1: Upload Logo PT */}
+                  <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08] space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="text-xs font-bold text-slate-900 dark:text-white">
+                          Logo PT. PPJK
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Tampil di Sidebar, Login &amp; ikon kop PDF
+                        </div>
+                      </div>
+                      {ppjkLogoDataUrl && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPpjkLogoDataUrl('');
+                            setPpjkLogoFileName('');
+                          }}
+                          aria-label="Hapus Logo PT"
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15 cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Hapus</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <div className="w-16 h-16 rounded-xl bg-white dark:bg-[#0D111C] border border-dashed border-slate-300 dark:border-white/15 flex items-center justify-center overflow-hidden shrink-0 p-1.5">
+                        {ppjkLogoDataUrl ? (
+                          <img
+                            src={ppjkLogoDataUrl}
+                            alt="Preview Logo PT PPJK"
+                            data-testid="ppjk-logo-preview"
+                            className="w-full h-full object-contain"
+                          />
+                        ) : (
+                          <ImagePlus className="w-6 h-6 text-slate-400 dark:text-slate-500" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-1.5">
+                        <label
+                          htmlFor="ppjkLogoUploadInput"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B2545] hover:bg-[#13315C] dark:bg-violet-600 dark:hover:bg-violet-500 text-white text-[11px] font-semibold cursor-pointer transition-colors"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>
+                            {uploadingAsset === 'logo'
+                              ? 'Memproses...'
+                              : ppjkLogoDataUrl
+                                ? 'Ganti Logo PT.'
+                                : 'Upload Logo PT.'}
+                          </span>
+                        </label>
+                        <input
+                          id="ppjkLogoUploadInput"
+                          data-testid="ppjk-logo-upload-input"
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                          onChange={(e) => handleBrandingFileUpload(e, 'logo')}
+                          className="sr-only"
+                        />
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                          {ppjkLogoFileName || (ppjkLogoDataUrl ? 'Logo tersimpan' : 'Belum ada file logo dipilih')}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card 2: Upload Kop Surat PPJK */}
+                  <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08] space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="text-xs font-bold text-slate-900 dark:text-white">
+                          Kop Surat PPJK (Banner Resmi)
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Dipakai di cetak KDI, Surat Jalan, Penagihan &amp; Tanda Terima
+                        </div>
+                      </div>
+                      {ppjkKopSuratDataUrl && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPpjkKopSuratDataUrl('');
+                            setPpjkKopSuratFileName('');
+                          }}
+                          aria-label="Hapus Kop Surat PPJK"
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15 cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Hapus</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="w-full h-16 rounded-xl bg-white dark:bg-[#0D111C] border border-dashed border-slate-300 dark:border-white/15 flex items-center justify-center overflow-hidden p-1.5">
+                        {ppjkKopSuratDataUrl ? (
+                          <img
+                            src={ppjkKopSuratDataUrl}
+                            alt="Preview Kop Surat PPJK"
+                            data-testid="ppjk-kop-preview"
+                            className="max-h-full max-w-full object-contain"
+                          />
+                        ) : (
+                          <div className="flex items-center gap-2 text-[11px] text-slate-400 dark:text-slate-500">
+                            <FileImage className="w-4 h-4" />
+                            <span>Pratinjau Kop Surat A4 (lebar penuh)</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <label
+                          htmlFor="ppjkKopSuratUploadInput"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#F28C28] hover:bg-[#D97719] dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white text-[11px] font-semibold cursor-pointer transition-colors shrink-0"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>
+                            {uploadingAsset === 'kop'
+                              ? 'Memproses...'
+                              : ppjkKopSuratDataUrl
+                                ? 'Ganti Kop Surat'
+                                : 'Upload Kop Surat'}
+                          </span>
+                        </label>
+                        <input
+                          id="ppjkKopSuratUploadInput"
+                          data-testid="ppjk-kop-upload-input"
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                          onChange={(e) => handleBrandingFileUpload(e, 'kop')}
+                          className="sr-only"
+                        />
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                          {ppjkKopSuratFileName || (ppjkKopSuratDataUrl ? 'Kop surat tersimpan' : 'Opsional · Fallback ke Kop otomatis')}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="pt-2 flex flex-wrap items-center justify-end gap-2">
               <button
                 type="submit"
-                disabled={savingIdentity}
+                disabled={savingIdentity || uploadingAsset !== null}
                 data-testid="save-ppjk-identity-btn"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#F28C28] hover:bg-[#D97719] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] disabled:opacity-60 text-white text-xs font-semibold cursor-pointer shadow-sm"
               >
@@ -678,16 +896,27 @@ export function SetupAppView({
 
               <div className="rounded-2xl bg-[#0B2545] dark:bg-[#0D111C] text-white p-5 border border-white/10 space-y-3">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-[11px] font-bold uppercase tracking-wider text-[#F28C28] dark:text-violet-400">
-                      {ppjkBrandName || 'PTG PPJK'}
+                  <div className="flex items-start gap-3 min-w-0">
+                    {ppjkLogoDataUrl && (
+                      <div className="w-11 h-11 rounded-xl bg-white p-1 flex items-center justify-center shrink-0 shadow-sm overflow-hidden">
+                        <img
+                          src={ppjkLogoDataUrl}
+                          alt="Logo PT"
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#F28C28] dark:text-violet-400">
+                        {ppjkBrandName || 'PTG PPJK'}
+                      </div>
+                      <h4 className="text-lg font-bold text-white mt-0.5 truncate">
+                        {ppjkCompanyName || 'PT PTG Logistik Kepabeanan'}
+                      </h4>
+                      <p className="text-xs text-white/75 mt-0.5">
+                        {ppjkTagline || 'Customs Brokerage & Import Tracking'}
+                      </p>
                     </div>
-                    <h4 className="text-lg font-bold text-white mt-0.5">
-                      {ppjkCompanyName || 'PT PTG Logistik Kepabeanan'}
-                    </h4>
-                    <p className="text-xs text-white/75 mt-0.5">
-                      {ppjkTagline || 'Customs Brokerage & Import Tracking'}
-                    </p>
                   </div>
                   <span className="px-2.5 py-1 rounded-lg bg-white/10 border border-white/15 text-[10.5px] font-mono-code text-white/90 shrink-0">
                     AKTIF
@@ -719,6 +948,63 @@ export function SetupAppView({
                       </span>
                     )}
                   </div>
+                </div>
+              </div>
+
+              {/* Pratinjau Kop Surat Dokumen Cetak (KDI / Surat Jalan / Penagihan) */}
+              <div className="space-y-1.5">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Pratinjau Kop Surat Cetak (KDI / PDF)
+                </div>
+                <div className="rounded-xl bg-white text-slate-900 border border-slate-300 p-3 shadow-xs">
+                  {ppjkKopSuratDataUrl ? (
+                    <div className="space-y-1.5">
+                      <img
+                        src={ppjkKopSuratDataUrl}
+                        alt="Pratinjau Kop Surat PPJK"
+                        className="w-full max-h-24 object-contain mx-auto"
+                      />
+                      <div className="h-[2px] bg-[#0B2545]" />
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2.5 pb-1.5 border-b-2 border-[#0B2545]">
+                        {ppjkLogoDataUrl ? (
+                          <div className="w-9 h-9 rounded border border-slate-200 bg-white p-0.5 flex items-center justify-center shrink-0 overflow-hidden">
+                            <img
+                              src={ppjkLogoDataUrl}
+                              alt="Logo Kop"
+                              className="w-full h-full object-contain"
+                            />
+                          </div>
+                        ) : (
+                          <div className="w-9 h-9 rounded bg-[#0B2545] border border-[#F28C28] flex flex-col items-center justify-center shrink-0 text-white">
+                            <span className="text-[10px] font-extrabold leading-none">
+                              {(ppjkBrandName || 'PTG')
+                                .split(/\s+/)
+                                .filter(Boolean)
+                                .slice(0, 2)
+                                .map((w) => w[0]?.toUpperCase() || '')
+                                .join('') || 'PPJK'}
+                            </span>
+                            <span className="text-[6px] font-bold text-[#F28C28]">PPJK</span>
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-extrabold text-[#0B2545] uppercase truncate">
+                            {ppjkCompanyName || 'PT PTG Logistik Kepabeanan'}
+                          </div>
+                          <div className="text-[10px] font-bold text-[#D97719] truncate">
+                            {ppjkBrandName || 'PTG PPJK'} · {ppjkTagline || ''}
+                          </div>
+                          <div className="text-[9px] text-slate-600 truncate">
+                            {ppjkAddress} {ppjkPhone ? `| ${ppjkPhone}` : ''}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="h-[1.5px] bg-[#F28C28]" />
+                    </div>
+                  )}
                 </div>
               </div>
 

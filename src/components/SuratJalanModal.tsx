@@ -12,7 +12,7 @@ import {
   UserCheck,
   X,
 } from 'lucide-react';
-import type { Shipment, StatusSuratJalanType } from '../types/ppjk';
+import type { Pengaturan, Shipment, StatusSuratJalanType } from '../types/ppjk';
 import {
   generateSuratJalanNomor,
   normalizeStatusSuratJalan,
@@ -22,6 +22,7 @@ import { StatusSuratJalanBadge } from './Badges';
 
 interface SuratJalanModalProps {
   shipment: Shipment;
+  pengaturan?: Pengaturan;
   canEdit: boolean;
   onClose: () => void;
   onOpenBilling?: (kodeOs: string, tab?: 'owner' | 'customer') => void;
@@ -62,6 +63,7 @@ const TRACKING_STEPS: Array<{
 
 export function SuratJalanModal({
   shipment,
+  pengaturan,
   canEdit,
   onClose,
   onOpenBilling,
@@ -383,7 +385,7 @@ export function SuratJalanModal({
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => exportSuratJalanToPDF(previewShipment)}
+                onClick={() => exportSuratJalanToPDF(previewShipment, pengaturan)}
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-emerald-300 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/15 hover:bg-emerald-100 dark:hover:bg-emerald-500/25 text-xs font-semibold text-emerald-800 dark:text-emerald-200 cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />

@@ -153,9 +153,20 @@ export function Sidebar({
         <div className="relative z-10 h-16 px-4 border-b border-white/10 dark:border-white/[0.06] flex items-center justify-between gap-2 shrink-0">
           {!collapsed && (
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#7C3AED] via-[#6366F1] to-[#3B82F6] flex items-center justify-center shadow-lg shadow-violet-600/25 shrink-0">
-                <Ship className="w-4.5 h-4.5 text-white" />
-              </div>
+              {identity.logoDataUrl ? (
+                <div className="w-9 h-9 rounded-xl bg-white p-1 flex items-center justify-center shadow-lg shadow-black/20 shrink-0 overflow-hidden">
+                  <img
+                    src={identity.logoDataUrl}
+                    alt={`Logo ${identity.brandName}`}
+                    data-testid="sidebar-brand-logo"
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+              ) : (
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#7C3AED] via-[#6366F1] to-[#3B82F6] flex items-center justify-center shadow-lg shadow-violet-600/25 shrink-0">
+                  <Ship className="w-4.5 h-4.5 text-white" />
+                </div>
+              )}
               <div className="min-w-0">
                 <div
                   data-testid="sidebar-brand-name"

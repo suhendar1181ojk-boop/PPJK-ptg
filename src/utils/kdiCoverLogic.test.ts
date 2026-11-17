@@ -109,6 +109,8 @@ test('buildKdiCoverDocument maps Kop PPJK, metadata, 20 KDI rows, and linked ops
     ppjkBrandName: 'PTG CARGO',
     ppjkCompanyName: 'PT Abirama Indo Logistik',
     ppjkAddress: 'Jl. Pelabuhan Tanjung Priok No. 1',
+    ppjkLogoDataUrl: 'data:image/png;base64,LOGO123',
+    ppjkKopSuratDataUrl: 'data:image/jpeg;base64,KOP456',
   };
   const ops: PengeluaranOpsItem[] = [
     {
@@ -140,6 +142,8 @@ test('buildKdiCoverDocument maps Kop PPJK, metadata, 20 KDI rows, and linked ops
   });
 
   assert.equal(doc.identity.companyName, 'PT Abirama Indo Logistik');
+  assert.equal(doc.identity.logoDataUrl, 'data:image/png;base64,LOGO123');
+  assert.equal(doc.identity.kopSuratDataUrl, 'data:image/jpeg;base64,KOP456');
   assert.equal(doc.kodeOs, 'OS-2611-0004');
   assert.equal(doc.vessel, 'OOCL JAKARTA');
   assert.equal(doc.voy, '081');

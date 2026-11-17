@@ -13,6 +13,7 @@ import {
   Truck,
 } from 'lucide-react';
 import type {
+  Pengaturan,
   PhasePermissions,
   Shipment,
   StatusSuratJalanType,
@@ -33,6 +34,7 @@ import { SuratJalanModal } from './SuratJalanModal';
 
 interface SuratJalanViewProps {
   shipments: Shipment[];
+  pengaturan?: Pengaturan;
   userRole: UserRole;
   phasePermissions?: PhasePermissions;
   onOpenDetail: (kodeOs: string) => void;
@@ -55,6 +57,7 @@ interface SuratJalanViewProps {
 
 export function SuratJalanView({
   shipments,
+  pengaturan,
   userRole,
   phasePermissions,
   onOpenDetail,
@@ -474,7 +477,7 @@ export function SuratJalanView({
                           </button>
                           <button
                             type="button"
-                            onClick={() => exportSuratJalanToPDF(s)}
+                            onClick={() => exportSuratJalanToPDF(s, pengaturan)}
                             aria-label={`Download PDF Surat Jalan ${sjNo}`}
                             className="inline-flex items-center gap-1 px-1.5 py-1 rounded-md border border-slate-200 dark:border-white/10 bg-white dark:bg-[#182032] hover:bg-slate-50 dark:hover:bg-[#1F2940] text-[11px] font-medium text-slate-700 dark:text-slate-200 cursor-pointer"
                           >
@@ -573,7 +576,7 @@ export function SuratJalanView({
                   >
                     <button
                       type="button"
-                      onClick={() => exportSuratJalanToPDF(s)}
+                      onClick={() => exportSuratJalanToPDF(s, pengaturan)}
                       className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer"
                     >
                       <Download className="w-3.5 h-3.5" />
@@ -598,6 +601,7 @@ export function SuratJalanView({
       {modalShipment && (
         <SuratJalanModal
           shipment={modalShipment}
+          pengaturan={pengaturan}
           canEdit={canEditPhase2}
           onClose={() => setActiveSjKodeOs(null)}
           onOpenBilling={onOpenBilling}

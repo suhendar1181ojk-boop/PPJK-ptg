@@ -40,6 +40,46 @@ import {
   parseCustomerContact,
 } from './ppjkLogic';
 
+function detectPdfImageFormat(dataUrl?: string): 'PNG' | 'JPEG' | 'WEBP' | null {
+  if (!dataUrl || typeof dataUrl !== 'string') return null;
+  const trimmed = dataUrl.trim();
+  if (/^data:image\/png;/i.test(trimmed)) return 'PNG';
+  if (/^data:image\/jpe?g;/i.test(trimmed)) return 'JPEG';
+  if (/^data:image\/webp;/i.test(trimmed)) return 'WEBP';
+  return null;
+}
+
+function addSafePdfImage(
+  doc: jsPDF,
+  dataUrl: string | undefined,
+  x: number,
+  y: number,
+  maxW: number,
+  maxH: number,
+  options: { centerX?: boolean; centerY?: boolean; whiteBackdrop?: boolean } = {}
+): boolean {
+  const fmt = detectPdfImageFormat(dataUrl);
+  if (!fmt || !dataUrl) return false;
+  try {
+    const props = doc.getImageProperties(dataUrl);
+    const natW = Math.max(1, Number(props?.width) || maxW);
+    const natH = Math.max(1, Number(props?.height) || maxH);
+    const scale = Math.min(maxW / natW, maxH / natH);
+    const drawW = natW * scale;
+    const drawH = natH * scale;
+    const drawX = options.centerX ? x + (maxW - drawW) / 2 : x;
+    const drawY = options.centerY !== false ? y + (maxH - drawH) / 2 : y;
+    if (options.whiteBackdrop) {
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(x - 2, y - 2, maxW + 4, maxH + 4, 4, 4, 'F');
+    }
+    doc.addImage(dataUrl, fmt, drawX, drawY, drawW, drawH);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function exportShipmentsToExcel(rows: Shipment[], filename = 'PTG_PPJK_Shipment.xlsx'): void {
   const mapped = rows.map((s) => {
     const sig = getShipmentProcessSignal(s);
@@ -192,14 +232,16 @@ export function exportShipmentsToPDF(
 ): void {
   const identity = getPpjkIdentity(pengaturan);
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+  const hasLogo = addSafePdfImage(doc, identity.logoDataUrl, 40, 22, 34, 34, { whiteBackdrop: true });
+  const textX = hasLogo ? 84 : 40;
   doc.setFontSize(14);
   doc.setTextColor(11, 37, 69);
-  doc.text(title || `Laporan ${identity.brandName} Outstanding`, 40, 38);
+  doc.text(title || `Laporan ${identity.brandName} Outstanding`, textX, 38);
   doc.setFontSize(9);
   doc.setTextColor(100, 116, 139);
   doc.text(
     `${identity.companyName} · Dicetak pada: ${new Date().toLocaleString('id-ID')} · Total: ${rows.length} shipment`,
-    40,
+    textX,
     54
   );
 
@@ -302,14 +344,16 @@ export function exportCheckerSummaryToPDF(
 ): void {
   const identity = getPpjkIdentity(pengaturan);
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+  const hasLogo = addSafePdfImage(doc, identity.logoDataUrl, 40, 22, 34, 34, { whiteBackdrop: true });
+  const textX = hasLogo ? 84 : 40;
   doc.setFontSize(14);
   doc.setTextColor(11, 37, 69);
-  doc.text(`Rekapan Dokumen Checker & Summary Status ${identity.brandName}`, 40, 38);
+  doc.text(`Rekapan Dokumen Checker & Summary Status ${identity.brandName}`, textX, 38);
   doc.setFontSize(9);
   doc.setTextColor(100, 116, 139);
   doc.text(
     `${identity.companyName} · Dicetak pada: ${new Date().toLocaleString('id-ID')} · Total Checker: ${checkers.length}`,
-    40,
+    textX,
     54
   );
 
@@ -479,22 +523,52 @@ export function exportSuratJalanToPDF(
     shipment.status
   );
 
-  doc.setFillColor(11, 37, 69);
-  doc.rect(0, 0, 595, 84, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(16);
-  doc.text('SURAT JALAN PENGIRIMAN KONTAINER', 40, 36);
-  doc.setFontSize(9.5);
-  doc.setTextColor(226, 232, 240);
-  doc.text(`${identity.brandName} (${identity.companyName}) — Tracking Gate-Out & Armada`, 40, 54);
-  doc.setFontSize(11);
-  doc.setTextColor(255, 255, 255);
-  doc.text(`No. SJ: ${sjNomor}`, 555, 36, { align: 'right' });
-  doc.setFontSize(9.5);
-  doc.text(`Tanggal: ${sjTanggal}  |  Status: ${sjStatus}`, 555, 54, { align: 'right' });
+  let contentStartY = 102;
+  const hasKopBanner = Boolean(
+    identity.kopSuratDataUrl &&
+      addSafePdfImage(doc, identity.kopSuratDataUrl, 36, 14, 523, 52, { centerX: true })
+  );
+
+  if (hasKopBanner) {
+    doc.setDrawColor(11, 37, 69);
+    doc.setLineWidth(1.5);
+    doc.line(36, 70, 559, 70);
+    doc.setFillColor(11, 37, 69);
+    doc.rect(36, 76, 523, 44, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(13.5);
+    doc.text('SURAT JALAN PENGIRIMAN KONTAINER', 48, 96);
+    doc.setFontSize(8.5);
+    doc.setTextColor(226, 232, 240);
+    doc.text(`${identity.brandName} · Tracking Gate-Out & Armada`, 48, 110);
+    doc.setFontSize(10.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text(`No. SJ: ${sjNomor}`, 547, 96, { align: 'right' });
+    doc.setFontSize(8.5);
+    doc.text(`Tanggal: ${sjTanggal}  |  Status: ${sjStatus}`, 547, 110, { align: 'right' });
+    contentStartY = 132;
+  } else {
+    doc.setFillColor(11, 37, 69);
+    doc.rect(0, 0, 595, 84, 'F');
+    const hasLogo = addSafePdfImage(doc, identity.logoDataUrl, 40, 18, 46, 46, {
+      whiteBackdrop: true,
+    });
+    const leftX = hasLogo ? 98 : 40;
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(hasLogo ? 14.5 : 16);
+    doc.text('SURAT JALAN PENGIRIMAN KONTAINER', leftX, 36);
+    doc.setFontSize(9.5);
+    doc.setTextColor(226, 232, 240);
+    doc.text(`${identity.brandName} (${identity.companyName}) — Tracking Gate-Out & Armada`, leftX, 54);
+    doc.setFontSize(11);
+    doc.setTextColor(255, 255, 255);
+    doc.text(`No. SJ: ${sjNomor}`, 555, 36, { align: 'right' });
+    doc.setFontSize(9.5);
+    doc.text(`Tanggal: ${sjTanggal}  |  Status: ${sjStatus}`, 555, 54, { align: 'right' });
+  }
 
   autoTable(doc, {
-    startY: 102,
+    startY: contentStartY,
     head: [['Informasi Shipment & Dokumen', 'Detail']],
     body: [
       ['Kode OS / Referensi', shipment.kodeOs],
@@ -573,27 +647,60 @@ export function exportSuratPenagihanToPDF(
     DEFAULT_PENGATURAN.billingBankInfo ||
     `Bank Mandiri · ${identity.companyName}`;
 
-  doc.setFillColor(11, 37, 69);
-  doc.rect(0, 0, 595, 90, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(17);
-  doc.text('SURAT PENAGIHAN JASA PPJK', 40, 34);
-  doc.setFontSize(9.5);
-  doc.setTextColor(226, 232, 240);
-  doc.text(`${identity.companyName} — ${identity.tagline}`, 40, 52);
-  doc.setFontSize(8);
-  doc.text(`${identity.address} · Telp: ${identity.phone} · NPWP: ${identity.npwp}`, 40, 68);
-  doc.setFontSize(11);
-  doc.setTextColor(255, 255, 255);
-  doc.text(`No. ${auto.billingNomor}`, 555, 36, { align: 'right' });
-  doc.setFontSize(9);
-  doc.text(`Tgl: ${auto.billingTanggal}  |  Jatuh Tempo: ${auto.billingJatuhTempo}`, 555, 54, {
-    align: 'right',
-  });
-  doc.text(`Status: ${auto.billingStatus}`, 555, 70, { align: 'right' });
+  let billingStartY = 106;
+  const hasKopBanner = Boolean(
+    identity.kopSuratDataUrl &&
+      addSafePdfImage(doc, identity.kopSuratDataUrl, 36, 14, 523, 52, { centerX: true })
+  );
+
+  if (hasKopBanner) {
+    doc.setDrawColor(11, 37, 69);
+    doc.setLineWidth(1.5);
+    doc.line(36, 70, 559, 70);
+    doc.setFillColor(11, 37, 69);
+    doc.rect(36, 76, 523, 46, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(14);
+    doc.text('SURAT PENAGIHAN JASA PPJK', 48, 96);
+    doc.setFontSize(8.5);
+    doc.setTextColor(226, 232, 240);
+    doc.text(`${identity.brandName} — ${identity.tagline}`, 48, 111);
+    doc.setFontSize(10.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text(`No. ${auto.billingNomor}`, 547, 94, { align: 'right' });
+    doc.setFontSize(8.2);
+    doc.text(`Tgl: ${auto.billingTanggal} | Jatuh Tempo: ${auto.billingJatuhTempo}`, 547, 106, {
+      align: 'right',
+    });
+    doc.text(`Status: ${auto.billingStatus}`, 547, 117, { align: 'right' });
+    billingStartY = 134;
+  } else {
+    doc.setFillColor(11, 37, 69);
+    doc.rect(0, 0, 595, 90, 'F');
+    const hasLogo = addSafePdfImage(doc, identity.logoDataUrl, 36, 20, 48, 48, {
+      whiteBackdrop: true,
+    });
+    const leftX = hasLogo ? 96 : 40;
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(hasLogo ? 15 : 17);
+    doc.text('SURAT PENAGIHAN JASA PPJK', leftX, 34);
+    doc.setFontSize(9.5);
+    doc.setTextColor(226, 232, 240);
+    doc.text(`${identity.companyName} — ${identity.tagline}`, leftX, 52);
+    doc.setFontSize(8);
+    doc.text(`${identity.address} · Telp: ${identity.phone} · NPWP: ${identity.npwp}`, leftX, 68);
+    doc.setFontSize(11);
+    doc.setTextColor(255, 255, 255);
+    doc.text(`No. ${auto.billingNomor}`, 555, 36, { align: 'right' });
+    doc.setFontSize(9);
+    doc.text(`Tgl: ${auto.billingTanggal}  |  Jatuh Tempo: ${auto.billingJatuhTempo}`, 555, 54, {
+      align: 'right',
+    });
+    doc.text(`Status: ${auto.billingStatus}`, 555, 70, { align: 'right' });
+  }
 
   autoTable(doc, {
-    startY: 106,
+    startY: billingStartY,
     head: [['Tagihan Kepada (Customer)', 'Referensi Shipment & Dokumen']],
     body: [
       [
@@ -853,12 +960,16 @@ export function exportNopenRecapToPDF(
 
   doc.setFillColor(11, 37, 69);
   doc.rect(0, 0, 842, 66, 'F');
+  const hasLogoNopen = addSafePdfImage(doc, identity.logoDataUrl, 32, 14, 38, 38, {
+    whiteBackdrop: true,
+  });
+  const nopenLeftX = hasLogoNopen ? 82 : 32;
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(14);
-  doc.text(`LAPORAN REKAPAN DOKUMEN BERDASARKAN NO. NOPEN (PIB) — ${identity.brandName}`, 32, 28);
+  doc.text(`LAPORAN REKAPAN DOKUMEN BERDASARKAN NO. NOPEN (PIB) — ${identity.brandName}`, nopenLeftX, 28);
   doc.setFontSize(9.5);
   doc.setTextColor(226, 232, 240);
-  doc.text(`${identity.companyName} · Periode: ${summary.periodLabel}`, 32, 47);
+  doc.text(`${identity.companyName} · Periode: ${summary.periodLabel}`, nopenLeftX, 47);
   doc.text(
     `Total Dok: ${summary.totalMatched} | Terbit NOPEN: ${summary.totalWithNopen} | SPPB: ${summary.totalSppb} | Gate-Out: ${summary.totalGateOut} | Nilai BM/PDRI: ${summary.totalBmPdri > 0 ? formatRupiah(summary.totalBmPdri) : '-'}`,
     810,
@@ -933,27 +1044,54 @@ export function exportTandaTerimaOpsPDF(
   const identity = getPpjkIdentity(pengaturan);
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
 
-  doc.setFillColor(11, 37, 69);
-  doc.rect(0, 0, 595, 86, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(15);
-  doc.text('TANDA TERIMA PENGELUARAN OPERASIONAL', 32, 34);
-  doc.setFontSize(10);
-  doc.setTextColor(242, 140, 40);
-  doc.text(`${identity.brandName} · ${identity.companyName}`, 32, 52);
-  doc.setFontSize(8.5);
-  doc.setTextColor(226, 232, 240);
-  doc.text(`${identity.address} | Telp: ${identity.phone}`, 32, 68);
+  let opsMetaY = 114;
+  let opsTableStartY = 148;
+  const hasKopOps = Boolean(
+    identity.kopSuratDataUrl &&
+      addSafePdfImage(doc, identity.kopSuratDataUrl, 32, 14, 531, 52, { centerX: true })
+  );
+
+  if (hasKopOps) {
+    doc.setDrawColor(11, 37, 69);
+    doc.setLineWidth(1.5);
+    doc.line(32, 70, 563, 70);
+    doc.setFillColor(11, 37, 69);
+    doc.rect(32, 76, 531, 34, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(13);
+    doc.text('TANDA TERIMA PENGELUARAN OPERASIONAL', 44, 97);
+    doc.setFontSize(9);
+    doc.setTextColor(242, 140, 40);
+    doc.text(identity.brandName, 551, 97, { align: 'right' });
+    opsMetaY = 128;
+    opsTableStartY = 160;
+  } else {
+    doc.setFillColor(11, 37, 69);
+    doc.rect(0, 0, 595, 86, 'F');
+    const hasLogoOps = addSafePdfImage(doc, identity.logoDataUrl, 32, 19, 46, 46, {
+      whiteBackdrop: true,
+    });
+    const opsLeftX = hasLogoOps ? 90 : 32;
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(hasLogoOps ? 14 : 15);
+    doc.text('TANDA TERIMA PENGELUARAN OPERASIONAL', opsLeftX, 34);
+    doc.setFontSize(10);
+    doc.setTextColor(242, 140, 40);
+    doc.text(`${identity.brandName} · ${identity.companyName}`, opsLeftX, 52);
+    doc.setFontSize(8.5);
+    doc.setTextColor(226, 232, 240);
+    doc.text(`${identity.address} | Telp: ${identity.phone}`, opsLeftX, 68);
+  }
 
   doc.setTextColor(15, 23, 42);
   doc.setFontSize(10);
-  doc.text(`No. Tanda Terima : ${item.noTandaTerima}`, 32, 114);
-  doc.text(`Kode Pengeluaran : ${item.kodePengeluaran}`, 32, 130);
-  doc.text(`Tanggal Transaksi : ${item.tanggal || '-'}`, 360, 114);
-  doc.text(`Status : ${item.statusPengeluaran}`, 360, 130);
+  doc.text(`No. Tanda Terima : ${item.noTandaTerima}`, 32, opsMetaY);
+  doc.text(`Kode Pengeluaran : ${item.kodePengeluaran}`, 32, opsMetaY + 16);
+  doc.text(`Tanggal Transaksi : ${item.tanggal || '-'}`, 360, opsMetaY);
+  doc.text(`Status : ${item.statusPengeluaran}`, 360, opsMetaY + 16);
 
   autoTable(doc, {
-    startY: 148,
+    startY: opsTableStartY,
     head: [['Informasi Dokumen & Rincian Pengeluaran', 'Keterangan']],
     body: [
       ['Dokumen / Kode OS', item.kodeOs],
@@ -1017,12 +1155,16 @@ export function exportPengeluaranOpsToPDF(
 
   doc.setFillColor(11, 37, 69);
   doc.rect(0, 0, 842, 66, 'F');
+  const hasLogoOpsRep = addSafePdfImage(doc, identity.logoDataUrl, 32, 14, 38, 38, {
+    whiteBackdrop: true,
+  });
+  const opsRepLeftX = hasLogoOpsRep ? 82 : 32;
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(14);
-  doc.text(`LAPORAN KEUANGAN PENGELUARAN OPERASIONAL — ${identity.brandName}`, 32, 28);
+  doc.text(`LAPORAN KEUANGAN PENGELUARAN OPERASIONAL — ${identity.brandName}`, opsRepLeftX, 28);
   doc.setFontSize(9.5);
   doc.setTextColor(226, 232, 240);
-  doc.text(`${identity.companyName} · Dicetak: ${new Date().toLocaleDateString('id-ID')}`, 32, 47);
+  doc.text(`${identity.companyName} · Dicetak: ${new Date().toLocaleDateString('id-ID')}`, opsRepLeftX, 47);
   doc.text(
     `Total Transaksi: ${summary.totalTransaksi} | Total Pengeluaran: ${formatRupiahOps(summary.totalNominal)} | Kasbon: ${formatRupiahOps(summary.totalKasbonNominal)} | Dok OS: ${summary.dokumenTercatatCount}`,
     810,
@@ -1154,60 +1296,75 @@ function drawKdiCoverPage(doc: jsPDF, kdi: KdiCoverDocument): void {
   const contentWidth = pageWidth - marginX * 2;
   const { identity } = kdi;
 
-  // 1. KOP PPJK (Header Perusahaan PPJK)
-  doc.setFillColor(11, 37, 69);
-  doc.roundedRect(marginX, 20, 42, 42, 6, 6, 'F');
-  doc.setDrawColor(242, 140, 40);
-  doc.setLineWidth(1.2);
-  doc.roundedRect(marginX + 2, 22, 38, 38, 4, 4, 'S');
+  // 1. KOP PPJK (Header Perusahaan PPJK — Prioritaskan Kop Surat Upload jika tersedia)
+  const hasKdiKopBanner = Boolean(
+    identity.kopSuratDataUrl &&
+      addSafePdfImage(doc, identity.kopSuratDataUrl, marginX, 16, contentWidth, 49, {
+        centerX: true,
+      })
+  );
 
-  const initials =
-    identity.brandName
-      .split(/\s+/)
+  if (!hasKdiKopBanner) {
+    const hasKdiLogo = addSafePdfImage(doc, identity.logoDataUrl, marginX, 20, 42, 42, {
+      whiteBackdrop: true,
+    });
+
+    if (!hasKdiLogo) {
+      doc.setFillColor(11, 37, 69);
+      doc.roundedRect(marginX, 20, 42, 42, 6, 6, 'F');
+      doc.setDrawColor(242, 140, 40);
+      doc.setLineWidth(1.2);
+      doc.roundedRect(marginX + 2, 22, 38, 38, 4, 4, 'S');
+
+      const initials =
+        identity.brandName
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((w) => w[0]?.toUpperCase() || '')
+          .join('') || 'PPJK';
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(255, 255, 255);
+      doc.text(initials, marginX + 21, 41, { align: 'center' });
+      doc.setFontSize(6.5);
+      doc.setTextColor(242, 140, 40);
+      doc.text('PPJK', marginX + 21, 52, { align: 'center' });
+    }
+
+    const textX = marginX + 52;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.setTextColor(11, 37, 69);
+    doc.text(identity.companyName.toUpperCase(), textX, 31);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(217, 119, 25);
+    doc.text(`${identity.brandName} · ${identity.tagline}`, textX, 42);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(71, 85, 105);
+    const contactLine = [
+      identity.address,
+      identity.phone ? `Telp: ${identity.phone}` : '',
+      identity.email ? `Email: ${identity.email}` : '',
+    ]
       .filter(Boolean)
-      .slice(0, 2)
-      .map((w) => w[0]?.toUpperCase() || '')
-      .join('') || 'PPJK';
+      .join(' | ');
+    doc.text(truncatePdfText(contactLine, 98), textX, 52);
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.setTextColor(255, 255, 255);
-  doc.text(initials, marginX + 21, 41, { align: 'center' });
-  doc.setFontSize(6.5);
-  doc.setTextColor(242, 140, 40);
-  doc.text('PPJK', marginX + 21, 52, { align: 'center' });
-
-  const textX = marginX + 52;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.setTextColor(11, 37, 69);
-  doc.text(identity.companyName.toUpperCase(), textX, 31);
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.setTextColor(217, 119, 25);
-  doc.text(`${identity.brandName} · ${identity.tagline}`, textX, 42);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.setTextColor(71, 85, 105);
-  const contactLine = [
-    identity.address,
-    identity.phone ? `Telp: ${identity.phone}` : '',
-    identity.email ? `Email: ${identity.email}` : '',
-  ]
-    .filter(Boolean)
-    .join(' | ');
-  doc.text(truncatePdfText(contactLine, 98), textX, 52);
-
-  const legalLine = [
-    identity.npwp ? `NPWP / Izin: ${identity.npwp}` : '',
-    identity.website || '',
-  ]
-    .filter(Boolean)
-    .join(' · ');
-  if (legalLine) {
-    doc.text(truncatePdfText(legalLine, 96), textX, 61);
+    const legalLine = [
+      identity.npwp ? `NPWP / Izin: ${identity.npwp}` : '',
+      identity.website || '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    if (legalLine) {
+      doc.text(truncatePdfText(legalLine, 96), textX, 61);
+    }
   }
 
   // Garis Kop Ganda (Navy + Gold)

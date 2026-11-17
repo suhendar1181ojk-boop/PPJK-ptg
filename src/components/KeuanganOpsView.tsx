@@ -1493,14 +1493,25 @@ export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
           className="fixed inset-0 z-50 bg-slate-950/65 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 overflow-y-auto"
         >
           <div className="bg-white dark:bg-[#131926] border border-slate-200 dark:border-white/[0.1] rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden my-auto">
-            <div className="px-5 py-4 bg-[#0B2545] dark:bg-[#182032] border-b border-white/10 flex items-center justify-between">
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-[#F28C28] dark:text-violet-300">
-                  {identity.brandName} · {identity.companyName}
+            <div className="px-5 py-4 bg-[#0B2545] dark:bg-[#182032] border-b border-white/10 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                {identity.logoDataUrl && (
+                  <div className="w-10 h-10 rounded-lg bg-white p-1 flex items-center justify-center shrink-0 overflow-hidden">
+                    <img
+                      src={identity.logoDataUrl}
+                      alt={`Logo ${identity.brandName}`}
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-[#F28C28] dark:text-violet-300 truncate">
+                    {identity.brandName} · {identity.companyName}
+                  </div>
+                  <h3 className="text-base font-bold text-white truncate">
+                    Tanda Terima: {previewItem.noTandaTerima}
+                  </h3>
                 </div>
-                <h3 className="text-base font-bold text-white">
-                  Tanda Terima: {previewItem.noTandaTerima}
-                </h3>
               </div>
               <button
                 type="button"

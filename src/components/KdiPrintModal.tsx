@@ -428,38 +428,65 @@ export const KdiPrintModal: React.FC<KdiPrintModalProps> = ({
         <div className="flex-1 min-h-0 p-3 sm:p-5 overflow-y-auto bg-slate-200/80 dark:bg-[#090D16]">
           <div className="kdi-sheet-paper mx-auto bg-white text-slate-900 w-full max-w-[794px] p-6 sm:p-8 rounded-sm shadow-lg border border-slate-300">
             {/* 1. KOP PPJK */}
-            <div className="flex items-center gap-3.5 pb-2.5 border-b-[3px] border-[#0B2545] relative">
-              <div className="w-12 h-12 rounded-lg bg-[#0B2545] border-2 border-[#F28C28] flex flex-col items-center justify-center shrink-0 text-white">
-                <span className="text-sm font-extrabold leading-none">{initials}</span>
-                <span className="text-[8px] font-bold text-[#F28C28] tracking-widest mt-0.5">
-                  PPJK
-                </span>
+            {kdiDoc.identity.kopSuratDataUrl ? (
+              <div className="mb-3">
+                <div className="pb-2 border-b-[3px] border-[#0B2545]">
+                  <img
+                    src={kdiDoc.identity.kopSuratDataUrl}
+                    alt={`Kop Surat ${kdiDoc.identity.companyName}`}
+                    data-testid="kdi-uploaded-kop-img"
+                    className="w-full max-h-28 object-contain mx-auto"
+                  />
+                </div>
+                <div className="h-[2px] bg-[#F28C28]" />
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-base sm:text-lg font-extrabold text-[#0B2545] uppercase tracking-tight leading-tight">
-                  {kdiDoc.identity.companyName}
-                </div>
-                <div className="text-[11px] font-bold text-[#D97719]">
-                  {kdiDoc.identity.brandName} · {kdiDoc.identity.tagline}
-                </div>
-                <div className="text-[10px] text-slate-600 leading-snug mt-0.5">
-                  {kdiDoc.identity.address}
-                  {kdiDoc.identity.phone ? ` | Telp: ${kdiDoc.identity.phone}` : ''}
-                  {kdiDoc.identity.email ? ` | Email: ${kdiDoc.identity.email}` : ''}
-                </div>
-                {(kdiDoc.identity.npwp || kdiDoc.identity.website) && (
-                  <div className="text-[9.5px] text-slate-500">
-                    {[
-                      kdiDoc.identity.npwp ? `NPWP / Izin: ${kdiDoc.identity.npwp}` : '',
-                      kdiDoc.identity.website || '',
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
+            ) : (
+              <>
+                <div className="flex items-center gap-3.5 pb-2.5 border-b-[3px] border-[#0B2545] relative">
+                  {kdiDoc.identity.logoDataUrl ? (
+                    <div className="w-14 h-14 rounded-lg bg-white border border-slate-200 p-1 flex items-center justify-center shrink-0 overflow-hidden">
+                      <img
+                        src={kdiDoc.identity.logoDataUrl}
+                        alt={`Logo ${kdiDoc.identity.companyName}`}
+                        data-testid="kdi-uploaded-logo-img"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-12 h-12 rounded-lg bg-[#0B2545] border-2 border-[#F28C28] flex flex-col items-center justify-center shrink-0 text-white">
+                      <span className="text-sm font-extrabold leading-none">{initials}</span>
+                      <span className="text-[8px] font-bold text-[#F28C28] tracking-widest mt-0.5">
+                        PPJK
+                      </span>
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-base sm:text-lg font-extrabold text-[#0B2545] uppercase tracking-tight leading-tight">
+                      {kdiDoc.identity.companyName}
+                    </div>
+                    <div className="text-[11px] font-bold text-[#D97719]">
+                      {kdiDoc.identity.brandName} · {kdiDoc.identity.tagline}
+                    </div>
+                    <div className="text-[10px] text-slate-600 leading-snug mt-0.5">
+                      {kdiDoc.identity.address}
+                      {kdiDoc.identity.phone ? ` | Telp: ${kdiDoc.identity.phone}` : ''}
+                      {kdiDoc.identity.email ? ` | Email: ${kdiDoc.identity.email}` : ''}
+                    </div>
+                    {(kdiDoc.identity.npwp || kdiDoc.identity.website) && (
+                      <div className="text-[9.5px] text-slate-500">
+                        {[
+                          kdiDoc.identity.npwp ? `NPWP / Izin: ${kdiDoc.identity.npwp}` : '',
+                          kdiDoc.identity.website || '',
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            </div>
-            <div className="h-[2px] bg-[#F28C28] mb-3" />
+                </div>
+                <div className="h-[2px] bg-[#F28C28] mb-3" />
+              </>
+            )}
 
             {/* 2. Judul Dokumen */}
             <div className="text-center mb-3">

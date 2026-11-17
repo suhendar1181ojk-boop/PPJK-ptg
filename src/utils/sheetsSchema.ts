@@ -562,6 +562,20 @@ export function serializeDatabaseToSheetMatrixMap(
     ['ppjkEmail', toSheetStr(db.pengaturan.ppjkEmail)],
     ['ppjkWebsite', toSheetStr(db.pengaturan.ppjkWebsite)],
     ['ppjkFooterNote', toSheetStr(db.pengaturan.ppjkFooterNote)],
+    [
+      'ppjkLogoDataUrl',
+      db.pengaturan.ppjkLogoDataUrl && db.pengaturan.ppjkLogoDataUrl.length <= 45000
+        ? db.pengaturan.ppjkLogoDataUrl
+        : '',
+    ],
+    ['ppjkLogoFileName', toSheetStr(db.pengaturan.ppjkLogoFileName)],
+    [
+      'ppjkKopSuratDataUrl',
+      db.pengaturan.ppjkKopSuratDataUrl && db.pengaturan.ppjkKopSuratDataUrl.length <= 45000
+        ? db.pengaturan.ppjkKopSuratDataUrl
+        : '',
+    ],
+    ['ppjkKopSuratFileName', toSheetStr(db.pengaturan.ppjkKopSuratFileName)],
     ['roleModuleAccess', safeJsonStringify(db.pengaturan.roleModuleAccess || {}, '{}')],
     ['ownerName', toSheetStr(db.pengaturan.ownerName)],
     ['ownerWhatsapp', toSheetStr(db.pengaturan.ownerWhatsapp)],
@@ -713,6 +727,22 @@ export function parseSheetMatrixMapToDatabase(
       settingsMap.get('ppjkFooterNote') ||
       fallbackDb.pengaturan.ppjkFooterNote ||
       DEFAULT_PENGATURAN.ppjkFooterNote,
+    ppjkLogoDataUrl:
+      settingsMap.get('ppjkLogoDataUrl') ??
+      fallbackDb.pengaturan.ppjkLogoDataUrl ??
+      '',
+    ppjkLogoFileName:
+      settingsMap.get('ppjkLogoFileName') ??
+      fallbackDb.pengaturan.ppjkLogoFileName ??
+      '',
+    ppjkKopSuratDataUrl:
+      settingsMap.get('ppjkKopSuratDataUrl') ??
+      fallbackDb.pengaturan.ppjkKopSuratDataUrl ??
+      '',
+    ppjkKopSuratFileName:
+      settingsMap.get('ppjkKopSuratFileName') ??
+      fallbackDb.pengaturan.ppjkKopSuratFileName ??
+      '',
     roleModuleAccess: safeJsonParse<RoleModuleAccessMap>(
       settingsMap.get('roleModuleAccess'),
       fallbackDb.pengaturan.roleModuleAccess || {}

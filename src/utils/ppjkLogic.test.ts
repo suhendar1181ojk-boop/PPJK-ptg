@@ -19,6 +19,7 @@ import {
   computeCheckerSummaries,
   computeDashboardStats,
   computeDoReadinessSummary,
+  computeFittedDimensions,
   computeGasPinHash,
   computeImportirSummaries,
   computeNopenRecapSummary,
@@ -84,6 +85,7 @@ import {
   resolveNopenDateRange,
   resolveUserModuleAccess,
   resolveUserPhasePermissions,
+  validateBrandingImageFile,
   validateGasPinFormat,
   validateShipmentInput,
   verifyGasDeployPin,
@@ -1817,6 +1819,47 @@ test('kodeManualDokOs belongs to Phase 1 fields and is searchable in filterShipm
   assert.equal(matched.length, 1);
   assert.equal(matched[0].kodeOs, 'OS-2611-0001');
   assert.equal(matched[0].kodeManualDokOs, 'TN-196');
+});
+
+test('getPpjkIdentity exposes Logo PT & Kop Surat PPJK and branding image helpers validate & fit cleanly', () => {
+  const emptyId = getPpjkIdentity();
+  assert.equal(emptyId.logoDataUrl, '');
+  assert.equal(emptyId.logoFileName, '');
+  assert.equal(emptyId.kopSuratDataUrl, '');
+  assert.equal(emptyId.kopSuratFileName, '');
+
+  const withAssets = getPpjkIdentity({
+    ...DEFAULT_PENGATURAN,
+    ppjkLogoDataUrl: 'data:image/png;base64,AAA',
+    ppjkLogoFileName: 'logo-pt.png',
+    ppjkKopSuratDataUrl: 'data:image/jpeg;base64,BBB',
+    ppjkKopSuratFileName: 'kop-surat.jpg',
+  });
+  assert.equal(withAssets.logoDataUrl, 'data:image/png;base64,AAA');
+  assert.equal(withAssets.logoFileName, 'logo-pt.png');
+  assert.equal(withAssets.kopSuratDataUrl, 'data:image/jpeg;base64,BBB');
+  assert.equal(withAssets.kopSuratFileName, 'kop-surat.jpg');
+
+  assert.equal(
+    validateBrandingImageFile({ name: 'logo.png', type: 'image/png', size: 12000 }).valid,
+    true
+  );
+  assert.equal(
+    validateBrandingImageFile({ name: 'kop.pdf', type: 'application/pdf', size: 12000 }).valid,
+    false
+  );
+  assert.equal(
+    validateBrandingImageFile({ name: 'empty.png', type: 'image/png', size: 0 }).valid,
+    false
+  );
+  assert.equal(
+    validateBrandingImageFile({ name: 'huge.png', type: 'image/png', size: 12 * 1024 * 1024 }).valid,
+    false
+  );
+
+  assert.deepEqual(computeFittedDimensions(1000, 500, 320, 320), { width: 320, height: 160 });
+  assert.deepEqual(computeFittedDimensions(2400, 400, 1200, 340), { width: 1200, height: 200 });
+  assert.deepEqual(computeFittedDimensions(200, 100, 320, 320), { width: 200, height: 100 });
 });
 
 

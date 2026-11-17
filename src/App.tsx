@@ -2141,6 +2141,7 @@ export default function App() {
               shipments={db.shipments}
               customers={db.customers}
               checklistItems={db.pengaturan.checklistItems}
+              pengaturan={db.pengaturan}
               currentUsername={session.nama}
               userRole={session.role}
               phasePermissions={session.phasePermissions}
@@ -2156,6 +2157,7 @@ export default function App() {
           {effectiveView === 'surat-jalan' && (
             <SuratJalanView
               shipments={db.shipments}
+              pengaturan={db.pengaturan}
               userRole={session.role}
               phasePermissions={session.phasePermissions}
               onOpenDetail={(kodeOs) => setDetailKodeOs(kodeOs)}

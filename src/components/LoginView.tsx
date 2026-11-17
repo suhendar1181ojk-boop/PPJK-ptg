@@ -140,9 +140,19 @@ export function LoginView({ onLoginSuccess, pengaturan }: LoginViewProps) {
 
       <div className="relative z-10 w-full max-w-md bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/10 p-7 sm:p-8 shadow-2xl">
         <div className="mb-6 flex items-start gap-3">
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#7C3AED] via-[#6366F1] to-[#3B82F6] flex items-center justify-center shadow-lg shadow-violet-600/25 shrink-0">
-            <Ship className="w-5 h-5 text-white" />
-          </div>
+          {identity.logoDataUrl ? (
+            <div className="w-11 h-11 rounded-xl bg-white border border-slate-200 p-1 flex items-center justify-center shadow-md shrink-0 overflow-hidden">
+              <img
+                src={identity.logoDataUrl}
+                alt={`Logo ${identity.brandName}`}
+                className="w-full h-full object-contain"
+              />
+            </div>
+          ) : (
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#7C3AED] via-[#6366F1] to-[#3B82F6] flex items-center justify-center shadow-lg shadow-violet-600/25 shrink-0">
+              <Ship className="w-5 h-5 text-white" />
+            </div>
+          )}
           <div>
             <div className="text-[11px] font-bold tracking-wider uppercase text-[#F28C28] dark:text-violet-400">
               {identity.companyName}

@@ -26,6 +26,7 @@ import type {
   Customer,
   GatePassJenisType,
   KontainerItem,
+  Pengaturan,
   PhasePermissions,
   Shipment,
   StatusDokumenType,
@@ -77,6 +78,7 @@ interface DoPelayaranViewProps {
   shipments: Shipment[];
   customers?: Customer[];
   checklistItems?: string[];
+  pengaturan?: Pengaturan;
   currentUsername?: string;
   userRole: UserRole;
   phasePermissions?: PhasePermissions;
@@ -123,6 +125,7 @@ export function DoPelayaranView({
   shipments,
   customers = [],
   checklistItems = DEFAULT_CHECKLIST_ITEMS,
+  pengaturan,
   currentUsername = '',
   userRole,
   phasePermissions,
@@ -2472,6 +2475,7 @@ export function DoPelayaranView({
         return (
           <SuratJalanModal
             shipment={sjShipment}
+            pengaturan={pengaturan}
             canEdit={canEditPhase2}
             onClose={() => setActiveSjKodeOs(null)}
             onOpenBilling={onOpenBilling}

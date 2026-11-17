@@ -889,7 +889,7 @@ export function ShipmentDetailDrawer({
                         </button>
                         <button
                           type="button"
-                          onClick={() => exportSuratJalanToPDF(shipment)}
+                          onClick={() => exportSuratJalanToPDF(shipment, pengaturan)}
                           aria-label={`Unduh PDF Surat Jalan ${shipment.suratJalanNomor || shipment.kodeOs}`}
                           className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-300 dark:border-white/10 bg-white dark:bg-[#182032] hover:bg-slate-100 dark:hover:bg-[#1F2940] text-[11px] font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
                         >
@@ -1625,6 +1625,7 @@ export function ShipmentDetailDrawer({
       {sjModalOpen && onUpdateDoPelayaran && (
         <SuratJalanModal
           shipment={shipment}
+          pengaturan={pengaturan}
           canEdit={canEditPhase2}
           onClose={() => setSjModalOpen(false)}
           onOpenBilling={onOpenBilling}

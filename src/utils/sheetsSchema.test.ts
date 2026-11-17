@@ -199,6 +199,10 @@ function makeSampleDb(): DatabaseState {
       ppjkBrandName: 'SAMUDERA PPJK',
       ppjkCompanyName: 'PT Samudera Kepabeanan',
       ppjkNpwp: '09.876.543.2-041.000',
+      ppjkLogoDataUrl: 'data:image/png;base64,TESTLOGO',
+      ppjkLogoFileName: 'logo-samudera.png',
+      ppjkKopSuratDataUrl: 'data:image/jpeg;base64,TESTKOP',
+      ppjkKopSuratFileName: 'kop-samudera.jpg',
       roleModuleAccess: {
         Checker: { do: false, master: false },
       },
@@ -269,6 +273,10 @@ test('serializeDatabaseToSheetMatrixMap and parseSheetMatrixMapToDatabase round-
   assert.equal(parsed.pengaturan.ppjkBrandName, 'SAMUDERA PPJK');
   assert.equal(parsed.pengaturan.ppjkCompanyName, 'PT Samudera Kepabeanan');
   assert.equal(parsed.pengaturan.ppjkNpwp, '09.876.543.2-041.000');
+  assert.equal(parsed.pengaturan.ppjkLogoDataUrl, 'data:image/png;base64,TESTLOGO');
+  assert.equal(parsed.pengaturan.ppjkLogoFileName, 'logo-samudera.png');
+  assert.equal(parsed.pengaturan.ppjkKopSuratDataUrl, 'data:image/jpeg;base64,TESTKOP');
+  assert.equal(parsed.pengaturan.ppjkKopSuratFileName, 'kop-samudera.jpg');
   assert.deepEqual(parsed.pengaturan.roleModuleAccess, {
     Checker: { do: false, master: false },
   });

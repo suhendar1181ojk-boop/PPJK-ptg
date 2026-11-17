@@ -256,6 +256,10 @@ export interface Pengaturan {
   ppjkEmail?: string;
   ppjkWebsite?: string;
   ppjkFooterNote?: string;
+  ppjkLogoDataUrl?: string;
+  ppjkLogoFileName?: string;
+  ppjkKopSuratDataUrl?: string;
+  ppjkKopSuratFileName?: string;
   roleModuleAccess?: RoleModuleAccessMap;
   ownerName?: string;
   ownerWhatsapp?: string;

@@ -73,6 +73,10 @@ export const DEFAULT_PENGATURAN: Pengaturan = {
   ppjkEmail: 'info@ptg-ppjk.co.id',
   ppjkWebsite: 'www.ptg-ppjk.co.id',
   ppjkFooterNote: 'Dokumen resmi diterbitkan oleh sistem monitoring kepabeanan PPJK.',
+  ppjkLogoDataUrl: '',
+  ppjkLogoFileName: '',
+  ppjkKopSuratDataUrl: '',
+  ppjkKopSuratFileName: '',
   roleModuleAccess: {},
   ownerName: 'Bpk. Gunawan (Owner PTG)',
   ownerWhatsapp: '0811-8880-900',
@@ -3000,6 +3004,10 @@ export interface PpjkIdentity {
   email: string;
   website: string;
   footerNote: string;
+  logoDataUrl: string;
+  logoFileName: string;
+  kopSuratDataUrl: string;
+  kopSuratFileName: string;
 }
 
 export function getPpjkIdentity(pengaturan?: Partial<Pengaturan> | null): PpjkIdentity {
@@ -3036,7 +3044,164 @@ export function getPpjkIdentity(pengaturan?: Partial<Pengaturan> | null): PpjkId
       pengaturan?.ppjkFooterNote?.trim() ||
       DEFAULT_PENGATURAN.ppjkFooterNote ||
       'Dokumen resmi operasional kepabeanan, D/O pelayaran, surat jalan & penagihan.',
+    logoDataUrl: pengaturan?.ppjkLogoDataUrl?.trim() || '',
+    logoFileName: pengaturan?.ppjkLogoFileName?.trim() || '',
+    kopSuratDataUrl: pengaturan?.ppjkKopSuratDataUrl?.trim() || '',
+    kopSuratFileName: pengaturan?.ppjkKopSuratFileName?.trim() || '',
   };
+}
+
+export type BrandingImageVariant = 'logo' | 'kop';
+
+const ALLOWED_BRANDING_EXT_RE = /\.(png|jpe?g|webp|svg)$/i;
+
+export function validateBrandingImageFile(file: {
+  name: string;
+  type?: string;
+  size: number;
+}): { valid: boolean; error?: string } {
+  const mime = (file.type || '').toLowerCase();
+  const isImageMime = mime.startsWith('image/');
+  const hasImageExt = ALLOWED_BRANDING_EXT_RE.test(file.name || '');
+
+  if (!isImageMime && !hasImageExt) {
+    return {
+      valid: false,
+      error: 'Format file harus berupa gambar (PNG, JPG/JPEG, WebP, atau SVG).',
+    };
+  }
+  if (file.size <= 0) {
+    return { valid: false, error: 'File gambar kosong atau tidak terbaca.' };
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    return {
+      valid: false,
+      error: 'Ukuran file maksimal 10 MB sebelum kompresi otomatis.',
+    };
+  }
+  return { valid: true };
+}
+
+export function computeFittedDimensions(
+  width: number,
+  height: number,
+  maxWidth: number,
+  maxHeight: number
+): { width: number; height: number } {
+  const safeW = Math.max(1, width || 1);
+  const safeH = Math.max(1, height || 1);
+  const scale = Math.min(1, maxWidth / safeW, maxHeight / safeH);
+  return {
+    width: Math.max(1, Math.round(safeW * scale)),
+    height: Math.max(1, Math.round(safeH * scale)),
+  };
+}
+
+/**
+ * Mengonversi dan mengoptimalkan file gambar Logo PT atau Kop Surat PPJK menjadi DataURL PNG/JPEG
+ * agar kompatibel untuk tampilan UI, cetak PDF (jsPDF), penyimpanan offline, dan sinkronisasi Google Sheets.
+ */
+export async function prepareBrandingImageDataUrl(
+  file: File,
+  variant: BrandingImageVariant
+): Promise<{ dataUrl: string; note?: string }> {
+  const check = validateBrandingImageFile(file);
+  if (!check.valid) {
+    throw new Error(check.error || 'File gambar tidak valid.');
+  }
+
+  if (typeof window === 'undefined' || typeof FileReader === 'undefined') {
+    throw new Error('Lingkungan browser tidak mendukung pembacaan file.');
+  }
+
+  const rawDataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => reject(new Error('Gagal membaca file gambar.'));
+    reader.readAsDataURL(file);
+  });
+
+  if (!rawDataUrl || typeof document === 'undefined') {
+    return { dataUrl: rawDataUrl };
+  }
+
+  const SHEET_SAFE_CHAR_LIMIT = 44000;
+  const maxWidth = variant === 'logo' ? 320 : 1200;
+  const maxHeight = variant === 'logo' ? 320 : 340;
+
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('File gambar tidak dapat dirender.'));
+      el.src = rawDataUrl;
+    });
+
+    const renderCanvas = (
+      w: number,
+      h: number,
+      mime: 'image/png' | 'image/jpeg',
+      quality?: number
+    ): string => {
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return rawDataUrl;
+      if (mime === 'image/jpeg') {
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, w, h);
+      }
+      ctx.drawImage(img, 0, 0, w, h);
+      return mime === 'image/png'
+        ? canvas.toDataURL('image/png')
+        : canvas.toDataURL('image/jpeg', quality ?? 0.82);
+    };
+
+    const dim1 = computeFittedDimensions(img.width, img.height, maxWidth, maxHeight);
+    // Try PNG first to preserve logo transparency or crisp kop typography
+    const pngDataUrl = renderCanvas(dim1.width, dim1.height, 'image/png');
+    if (pngDataUrl.length <= SHEET_SAFE_CHAR_LIMIT) {
+      return { dataUrl: pngDataUrl };
+    }
+
+    // Try slightly smaller PNG for transparent logo
+    if (variant === 'logo') {
+      const dimSmall = computeFittedDimensions(img.width, img.height, 200, 200);
+      const smallPng = renderCanvas(dimSmall.width, dimSmall.height, 'image/png');
+      if (smallPng.length <= SHEET_SAFE_CHAR_LIMIT) {
+        return { dataUrl: smallPng };
+      }
+    }
+
+    // Fallback to white-backed JPEG with adaptive quality so it fits Google Sheets & PDF cleanly
+    for (const q of [0.85, 0.72, 0.58]) {
+      const jpgDataUrl = renderCanvas(dim1.width, dim1.height, 'image/jpeg', q);
+      if (jpgDataUrl.length <= SHEET_SAFE_CHAR_LIMIT) {
+        return { dataUrl: jpgDataUrl };
+      }
+    }
+
+    const dimCompact = computeFittedDimensions(
+      img.width,
+      img.height,
+      variant === 'logo' ? 220 : 900,
+      variant === 'logo' ? 220 : 260
+    );
+    const compactJpg = renderCanvas(dimCompact.width, dimCompact.height, 'image/jpeg', 0.65);
+    return {
+      dataUrl: compactJpg,
+      note:
+        compactJpg.length > SHEET_SAFE_CHAR_LIMIT
+          ? 'Gambar tersimpan di lokal/IndexedDB (resolusi besar untuk cetak tajam).'
+          : undefined,
+    };
+  } catch {
+    if (rawDataUrl.startsWith('data:image/') && !rawDataUrl.startsWith('data:image/svg')) {
+      return { dataUrl: rawDataUrl };
+    }
+    throw new Error('Gagal memproses file gambar. Pastikan file PNG/JPG/WebP/SVG valid.');
+  }
 }
 
 export interface AppModuleMeta {
