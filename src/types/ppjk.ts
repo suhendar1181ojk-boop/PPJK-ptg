@@ -277,8 +277,10 @@ export interface Pengaturan {
   spreadsheetLastSyncDirection?: 'push' | 'pull' | 'create' | '';
   gasWebAppUrl?: string;
   gasWebAppAutoSync?: boolean;
+  gasWebAppFullSyncAuto?: boolean;
   gasWebAppLastSyncAt?: string;
-  gasWebAppLastSyncDirection?: 'get' | 'post' | '';
+  gasWebAppLastFullSyncAt?: string;
+  gasWebAppLastSyncDirection?: 'get' | 'post' | 'sync' | '';
   gasWebAppLastSyncMessage?: string;
   seqPengeluaranByMonth?: Record<string, number>;
 }

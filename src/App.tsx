@@ -120,7 +120,10 @@ import {
   postGasWebAppSyncAllDatabase,
 } from './services/gasWebAppService';
 import {
+  computeGasNextSyncAt,
+  decideGasFullSyncOrder,
   DEFAULT_GAS_WEBAPP_URL,
+  GAS_FULL_SYNC_INTERVAL_MS,
   mergeGasFetchedShipments,
   validateGasWebAppUrl,
 } from './utils/gasWebAppLogic';
@@ -220,6 +223,11 @@ export default function App() {
   const [syncingGasWebApp, setSyncingGasWebApp] = useState(false);
   const [masterInitialTab, setMasterInitialTab] = useState<MasterTab>('customer');
   const autoSyncInFlightRef = useRef(false);
+  const gasFullSyncInFlightRef = useRef(false);
+  const gasLocalDirtyRef = useRef(false);
+  const runGasFullSyncCycleRef = useRef<
+    ((source: 'auto' | 'manual', overrideUrl?: string) => Promise<void>) | null
+  >(null);
   const isOnline = useOnlineStatus();
   const [idbStatus, setIdbStatus] = useState<IndexedDbStatusSummary | null>(null);
   const [offlineSyncQueue, setOfflineSyncQueue] = useState<OfflineSyncTask[]>([]);
@@ -474,8 +482,11 @@ export default function App() {
 
   const applyDbUpdate = async (
     nextDb: DatabaseState,
-    options?: { skipAutoSheetsSync?: boolean }
+    options?: { skipAutoSheetsSync?: boolean; skipGasDirtyMark?: boolean }
   ) => {
+    if (!options?.skipGasDirtyMark) {
+      gasLocalDirtyRef.current = true;
+    }
     setDb({ ...nextDb });
     await flushIndexedDbWrites();
 
@@ -1309,26 +1320,30 @@ export default function App() {
   const handleSaveGasWebAppConfig = async (config: {
     gasWebAppUrl: string;
     gasWebAppAutoSync: boolean;
+    gasWebAppFullSyncAuto?: boolean;
   }) => {
     if (!db || !session) return;
+    const nextFullSyncAuto =
+      config.gasWebAppFullSyncAuto !== undefined
+        ? config.gasWebAppFullSyncAuto
+        : db.pengaturan.gasWebAppFullSyncAuto !== false;
     const nextDb = await savePengaturanRecord(session, {
       ...db.pengaturan,
       gasWebAppUrl: config.gasWebAppUrl.trim(),
       gasWebAppAutoSync: config.gasWebAppAutoSync,
+      gasWebAppFullSyncAuto: nextFullSyncAuto,
     });
-    await applyDbUpdate(nextDb);
+    await applyDbUpdate(nextDb, { skipGasDirtyMark: true });
     void Swal.fire({
       toast: true,
       position: 'bottom-end',
       icon: 'success',
       title: 'Konfigurasi Endpoint GAS Disimpan',
-      text: config.gasWebAppAutoSync
-        ? 'Auto-POST { action: "add" } aktif untuk shipment baru.'
-        : 'Auto-POST dimatikan (sinkronisasi manual).',
+      text: `Auto-POST baru: ${config.gasWebAppAutoSync ? 'ON' : 'OFF'} · Auto-Sync 5 Menit (12 Tab): ${nextFullSyncAuto ? 'ON' : 'OFF'}.`,
       background: darkMode ? '#151B2B' : '#FFFFFF',
       color: darkMode ? '#F1F5F9' : '#0F172A',
       showConfirmButton: false,
-      timer: 2600,
+      timer: 2800,
     });
   };
 
@@ -1517,7 +1532,7 @@ export default function App() {
   };
 
   const handlePushFullDatabaseToGasWebApp = async (overrideUrl?: string) => {
-    if (!db || !session) return;
+    if (!db || !session || gasFullSyncInFlightRef.current) return;
     const targetUrl = (
       overrideUrl ??
       (db.pengaturan.gasWebAppUrl !== undefined
@@ -1536,6 +1551,7 @@ export default function App() {
       return;
     }
 
+    gasFullSyncInFlightRef.current = true;
     setSyncingGasWebApp(true);
     try {
       const res = await postGasWebAppSyncAllDatabase(
@@ -1543,15 +1559,18 @@ export default function App() {
         db,
         session.username
       );
+      gasLocalDirtyRef.current = false;
       const savedDb = await savePengaturanRecord(session, {
         ...db.pengaturan,
         gasWebAppUrl: check.normalizedUrl,
         gasWebAppLastSyncAt: res.sentAt,
+        gasWebAppLastFullSyncAt: res.sentAt,
         gasWebAppLastSyncDirection: 'post',
         gasWebAppLastSyncMessage: `POST syncAll (${res.tabCount} tab, ${res.totalRows} baris) berhasil.`,
       });
       await flushIndexedDbWrites();
       setDb({ ...savedDb });
+      setLastSyncedAt(res.sentAt);
       await Swal.fire({
         title: '12 Tab Database Tersinkron ke GAS',
         text: `Berhasil mengirim ${res.tabCount} tab database (${res.totalRows} total baris data termasuk Shipments 82 kolom, Kontainer, Master, Users, Dokumen, Pengeluaran_Ops, Pengaturan, dan Sync_Metadata) via POST { action: 'syncAll' }.`,
@@ -1571,6 +1590,7 @@ export default function App() {
         gasWebAppLastSyncDirection: 'post',
         gasWebAppLastSyncMessage: `POST syncAll gagal: ${message}`,
       });
+      await flushIndexedDbWrites();
       setDb({ ...errDb });
       await Swal.fire({
         title: 'Gagal Push 12 Tab Database ke GAS',
@@ -1580,12 +1600,13 @@ export default function App() {
         color: darkMode ? '#f1f5f9' : '#0f172a',
       });
     } finally {
+      gasFullSyncInFlightRef.current = false;
       setSyncingGasWebApp(false);
     }
   };
 
   const handlePullFullDatabaseFromGasWebApp = async (overrideUrl?: string) => {
-    if (!db || !session) return;
+    if (!db || !session || gasFullSyncInFlightRef.current) return;
     const targetUrl = (
       overrideUrl ??
       (db.pengaturan.gasWebAppUrl !== undefined
@@ -1604,6 +1625,7 @@ export default function App() {
       return;
     }
 
+    gasFullSyncInFlightRef.current = true;
     setSyncingGasWebApp(true);
     try {
       const res = await fetchGasWebAppFullDatabase(check.normalizedUrl, db);
@@ -1612,11 +1634,12 @@ export default function App() {
           ...db.pengaturan,
           gasWebAppUrl: check.normalizedUrl,
           gasWebAppLastSyncAt: res.fetchedAt,
+          gasWebAppLastFullSyncAt: res.fetchedAt,
           gasWebAppLastSyncDirection: 'get',
           gasWebAppLastSyncMessage:
             'GET ?mode=full terhubung, tab Spreadsheet di GAS masih kosong (hanya header).',
         });
-        await applyDbUpdate(metaDb);
+        await applyDbUpdate(metaDb, { skipGasDirtyMark: true });
         await Swal.fire({
           title: 'Tab Spreadsheet GAS Masih Kosong',
           text: 'Endpoint GAS sudah memiliki struktur tab, namun tab Shipments masih kosong. Klik "Push 12 Tab DB ke GAS (POST syncAll)" untuk mengisi data awal.',
@@ -1633,13 +1656,18 @@ export default function App() {
           ...res.nextDb.pengaturan,
           gasWebAppUrl: check.normalizedUrl,
           gasWebAppAutoSync: db.pengaturan.gasWebAppAutoSync,
+          gasWebAppFullSyncAuto: db.pengaturan.gasWebAppFullSyncAuto,
           gasWebAppLastSyncAt: res.fetchedAt,
+          gasWebAppLastFullSyncAt: res.fetchedAt,
           gasWebAppLastSyncDirection: 'get',
           gasWebAppLastSyncMessage: `GET ?mode=full berhasil (${res.totalRemoteDataRows} total baris dari 12 tab).`,
         },
       });
+      gasLocalDirtyRef.current = false;
       setDb({ ...imported });
       setLastSyncedAt(res.fetchedAt);
+      const syncedSession = await syncSessionWithDb(session);
+      if (syncedSession) setSession(syncedSession);
       await refreshOfflineTelemetry(imported);
 
       await Swal.fire({
@@ -1661,6 +1689,7 @@ export default function App() {
         gasWebAppLastSyncDirection: 'get',
         gasWebAppLastSyncMessage: `GET ?mode=full gagal: ${message}`,
       });
+      await flushIndexedDbWrites();
       setDb({ ...errDb });
       await Swal.fire({
         title: 'Gagal Pull 12 Tab Database dari GAS',
@@ -1670,9 +1699,185 @@ export default function App() {
         color: darkMode ? '#f1f5f9' : '#0f172a',
       });
     } finally {
+      gasFullSyncInFlightRef.current = false;
       setSyncingGasWebApp(false);
     }
   };
+
+  const handleSyncFullDatabaseCycleWithGasWebApp = async (
+    source: 'auto' | 'manual',
+    overrideUrl?: string
+  ) => {
+    if (!db || !session) return;
+    if (source === 'auto' && (!isOnline || db.pengaturan.gasWebAppFullSyncAuto === false)) {
+      return;
+    }
+
+    const targetUrl = (
+      overrideUrl ??
+      (db.pengaturan.gasWebAppUrl !== undefined
+        ? db.pengaturan.gasWebAppUrl
+        : DEFAULT_GAS_WEBAPP_URL)
+    ).trim();
+    const check = validateGasWebAppUrl(targetUrl);
+    if (!check.valid) {
+      if (source === 'manual') {
+        await Swal.fire({
+          title: 'URL Endpoint GAS Tidak Valid',
+          text: check.error || 'Periksa kembali URL Web App Google Apps Script.',
+          icon: 'warning',
+          background: darkMode ? '#131926' : '#ffffff',
+          color: darkMode ? '#f1f5f9' : '#0f172a',
+        });
+      }
+      return;
+    }
+
+    if (gasFullSyncInFlightRef.current) return;
+    gasFullSyncInFlightRef.current = true;
+    setSyncingGasWebApp(true);
+
+    try {
+      const wasLocalDirty = gasLocalDirtyRef.current;
+      let order = decideGasFullSyncOrder({
+        localDirtySinceLastSync: wasLocalDirty,
+        lastFullSyncAt: db.pengaturan.gasWebAppLastFullSyncAt,
+      });
+
+      let pushRes: Awaited<ReturnType<typeof postGasWebAppSyncAllDatabase>>;
+      let pullRes: Awaited<ReturnType<typeof fetchGasWebAppFullDatabase>>;
+      let latestDb: DatabaseState = db;
+
+      if (order === 'push-then-pull') {
+        pushRes = await postGasWebAppSyncAllDatabase(
+          check.normalizedUrl,
+          db,
+          session.username
+        );
+        pullRes = await fetchGasWebAppFullDatabase(check.normalizedUrl, db);
+        if (pullRes.totalRemoteDataRows > 0 && (pullRes.tabRowCounts.Shipments || 0) > 0) {
+          latestDb = pullRes.nextDb;
+        }
+      } else {
+        pullRes = await fetchGasWebAppFullDatabase(check.normalizedUrl, db);
+        order = decideGasFullSyncOrder({
+          localDirtySinceLastSync: wasLocalDirty,
+          lastFullSyncAt: db.pengaturan.gasWebAppLastFullSyncAt,
+          remoteLastUpdatedAt: pullRes.remoteLastUpdatedAt,
+        });
+        const hasRemoteData =
+          pullRes.totalRemoteDataRows > 0 && (pullRes.tabRowCounts.Shipments || 0) > 0;
+        if (hasRemoteData) {
+          latestDb = pullRes.nextDb;
+        }
+        pushRes = await postGasWebAppSyncAllDatabase(
+          check.normalizedUrl,
+          latestDb,
+          session.username
+        );
+      }
+
+      const completedAt = new Date().toISOString();
+      const nextScheduleText = computeGasNextSyncAt(completedAt);
+      const summaryMsg = `${source === 'auto' ? 'Auto-Sync 5 Menit' : 'Sync Penuh 12 Tab'}: Push (${pushRes.totalRows} baris) + Pull (${pullRes.totalRemoteDataRows} baris) berhasil.`;
+
+      const mergedPengaturan: Pengaturan = {
+        ...latestDb.pengaturan,
+        gasWebAppUrl: check.normalizedUrl,
+        gasWebAppAutoSync: db.pengaturan.gasWebAppAutoSync,
+        gasWebAppFullSyncAuto: db.pengaturan.gasWebAppFullSyncAuto !== false,
+        gasWebAppLastSyncAt: completedAt,
+        gasWebAppLastFullSyncAt: completedAt,
+        gasWebAppLastSyncDirection: 'sync',
+        gasWebAppLastSyncMessage: summaryMsg,
+      };
+
+      const finalDb = await importDatabaseSnapshot({
+        ...latestDb,
+        pengaturan: mergedPengaturan,
+      });
+
+      gasLocalDirtyRef.current = false;
+      setDb({ ...finalDb });
+      setLastSyncedAt(completedAt);
+      const syncedSession = await syncSessionWithDb(session);
+      if (syncedSession) setSession(syncedSession);
+      await refreshOfflineTelemetry(finalDb);
+
+      if (source === 'manual') {
+        await Swal.fire({
+          title: 'Sinkronisasi 12 Tab (Push + Pull) Selesai',
+          text: `Push POST syncAll (${pushRes.totalRows} baris ke ${pushRes.tabCount} tab) dan Pull GET ?mode=full (${pullRes.totalRemoteDataRows} baris) berhasil. Jadwal otomatis berikutnya: ${new Date(nextScheduleText).toLocaleTimeString('id-ID')}.`,
+          icon: 'success',
+          background: darkMode ? '#131926' : '#ffffff',
+          color: darkMode ? '#f1f5f9' : '#0f172a',
+        });
+      }
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Gagal menjalankan sinkronisasi penuh 12 tab (Push + Pull) ke Google Apps Script.';
+      const errDb = await savePengaturanRecord(session, {
+        ...db.pengaturan,
+        gasWebAppUrl: check.normalizedUrl,
+        gasWebAppLastSyncAt: new Date().toISOString(),
+        gasWebAppLastSyncDirection: 'sync',
+        gasWebAppLastSyncMessage: `${source === 'auto' ? 'Auto-Sync 5 Menit' : 'Sync 12 Tab'} gagal: ${message}`,
+      });
+      await flushIndexedDbWrites();
+      setDb({ ...errDb });
+      if (source === 'manual') {
+        await Swal.fire({
+          title: 'Gagal Sinkronisasi 12 Tab (Push + Pull)',
+          text: message,
+          icon: 'error',
+          background: darkMode ? '#131926' : '#ffffff',
+          color: darkMode ? '#f1f5f9' : '#0f172a',
+        });
+      }
+    } finally {
+      gasFullSyncInFlightRef.current = false;
+      setSyncingGasWebApp(false);
+    }
+  };
+
+  runGasFullSyncCycleRef.current = handleSyncFullDatabaseCycleWithGasWebApp;
+
+  const gasConfiguredUrlForInterval =
+    db?.pengaturan.gasWebAppUrl !== undefined
+      ? db.pengaturan.gasWebAppUrl
+      : DEFAULT_GAS_WEBAPP_URL;
+  const gasFullAutoEnabled = Boolean(
+    db && db.pengaturan.gasWebAppFullSyncAuto !== false
+  );
+  const gasUrlValidForInterval = validateGasWebAppUrl(gasConfiguredUrlForInterval).valid;
+  const isSessionReadyForGas = Boolean(session);
+  const isDbReadyForGas = Boolean(db);
+
+  useEffect(() => {
+    if (
+      !isSessionReadyForGas ||
+      !isDbReadyForGas ||
+      !isOnline ||
+      !gasFullAutoEnabled ||
+      !gasUrlValidForInterval
+    ) {
+      return;
+    }
+    const timerId = window.setInterval(() => {
+      void runGasFullSyncCycleRef.current?.('auto');
+    }, GAS_FULL_SYNC_INTERVAL_MS);
+    return () => {
+      window.clearInterval(timerId);
+    };
+  }, [
+    isSessionReadyForGas,
+    isDbReadyForGas,
+    isOnline,
+    gasFullAutoEnabled,
+    gasUrlValidForInterval,
+  ]);
 
   const uploadSingleDocument = async (
     kodeOs: string,
@@ -2757,6 +2962,7 @@ export default function App() {
               onPushShipmentToGasWebApp={handlePushShipmentToGasWebApp}
               onPushFullDatabaseToGasWebApp={handlePushFullDatabaseToGasWebApp}
               onPullFullDatabaseFromGasWebApp={handlePullFullDatabaseFromGasWebApp}
+              onSyncFullDatabaseCycleWithGasWebApp={handleSyncFullDatabaseCycleWithGasWebApp}
               isOnline={isOnline}
               idbStatus={idbStatus}
               offlineSyncQueue={offlineSyncQueue}

@@ -206,6 +206,10 @@ function makeSampleDb(): DatabaseState {
       roleModuleAccess: {
         Checker: { do: false, master: false },
       },
+      gasWebAppUrl: 'https://script.google.com/macros/s/TEST_DEPLOY_ID/exec',
+      gasWebAppAutoSync: true,
+      gasWebAppFullSyncAuto: false,
+      gasWebAppLastFullSyncAt: '2026-11-18T09:55:00.000Z',
     },
   };
 }
@@ -280,6 +284,13 @@ test('serializeDatabaseToSheetMatrixMap and parseSheetMatrixMapToDatabase round-
   assert.deepEqual(parsed.pengaturan.roleModuleAccess, {
     Checker: { do: false, master: false },
   });
+  assert.equal(
+    parsed.pengaturan.gasWebAppUrl,
+    'https://script.google.com/macros/s/TEST_DEPLOY_ID/exec'
+  );
+  assert.equal(parsed.pengaturan.gasWebAppAutoSync, true);
+  assert.equal(parsed.pengaturan.gasWebAppFullSyncAuto, false);
+  assert.equal(parsed.pengaturan.gasWebAppLastFullSyncAt, '2026-11-18T09:55:00.000Z');
 
   const diff = computeSpreadsheetSyncDiffSummary(sample, parsed);
   assert.equal(diff.localCounts.shipments, 1);

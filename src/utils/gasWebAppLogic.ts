@@ -35,6 +35,8 @@ import {
 export const DEFAULT_GAS_WEBAPP_URL =
   'https://script.google.com/macros/s/AKfycbxS0527e6Urzg4Dyipl8oJpzSCxx7DU3qAntocgwg/dev';
 
+export const GAS_FULL_SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 menit
+
 export const GAS_SHIPMENT_SHEET_HEADERS = [
   'No.',
   'Kode OS',
@@ -257,6 +259,46 @@ export function buildGasFullGetUrl(baseUrl: string): string {
   const parsed = new URL(baseUrl);
   parsed.searchParams.set('mode', 'full');
   return parsed.toString();
+}
+
+export function isGasFullAutoSyncDue(
+  lastFullSyncAt: string | undefined,
+  nowMs: number = Date.now(),
+  intervalMs: number = GAS_FULL_SYNC_INTERVAL_MS
+): boolean {
+  if (!lastFullSyncAt || !lastFullSyncAt.trim()) return true;
+  const lastMs = new Date(lastFullSyncAt).getTime();
+  if (Number.isNaN(lastMs)) return true;
+  return nowMs - lastMs >= intervalMs;
+}
+
+export function computeGasNextSyncAt(
+  lastFullSyncAt: string | undefined,
+  nowMs: number = Date.now(),
+  intervalMs: number = GAS_FULL_SYNC_INTERVAL_MS
+): string {
+  const lastMs = lastFullSyncAt ? new Date(lastFullSyncAt).getTime() : NaN;
+  const baseMs = Number.isNaN(lastMs) ? nowMs : lastMs;
+  const targetMs = baseMs + intervalMs <= nowMs ? nowMs + intervalMs : baseMs + intervalMs;
+  return new Date(targetMs).toISOString();
+}
+
+export function decideGasFullSyncOrder(options: {
+  localDirtySinceLastSync: boolean;
+  lastFullSyncAt?: string;
+  remoteLastUpdatedAt?: string;
+}): 'push-then-pull' | 'pull-then-push' {
+  if (!options.localDirtySinceLastSync) {
+    return 'pull-then-push';
+  }
+  const lastSyncMs = options.lastFullSyncAt ? new Date(options.lastFullSyncAt).getTime() : 0;
+  const remoteMs = options.remoteLastUpdatedAt
+    ? new Date(options.remoteLastUpdatedAt).getTime()
+    : 0;
+  if (remoteMs > lastSyncMs + 2000 && lastSyncMs > 0) {
+    return 'pull-then-push';
+  }
+  return 'push-then-pull';
 }
 
 export function buildGasSyncAllActionPayload(
@@ -972,7 +1014,20 @@ export interface ParseGasFullDbResponseResult {
   nextDb: DatabaseState;
   tabRowCounts: Record<string, number>;
   totalRemoteDataRows: number;
+  remoteLastUpdatedAt?: string;
   errorMessage?: string;
+}
+
+function extractSyncMetadataUpdatedAt(syncMetaMatrix: string[][] | undefined): string {
+  if (!syncMetaMatrix || syncMetaMatrix.length < 2) return '';
+  for (let i = 1; i < syncMetaMatrix.length; i++) {
+    const row = syncMetaMatrix[i];
+    if (!row || row.length < 2) continue;
+    if (String(row[0] || '').trim() === 'lastUpdatedAt') {
+      return String(row[1] || '').trim();
+    }
+  }
+  return '';
 }
 
 export function parseGasWebAppFullDatabaseGetResponse(
@@ -1045,6 +1100,8 @@ export function parseGasWebAppFullDatabaseGetResponse(
     };
   }
 
+  const remoteLastUpdatedAt = extractSyncMetadataUpdatedAt(normalizedSheets.Sync_Metadata);
+
   const hasAnyShipmentData = (tabRowCounts.Shipments || 0) > 0;
   if (totalRemoteDataRows === 0 || !hasAnyShipmentData) {
     return {
@@ -1052,6 +1109,7 @@ export function parseGasWebAppFullDatabaseGetResponse(
       nextDb: fallbackDb,
       tabRowCounts,
       totalRemoteDataRows,
+      remoteLastUpdatedAt,
     };
   }
 
@@ -1061,6 +1119,7 @@ export function parseGasWebAppFullDatabaseGetResponse(
     nextDb: parsedDb,
     tabRowCounts,
     totalRemoteDataRows,
+    remoteLastUpdatedAt,
   };
 }
 

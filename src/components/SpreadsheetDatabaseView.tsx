@@ -3,6 +3,7 @@ import Swal from 'sweetalert2';
 import {
   AlertTriangle,
   CheckCircle2,
+  Clock,
   Cloud,
   CloudOff,
   Code2,
@@ -31,7 +32,9 @@ import {
 } from '../utils/sheetsSchema';
 import {
   buildSampleGasWebAppScript,
+  computeGasNextSyncAt,
   DEFAULT_GAS_WEBAPP_URL,
+  GAS_FULL_SYNC_INTERVAL_MS,
   validateGasWebAppUrl,
 } from '../utils/gasWebAppLogic';
 import type { SpreadsheetDriveEntry } from '../services/googleSheetsService';
@@ -61,11 +64,16 @@ interface SpreadsheetDatabaseViewProps {
   onSaveGasWebAppConfig: (config: {
     gasWebAppUrl: string;
     gasWebAppAutoSync: boolean;
+    gasWebAppFullSyncAuto?: boolean;
   }) => Promise<void>;
   onPullFromGasWebApp: (overrideUrl?: string) => Promise<void>;
   onPushShipmentToGasWebApp: (kodeOs?: string, overrideUrl?: string) => Promise<void>;
   onPushFullDatabaseToGasWebApp: (overrideUrl?: string) => Promise<void>;
   onPullFullDatabaseFromGasWebApp: (overrideUrl?: string) => Promise<void>;
+  onSyncFullDatabaseCycleWithGasWebApp: (
+    source: 'auto' | 'manual',
+    overrideUrl?: string
+  ) => Promise<void>;
 }
 
 export function SpreadsheetDatabaseView({
@@ -90,6 +98,7 @@ export function SpreadsheetDatabaseView({
   onPushShipmentToGasWebApp,
   onPushFullDatabaseToGasWebApp,
   onPullFullDatabaseFromGasWebApp,
+  onSyncFullDatabaseCycleWithGasWebApp,
 }: SpreadsheetDatabaseViewProps) {
   const [newSheetTitle, setNewSheetTitle] = useState(
     db.pengaturan.spreadsheetTitle || 'PTG_PPJK_DATABASE'
@@ -106,6 +115,7 @@ export function SpreadsheetDatabaseView({
       ? db.pengaturan.gasWebAppUrl
       : DEFAULT_GAS_WEBAPP_URL;
   const savedGasAutoSync = db.pengaturan.gasWebAppAutoSync !== false;
+  const savedGasFullSyncAuto = db.pengaturan.gasWebAppFullSyncAuto !== false;
   const [gasUrlInput, setGasUrlInput] = useState(savedGasUrl);
   const [selectedPushKodeOs, setSelectedPushKodeOs] = useState(
     db.shipments[0]?.kodeOs || ''
@@ -147,8 +157,17 @@ export function SpreadsheetDatabaseView({
 
   const gasValidation = validateGasWebAppUrl(gasUrlInput);
   const activeGasLastSyncAt = db.pengaturan.gasWebAppLastSyncAt || '';
+  const activeGasLastFullSyncAt = db.pengaturan.gasWebAppLastFullSyncAt || '';
   const activeGasLastDir = db.pengaturan.gasWebAppLastSyncDirection || '';
   const activeGasLastMsg = db.pengaturan.gasWebAppLastSyncMessage || '';
+  const nextFullAutoSyncAt =
+    savedGasFullSyncAuto && gasValidation.valid
+      ? computeGasNextSyncAt(
+          activeGasLastFullSyncAt || activeGasLastSyncAt || undefined,
+          Date.now(),
+          GAS_FULL_SYNC_INTERVAL_MS
+        )
+      : '';
 
   const handleSaveGasUrlSubmit = async () => {
     const check = validateGasWebAppUrl(gasUrlInput);
@@ -165,6 +184,7 @@ export function SpreadsheetDatabaseView({
     await onSaveGasWebAppConfig({
       gasWebAppUrl: check.normalizedUrl,
       gasWebAppAutoSync: savedGasAutoSync,
+      gasWebAppFullSyncAuto: savedGasFullSyncAuto,
     });
   };
 
@@ -314,6 +334,7 @@ export function SpreadsheetDatabaseView({
                 void onSaveGasWebAppConfig({
                   gasWebAppUrl: gasValidation.valid ? gasValidation.normalizedUrl : savedGasUrl,
                   gasWebAppAutoSync: !savedGasAutoSync,
+                  gasWebAppFullSyncAuto: savedGasFullSyncAuto,
                 })
               }
               disabled={syncingGasWebApp}
@@ -441,24 +462,64 @@ export function SpreadsheetDatabaseView({
         {/* Full 12-Tab Database Sync via GAS Web App Endpoint */}
         <div
           data-testid="gas-webapp-full-tabs-bar"
-          className="p-3 rounded-xl bg-white/80 dark:bg-[#131926] border border-emerald-200/70 dark:border-white/[0.08] flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2.5"
+          className="p-3.5 rounded-xl bg-white/80 dark:bg-[#131926] border border-emerald-200/70 dark:border-white/[0.08] space-y-3"
         >
-          <div className="space-y-0.5">
-            <div className="text-[11.5px] font-bold text-[#0B2545] dark:text-white flex items-center gap-1.5">
-              <Table2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>Sinkronisasi Penuh Struktur Database (12 Tab via Endpoint GAS)</span>
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2.5">
+            <div className="space-y-0.5 min-w-0 flex-1">
+              <div className="text-[11.5px] font-bold text-[#0B2545] dark:text-white flex items-center gap-1.5 flex-wrap">
+                <Table2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span>Sinkronisasi Penuh Struktur Database (12 Tab via Endpoint GAS)</span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-[10px] font-semibold">
+                  <Clock className="w-3 h-3" />
+                  <span>Otomatis tiap 5 Menit (Push + Pull)</span>
+                </span>
+              </div>
+              <p className="text-[10.5px] text-slate-500 dark:text-slate-400">
+                Setiap 5 menit aplikasi otomatis menjalankan <strong>Push 12 Tab DB ke GAS (<code className="font-mono-code">POST syncAll</code>)</strong> dan <strong>Pull 12 Tab DB (<code className="font-mono-code">GET full</code>)</strong> untuk seluruh 12 tab (<code className="font-mono-code">Shipments</code> 82 kolom, <code className="font-mono-code">Kontainer</code>, <code className="font-mono-code">Master_*</code>, <code className="font-mono-code">Users</code>, <code className="font-mono-code">Log_Perubahan</code>, <code className="font-mono-code">Catatan</code>, <code className="font-mono-code">Dokumen</code>, <code className="font-mono-code">Pengeluaran_Ops</code>, <code className="font-mono-code">Pengaturan</code>, <code className="font-mono-code">Sync_Metadata</code>) agar data aplikasi &amp; Spreadsheet selalu sinkron.
+              </p>
             </div>
-            <p className="text-[10.5px] text-slate-500 dark:text-slate-400">
-              Menulis &amp; membaca seluruh tab (<code className="font-mono-code">Shipments</code> 82 kolom, <code className="font-mono-code">Kontainer</code>, <code className="font-mono-code">Master_*</code>, <code className="font-mono-code">Users</code>, <code className="font-mono-code">Log_Perubahan</code>, <code className="font-mono-code">Catatan</code>, <code className="font-mono-code">Dokumen</code>, <code className="font-mono-code">Pengeluaran_Ops</code>, <code className="font-mono-code">Pengaturan</code>, <code className="font-mono-code">Sync_Metadata</code>) langsung ke endpoint GAS.
-            </p>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={savedGasFullSyncAuto}
+              data-testid="toggle-gas-full-autosync"
+              onClick={() =>
+                void onSaveGasWebAppConfig({
+                  gasWebAppUrl: gasValidation.valid ? gasValidation.normalizedUrl : savedGasUrl,
+                  gasWebAppAutoSync: savedGasAutoSync,
+                  gasWebAppFullSyncAuto: !savedGasFullSyncAuto,
+                })
+              }
+              disabled={!isAdmin || syncingGasWebApp}
+              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition-colors shrink-0 self-start disabled:opacity-60 ${
+                savedGasFullSyncAuto
+                  ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700'
+                  : 'bg-white dark:bg-[#182032] border-slate-300 dark:border-white/15 text-slate-700 dark:text-slate-200'
+              }`}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncingGasWebApp ? 'animate-spin' : ''}`} />
+              <span>Auto-Sync 5 Menit: {savedGasFullSyncAuto ? 'ON' : 'OFF'}</span>
+            </button>
           </div>
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              data-testid="gas-webapp-sync-cycle-btn"
+              onClick={() => void onSyncFullDatabaseCycleWithGasWebApp('manual', gasUrlInput)}
+              disabled={!gasValidation.valid || syncingGasWebApp}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncingGasWebApp ? 'animate-spin' : ''}`} />
+              <span>{syncingGasWebApp ? 'Menyinkronkan...' : 'Sinkronkan 12 Tab (Push + Pull)'}</span>
+            </button>
             <button
               type="button"
               data-testid="gas-webapp-sync-all-btn"
               onClick={() => void onPushFullDatabaseToGasWebApp(gasUrlInput)}
               disabled={!gasValidation.valid || syncingGasWebApp}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0B2545] hover:bg-[#123663] dark:bg-emerald-600 dark:hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0B2545] hover:bg-[#123663] dark:bg-violet-600 dark:hover:bg-violet-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer"
             >
               <Upload className="w-3.5 h-3.5" />
               <span>Push 12 Tab DB ke GAS (POST syncAll)</span>
@@ -476,15 +537,28 @@ export function SpreadsheetDatabaseView({
           </div>
         </div>
 
-        {(activeGasLastSyncAt || activeGasLastMsg) && (
+        {(activeGasLastSyncAt || activeGasLastFullSyncAt || activeGasLastMsg || nextFullAutoSyncAt) && (
           <div
             data-testid="gas-webapp-last-sync"
             className="px-3 py-2 rounded-lg bg-white/80 dark:bg-[#131926] border border-emerald-200/70 dark:border-white/[0.06] text-[11px] text-slate-600 dark:text-slate-300 flex flex-wrap items-center justify-between gap-2"
           >
-            <div>
-              Status GAS terakhir:{' '}
-              <strong>{activeGasLastSyncAt ? formatDateTimeId(activeGasLastSyncAt) : 'Baru saja'}</strong>
-              {activeGasLastDir ? ` (${activeGasLastDir.toUpperCase()})` : ''}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>
+                Status GAS terakhir:{' '}
+                <strong>{activeGasLastSyncAt ? formatDateTimeId(activeGasLastSyncAt) : 'Belum pernah'}</strong>
+                {activeGasLastDir ? ` (${activeGasLastDir.toUpperCase()})` : ''}
+              </span>
+              {activeGasLastFullSyncAt && (
+                <span>
+                  Sync 12 Tab terakhir:{' '}
+                  <strong>{formatDateTimeId(activeGasLastFullSyncAt)}</strong>
+                </span>
+              )}
+              {nextFullAutoSyncAt && (
+                <span data-testid="gas-webapp-next-sync" className="text-emerald-700 dark:text-emerald-300 font-semibold">
+                  Jadwal 5 menit berikutnya: {formatDateTimeId(nextFullAutoSyncAt)}
+                </span>
+              )}
             </div>
             {activeGasLastMsg && (
               <div className="text-emerald-700 dark:text-emerald-300 font-medium">
@@ -851,7 +925,7 @@ export function SpreadsheetDatabaseView({
       <div className="space-y-2.5">
         <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#0B2545] dark:text-violet-300">
           <Table2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-          <span>Struktur 11 Tab Database Google Spreadsheet</span>
+          <span>Struktur {DATABASE_SHEET_TABS.length} Tab Database Google Spreadsheet</span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
           {DATABASE_SHEET_TABS.map((tab) => (

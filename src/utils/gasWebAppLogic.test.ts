@@ -5,8 +5,12 @@ import {
   buildGasFullGetUrl,
   buildGasSyncAllActionPayload,
   buildSampleGasWebAppScript,
+  computeGasNextSyncAt,
+  decideGasFullSyncOrder,
   DEFAULT_GAS_WEBAPP_URL,
+  GAS_FULL_SYNC_INTERVAL_MS,
   GAS_SHIPMENT_SHEET_HEADERS,
+  isGasFullAutoSyncDue,
   mergeGasFetchedShipments,
   parseGasWebAppFullDatabaseGetResponse,
   parseGasWebAppGetResponse,
@@ -361,5 +365,58 @@ describe('gasWebAppLogic', () => {
     assert.equal(parsed.nextDb.catatan.length, 1);
     assert.equal(parsed.tabRowCounts.Shipments, 1);
     assert.equal(parsed.tabRowCounts.Kontainer, 1);
+    assert.equal(parsed.remoteLastUpdatedAt, '2026-11-18T10:00:00.000Z');
+  });
+
+  it('schedules 5-minute auto-sync interval and picks conflict-safe Push/Pull order', () => {
+    assert.equal(GAS_FULL_SYNC_INTERVAL_MS, 5 * 60 * 1000);
+
+    const baseTime = new Date('2026-11-18T10:00:00.000Z').getTime();
+    assert.equal(isGasFullAutoSyncDue('', baseTime), true);
+    assert.equal(isGasFullAutoSyncDue('invalid-date', baseTime), true);
+    assert.equal(
+      isGasFullAutoSyncDue('2026-11-18T09:56:00.000Z', baseTime),
+      false
+    );
+    assert.equal(
+      isGasFullAutoSyncDue('2026-11-18T09:55:00.000Z', baseTime),
+      true
+    );
+
+    assert.equal(
+      computeGasNextSyncAt('2026-11-18T09:58:00.000Z', baseTime),
+      '2026-11-18T10:03:00.000Z'
+    );
+    assert.equal(
+      computeGasNextSyncAt('2026-11-18T09:40:00.000Z', baseTime),
+      '2026-11-18T10:05:00.000Z'
+    );
+
+    assert.equal(
+      decideGasFullSyncOrder({
+        localDirtySinceLastSync: false,
+        lastFullSyncAt: '2026-11-18T10:00:00.000Z',
+        remoteLastUpdatedAt: '2026-11-18T10:01:00.000Z',
+      }),
+      'pull-then-push'
+    );
+
+    assert.equal(
+      decideGasFullSyncOrder({
+        localDirtySinceLastSync: true,
+        lastFullSyncAt: '2026-11-18T10:00:00.000Z',
+        remoteLastUpdatedAt: '2026-11-18T10:00:00.000Z',
+      }),
+      'push-then-pull'
+    );
+
+    assert.equal(
+      decideGasFullSyncOrder({
+        localDirtySinceLastSync: true,
+        lastFullSyncAt: '2026-11-18T10:00:00.000Z',
+        remoteLastUpdatedAt: '2026-11-18T10:04:00.000Z',
+      }),
+      'pull-then-push'
+    );
   });
 });

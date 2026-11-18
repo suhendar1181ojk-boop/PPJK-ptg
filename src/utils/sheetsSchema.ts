@@ -591,6 +591,13 @@ export function serializeDatabaseToSheetMatrixMap(
     ['spreadsheetAutoSync', db.pengaturan.spreadsheetAutoSync ? 'TRUE' : 'FALSE'],
     ['spreadsheetLastSyncAt', syncedAt],
     ['spreadsheetLastSyncDirection', toSheetStr(db.pengaturan.spreadsheetLastSyncDirection || 'push')],
+    ['gasWebAppUrl', toSheetStr(db.pengaturan.gasWebAppUrl)],
+    ['gasWebAppAutoSync', db.pengaturan.gasWebAppAutoSync !== false ? 'TRUE' : 'FALSE'],
+    ['gasWebAppFullSyncAuto', db.pengaturan.gasWebAppFullSyncAuto !== false ? 'TRUE' : 'FALSE'],
+    ['gasWebAppLastSyncAt', toSheetStr(db.pengaturan.gasWebAppLastSyncAt)],
+    ['gasWebAppLastFullSyncAt', toSheetStr(db.pengaturan.gasWebAppLastFullSyncAt)],
+    ['gasWebAppLastSyncDirection', toSheetStr(db.pengaturan.gasWebAppLastSyncDirection)],
+    ['gasWebAppLastSyncMessage', toSheetStr(db.pengaturan.gasWebAppLastSyncMessage)],
   ];
 
   const pengaturanRows: string[][] = [['key', 'value'], ...pengaturanEntries];
@@ -775,6 +782,28 @@ export function parseSheetMatrixMapToDatabase(
           : fallbackDb.pengaturan.spreadsheetAutoSync,
     spreadsheetLastSyncAt: new Date().toISOString(),
     spreadsheetLastSyncDirection: 'pull',
+    gasWebAppUrl:
+      settingsMap.get('gasWebAppUrl') ?? fallbackDb.pengaturan.gasWebAppUrl,
+    gasWebAppAutoSync: settingsMap.has('gasWebAppAutoSync')
+      ? parseBoolCell(settingsMap.get('gasWebAppAutoSync'), true)
+      : fallbackDb.pengaturan.gasWebAppAutoSync ?? true,
+    gasWebAppFullSyncAuto: settingsMap.has('gasWebAppFullSyncAuto')
+      ? parseBoolCell(settingsMap.get('gasWebAppFullSyncAuto'), true)
+      : fallbackDb.pengaturan.gasWebAppFullSyncAuto ?? true,
+    gasWebAppLastSyncAt:
+      settingsMap.get('gasWebAppLastSyncAt') ?? fallbackDb.pengaturan.gasWebAppLastSyncAt ?? '',
+    gasWebAppLastFullSyncAt:
+      settingsMap.get('gasWebAppLastFullSyncAt') ??
+      fallbackDb.pengaturan.gasWebAppLastFullSyncAt ??
+      '',
+    gasWebAppLastSyncDirection:
+      (settingsMap.get('gasWebAppLastSyncDirection') as Pengaturan['gasWebAppLastSyncDirection']) ??
+      fallbackDb.pengaturan.gasWebAppLastSyncDirection ??
+      '',
+    gasWebAppLastSyncMessage:
+      settingsMap.get('gasWebAppLastSyncMessage') ??
+      fallbackDb.pengaturan.gasWebAppLastSyncMessage ??
+      '',
     seqPengeluaranByMonth: safeJsonParse<Record<string, number>>(
       settingsMap.get('seqPengeluaranByMonth'),
       fallbackDb.pengaturan.seqPengeluaranByMonth || {}

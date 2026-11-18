@@ -84,11 +84,16 @@ interface MasterSettingsViewProps {
   onSaveGasWebAppConfig: (config: {
     gasWebAppUrl: string;
     gasWebAppAutoSync: boolean;
+    gasWebAppFullSyncAuto?: boolean;
   }) => Promise<void>;
   onPullFromGasWebApp: (overrideUrl?: string) => Promise<void>;
   onPushShipmentToGasWebApp: (kodeOs?: string, overrideUrl?: string) => Promise<void>;
   onPushFullDatabaseToGasWebApp: (overrideUrl?: string) => Promise<void>;
   onPullFullDatabaseFromGasWebApp: (overrideUrl?: string) => Promise<void>;
+  onSyncFullDatabaseCycleWithGasWebApp: (
+    source: 'auto' | 'manual',
+    overrideUrl?: string
+  ) => Promise<void>;
   isOnline: boolean;
   idbStatus: IndexedDbStatusSummary | null;
   offlineSyncQueue: OfflineSyncTask[];
@@ -147,6 +152,7 @@ export function MasterSettingsView({
   onPushShipmentToGasWebApp,
   onPushFullDatabaseToGasWebApp,
   onPullFullDatabaseFromGasWebApp,
+  onSyncFullDatabaseCycleWithGasWebApp,
   isOnline,
   idbStatus,
   offlineSyncQueue,
@@ -1267,6 +1273,7 @@ export function MasterSettingsView({
             onPushShipmentToGasWebApp={onPushShipmentToGasWebApp}
             onPushFullDatabaseToGasWebApp={onPushFullDatabaseToGasWebApp}
             onPullFullDatabaseFromGasWebApp={onPullFullDatabaseFromGasWebApp}
+            onSyncFullDatabaseCycleWithGasWebApp={onSyncFullDatabaseCycleWithGasWebApp}
           />
         )}
 

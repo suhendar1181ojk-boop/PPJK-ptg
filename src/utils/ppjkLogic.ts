@@ -89,7 +89,9 @@ export const DEFAULT_PENGATURAN: Pengaturan = {
   gasWebAppUrl:
     'https://script.google.com/macros/s/AKfycbxS0527e6Urzg4Dyipl8oJpzSCxx7DU3qAntocgwg/dev',
   gasWebAppAutoSync: true,
+  gasWebAppFullSyncAuto: true,
   gasWebAppLastSyncAt: '',
+  gasWebAppLastFullSyncAt: '',
   gasWebAppLastSyncDirection: '',
   gasWebAppLastSyncMessage: '',
   seqPengeluaranByMonth: {},
