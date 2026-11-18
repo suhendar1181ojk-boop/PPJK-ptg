@@ -58,6 +58,7 @@ import {
   normalizeStatusTrucking,
   reconcileAllShipmentsDerivedState,
   resolveUserPhasePermissions,
+  validateAndDeleteUserRecord,
   validateShipmentInput,
 } from '../utils/ppjkLogic';
 import {
@@ -2285,6 +2286,37 @@ export async function saveUserRecord(
       modulePermissions: resolvedModulePermissions,
     });
   }
+  return db;
+}
+
+export async function deleteUserRecord(
+  session: SessionUser,
+  targetUsername: string
+): Promise<DatabaseState> {
+  const db = await ensureDbInitialized();
+  assertSessionActive(db, session);
+
+  const { deletedUser, nextUsers } = validateAndDeleteUserRecord(
+    db.users,
+    targetUsername,
+    { username: session.username, role: session.role }
+  );
+
+  db.users = nextUsers;
+  db.logs = [
+    {
+      id: `log_del_user_${Date.now()}`,
+      waktu: new Date().toISOString(),
+      user: session.username,
+      kodeOs: 'USER-MGMT',
+      kolom: 'HAPUS_USER',
+      nilaiLama: `${deletedUser.username} (${deletedUser.nama} · ${deletedUser.role})`,
+      nilaiBaru: 'DIHAPUS',
+    },
+    ...db.logs,
+  ].slice(0, 500);
+
+  writeDbToStorage(db);
   return db;
 }
 

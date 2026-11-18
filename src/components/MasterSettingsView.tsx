@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import Swal from 'sweetalert2';
 import {
   FileSpreadsheet,
   Lock,
@@ -61,6 +62,7 @@ interface MasterSettingsViewProps {
     phasePermissions?: PhasePermissions;
     modulePermissions?: ModulePermissionsMap;
   }) => Promise<void>;
+  onDeleteUser: (username: string) => Promise<void>;
   onSavePengaturan: (p: Pengaturan) => Promise<void>;
   onResetDatabase: (mode: 'empty' | 'seed') => Promise<void>;
   dbSnapshot: DatabaseState;
@@ -121,6 +123,7 @@ export function MasterSettingsView({
   onSaveShipper,
   onDeleteShipper,
   onSaveUser,
+  onDeleteUser,
   onSavePengaturan,
   onResetDatabase,
   dbSnapshot,
@@ -291,6 +294,41 @@ export function MasterSettingsView({
       notify(`Akun ${u.username} sekarang ${!u.aktif ? 'Aktif' : 'Nonaktif'}.`);
     } catch (err) {
       setUserError(err instanceof Error ? err.message : 'Gagal mengubah status akun.');
+    }
+  };
+
+  const handleDeleteUserClick = async (u: UserAccount) => {
+    setUserError('');
+    const result = await Swal.fire({
+      title: 'Konfirmasi Hapus User',
+      html: `Hapus akun user <strong class="font-mono-code">${u.username}</strong> (${u.nama} · ${u.role}) secara permanen?<br/><span class="text-xs opacity-75">User tidak akan dapat login kembali ke aplikasi.</span>`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Ya, Hapus User',
+      cancelButtonText: 'Batal',
+      confirmButtonColor: '#DC2626',
+      background: darkMode ? '#131926' : '#ffffff',
+      color: darkMode ? '#f1f5f9' : '#0f172a',
+    });
+    if (!result.isConfirmed) return;
+
+    try {
+      await onDeleteUser(u.username);
+      if (editingUsername && editingUsername.toLowerCase() === u.username.toLowerCase()) {
+        setEditingUsername(null);
+        setUserForm({
+          username: '',
+          nama: '',
+          role: 'Checker',
+          password: '',
+          aktif: true,
+          mustChangePassword: false,
+          phasePermissions: getDefaultPhasePermissions('Checker'),
+        });
+      }
+      notify(`User ${u.username} berhasil dihapus.`);
+    } catch (err) {
+      setUserError(err instanceof Error ? err.message : 'Gagal menghapus akun user.');
     }
   };
 
@@ -853,19 +891,31 @@ export function MasterSettingsView({
                           </button>
                         )}
                         {!isSelf && u.role !== 'Owner' && (
-                          <button
-                            type="button"
-                            onClick={() => handleToggleUserActive(u)}
-                            aria-label={`${u.aktif ? 'Nonaktifkan' : 'Aktifkan'} user ${u.username}`}
-                            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold cursor-pointer ${
-                              u.aktif
-                                ? 'bg-red-50 dark:bg-red-500/15 hover:bg-red-100 dark:hover:bg-red-500/25 text-red-700 dark:text-red-300'
-                                : 'bg-emerald-50 dark:bg-emerald-500/15 hover:bg-emerald-100 dark:hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300'
-                            }`}
-                          >
-                            <Power className="w-3 h-3" />
-                            <span>{u.aktif ? 'Nonaktifkan' : 'Aktifkan'}</span>
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleUserActive(u)}
+                              aria-label={`${u.aktif ? 'Nonaktifkan' : 'Aktifkan'} user ${u.username}`}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold cursor-pointer ${
+                                u.aktif
+                                  ? 'bg-amber-50 dark:bg-amber-500/15 hover:bg-amber-100 dark:hover:bg-amber-500/25 text-amber-800 dark:text-amber-300'
+                                  : 'bg-emerald-50 dark:bg-emerald-500/15 hover:bg-emerald-100 dark:hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300'
+                              }`}
+                            >
+                              <Power className="w-3 h-3" />
+                              <span>{u.aktif ? 'Nonaktifkan' : 'Aktifkan'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              data-testid={`delete-user-btn-${u.username}`}
+                              onClick={() => void handleDeleteUserClick(u)}
+                              aria-label={`Hapus user ${u.username}`}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-50 dark:bg-red-500/15 hover:bg-red-100 dark:hover:bg-red-500/25 border border-red-200/80 dark:border-red-500/30 text-[11px] font-semibold text-red-700 dark:text-red-300 cursor-pointer"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>Hapus</span>
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>

@@ -49,6 +49,7 @@ import {
   deleteShipmentDocument,
   deleteShipmentRecord,
   deleteShipperMaster,
+  deleteUserRecord,
   ensureDbInitialized,
   flushIndexedDbWrites,
   getStoredSession,
@@ -2817,6 +2818,10 @@ export default function App() {
                   const synced = await syncSessionWithDb(session);
                   if (synced) setSession(synced);
                 }
+              }}
+              onDeleteUser={async (username: string) => {
+                const nextDb = await deleteUserRecord(session, username);
+                await applyDbUpdate(nextDb);
               }}
               onSavePengaturan={async (p: Pengaturan) => {
                 await applyDbUpdate(await savePengaturanRecord(session, p));

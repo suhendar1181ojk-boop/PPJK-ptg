@@ -3486,6 +3486,42 @@ export function buildUserMonitoringRows(
   });
 }
 
+export function validateAndDeleteUserRecord(
+  users: UserAccount[],
+  targetUsername: string,
+  actor: { username: string; role: UserRole }
+): { deletedUser: UserAccount; nextUsers: UserAccount[] } {
+  if (!canPerformAction(actor.role, 'manage_users')) {
+    throw new Error('Khusus Admin / Owner yang dapat menghapus akun user.');
+  }
+
+  const cleanTarget = (targetUsername || '').trim();
+  if (!cleanTarget) {
+    throw new Error('Username target tidak boleh kosong.');
+  }
+
+  const target = users.find(
+    (u) => u.username.trim().toLowerCase() === cleanTarget.toLowerCase()
+  );
+  if (!target) {
+    throw new Error(`User "${cleanTarget}" tidak ditemukan.`);
+  }
+
+  if (target.username.trim().toLowerCase() === (actor.username || '').trim().toLowerCase()) {
+    throw new Error('Anda tidak dapat menghapus akun Anda sendiri saat sedang login.');
+  }
+
+  if (target.role === 'Owner') {
+    throw new Error('Akun Owner (Super Admin) tidak boleh dihapus.');
+  }
+
+  const nextUsers = users.filter(
+    (u) => u.username.trim().toLowerCase() !== target.username.trim().toLowerCase()
+  );
+
+  return { deletedUser: target, nextUsers };
+}
+
 
 
 

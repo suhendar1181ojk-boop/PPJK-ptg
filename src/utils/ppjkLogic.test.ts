@@ -85,6 +85,7 @@ import {
   resolveNopenDateRange,
   resolveUserModuleAccess,
   resolveUserPhasePermissions,
+  validateAndDeleteUserRecord,
   validateBrandingImageFile,
   validateGasPinFormat,
   validateShipmentInput,
@@ -1860,6 +1861,77 @@ test('getPpjkIdentity exposes Logo PT & Kop Surat PPJK and branding image helper
   assert.deepEqual(computeFittedDimensions(1000, 500, 320, 320), { width: 320, height: 160 });
   assert.deepEqual(computeFittedDimensions(2400, 400, 1200, 340), { width: 1200, height: 200 });
   assert.deepEqual(computeFittedDimensions(200, 100, 320, 320), { width: 200, height: 100 });
+});
+
+test('validateAndDeleteUserRecord enforces Admin/Owner role, blocks self/Owner deletion, and deletes target cleanly', () => {
+  const mkAcc = (username: string, role: UserAccount['role'], nama: string): UserAccount => ({
+    username,
+    nama,
+    role,
+    aktif: true,
+    mustChangePassword: false,
+    passwordHash: 'hash',
+    salt: 'salt',
+    phasePermissions: getDefaultPhasePermissions(role),
+  });
+
+  const users: UserAccount[] = [
+    mkAcc('owner', 'Owner', 'Bpk. Owner'),
+    mkAcc('admin', 'Admin', 'Admin Utama'),
+    mkAcc('checker1', 'Checker', 'Budi Checker'),
+    mkAcc('drafter1', 'Drafter', 'Siti Drafter'),
+  ];
+
+  // Blocks non-admin roles
+  assert.throws(
+    () =>
+      validateAndDeleteUserRecord(users, 'checker1', {
+        username: 'drafter1',
+        role: 'Drafter',
+      }),
+    /Admin \/ Owner/i
+  );
+
+  // Blocks deleting self
+  assert.throws(
+    () =>
+      validateAndDeleteUserRecord(users, 'admin', {
+        username: 'admin',
+        role: 'Admin',
+      }),
+    /sendiri/i
+  );
+
+  // Blocks deleting Owner even by Owner
+  assert.throws(
+    () =>
+      validateAndDeleteUserRecord(users, 'owner', {
+        username: 'admin',
+        role: 'Admin',
+      }),
+    /Owner/i
+  );
+
+  // Throws when target not found
+  assert.throws(
+    () =>
+      validateAndDeleteUserRecord(users, 'tidak_ada', {
+        username: 'admin',
+        role: 'Admin',
+      }),
+    /tidak ditemukan/i
+  );
+
+  // Successfully deletes non-Owner, non-self user (case-insensitive)
+  const res = validateAndDeleteUserRecord(users, 'CHECKER1', {
+    username: 'admin',
+    role: 'Admin',
+  });
+  assert.equal(res.deletedUser.username, 'checker1');
+  assert.deepEqual(
+    res.nextUsers.map((u) => u.username),
+    ['owner', 'admin', 'drafter1']
+  );
 });
 
 
