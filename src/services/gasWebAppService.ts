@@ -1,6 +1,7 @@
 import type { KontainerItem, Shipment } from '../types/ppjk';
 import {
   buildGasAddActionPayload,
+  type BuildGasPayloadOptions,
   type GasAddActionPayload,
   parseGasWebAppGetResponse,
   type ParseGasGetResponseResult,
@@ -113,14 +114,15 @@ export async function fetchGasWebAppShipments(
 export async function postGasWebAppAddShipment(
   url: string,
   shipment: Shipment,
-  containers: KontainerItem[] = []
+  containers: KontainerItem[] = [],
+  options: BuildGasPayloadOptions = {}
 ): Promise<GasWebAppPostAddResult> {
   const validation = validateGasWebAppUrl(url);
   if (!validation.valid) {
     throw new Error(validation.error || 'URL Web App Google Apps Script tidak valid.');
   }
 
-  const payload = buildGasAddActionPayload(shipment, containers);
+  const payload = buildGasAddActionPayload(shipment, containers, options);
 
   let response: Response;
   try {

@@ -453,10 +453,13 @@ export function SpreadsheetDatabaseView({
         )}
 
         {showSampleGasCode && (
-          <div className="p-3 rounded-xl bg-slate-900 text-slate-100 space-y-2 border border-slate-700">
+          <div
+            data-testid="gas-sample-code-panel"
+            className="p-3 rounded-xl bg-slate-900 text-slate-100 space-y-2 border border-slate-700"
+          >
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] font-mono-code font-semibold text-emerald-400">
-                Code.gs — Google Apps Script (doGet &amp; doPost action: &apos;add&apos;)
+                Code.gs — Google Apps Script (doGet &amp; doPost 41 Kolom Lengkap)
               </span>
               <button
                 type="button"
@@ -474,7 +477,7 @@ export function SpreadsheetDatabaseView({
                 <span>{copiedSampleScript ? 'Tersalin!' : 'Salin Code.gs'}</span>
               </button>
             </div>
-            <pre className="text-[10.5px] font-mono-code overflow-x-auto leading-relaxed text-slate-200">
+            <pre className="max-h-[380px] overflow-auto text-[10.5px] font-mono-code leading-relaxed text-slate-200 pr-1">
               {buildSampleGasWebAppScript()}
             </pre>
           </div>

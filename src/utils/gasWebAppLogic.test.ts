@@ -4,6 +4,7 @@ import {
   buildGasAddActionPayload,
   buildSampleGasWebAppScript,
   DEFAULT_GAS_WEBAPP_URL,
+  GAS_SHIPMENT_SHEET_HEADERS,
   mergeGasFetchedShipments,
   parseGasWebAppGetResponse,
   validateGasWebAppUrl,
@@ -90,18 +91,50 @@ describe('gasWebAppLogic', () => {
     );
   });
 
-  it('builds exact { action: "add", data: {...} } POST payload', () => {
-    const shipment = makeShipment();
-    const payload = buildGasAddActionPayload(shipment, [
-      { id: 'c1', kodeOs: 'OS-2611-0001', noCont: 'MSKU1234567', ukuranTipe: '40HC' },
-    ]);
+  it('builds exact { action: "add", data: {...} } POST payload with all 41 summary fields', () => {
+    const shipment = makeShipment({
+      doPelayaranStatus: 'Sedia',
+      doBerlakuSampai: '2026-11-25',
+      doGatePassStatus: 'Sedia',
+      doGatePassJenis: 'TILA (Kartu Gate)',
+      doGatePassNomor: 'GP-7788',
+      truckingStatus: 'Sedia',
+      truckingNamaSupir: 'Pak Budi',
+      truckingNoPlat: 'B 9123 TX',
+      gateOutStatus: 'Sudah',
+      gateOutTanggal: '2026-11-21',
+      suratJalanNomor: 'SJ-001',
+      suratJalanStatus: 'Terbit',
+      billingStatus: 'Penagihan Terbit',
+      billingNomor: 'INV-2026-01',
+      billingTotal: 5500000,
+      pfpb: 'Selesai',
+      tglPfpb: '2026-11-22',
+    });
+    const payload = buildGasAddActionPayload(
+      shipment,
+      [{ id: 'c1', kodeOs: 'OS-2611-0001', noCont: 'MSKU1234567', ukuranTipe: '40HC' }],
+      {
+        importirs: [{ kodeImportir: 'IMP-01', namaImportir: 'PT Importir Utama' }],
+        checklistItems: DEFAULT_CHECKLIST_ITEMS,
+      }
+    );
     assert.equal(payload.action, 'add');
     assert.equal(payload.data.kodeOs, 'OS-2611-0001');
     assert.equal(payload.data.noBl, 'BL-998811');
     assert.equal(payload.data.namaCustomer, 'PT Maju Jaya');
+    assert.equal(payload.data.namaImportir, 'PT Importir Utama');
     assert.equal(payload.data.jalur, 'Hijau');
     assert.equal(payload.data.kontainerList.length, 1);
     assert.equal(payload.data.kontainerList[0].noCont, 'MSKU1234567');
+    assert.match(payload.data.bc11Ringkasan, /004122/);
+    assert.match(payload.data.terimaDokRingkasan, /^\d+\/\d+/);
+    assert.match(payload.data.dokumenOsRingkasan, /^\d+\/\d+ · (OS|Selesai)/);
+    assert.match(payload.data.doPelayaranRingkasan, /Sedia \(s\.d\. 2026-11-25\)/);
+    assert.match(payload.data.gatePassTruckingRingkasan, /GP-7788/);
+    assert.match(payload.data.gateOutSuratJalanRingkasan, /SJ-001/);
+    assert.match(payload.data.penagihanRingkasan, /INV-2026-01/);
+    assert.match(payload.data.pascaSppbRingkasan, /PFPB: Selesai \(2026-11-22\)/);
   });
 
   it('parses wrapped { data: [...] } and raw array GET responses with flexible headers', () => {
@@ -203,10 +236,19 @@ describe('gasWebAppLogic', () => {
     assert.equal(merged.nextDb.pengaturan.gasWebAppLastSyncDirection, 'get');
   });
 
-  it('generates sample Apps Script handler matching GET & POST action: add', () => {
+  it('generates sample Apps Script handler matching GET & 41-column POST action: add', () => {
+    assert.equal(GAS_SHIPMENT_SHEET_HEADERS.length, 41);
+    assert.equal(GAS_SHIPMENT_SHEET_HEADERS[0], 'No.');
+    assert.equal(GAS_SHIPMENT_SHEET_HEADERS[40], 'Dok. OS');
+
     const script = buildSampleGasWebAppScript();
     assert.match(script, /function doGet/);
     assert.match(script, /function doPost/);
     assert.match(script, /body\.action === 'add'/);
+    assert.match(script, /sheet\.appendRow\(\[/);
+    for (const header of GAS_SHIPMENT_SHEET_HEADERS) {
+      assert.ok(script.includes(header), `Expected script to include header "${header}"`);
+    }
+    assert.match(script, /41\. Dok\. OS/);
   });
 });

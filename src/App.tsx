@@ -1275,7 +1275,15 @@ export default function App() {
     if (!urlCheck.valid) return { synced: false };
 
     try {
-      const res = await postGasWebAppAddShipment(urlCheck.normalizedUrl, shipment, containers);
+      const res = await postGasWebAppAddShipment(
+        urlCheck.normalizedUrl,
+        shipment,
+        containers,
+        {
+          importirs: targetDb.importirs,
+          checklistItems: targetDb.pengaturan.checklistItems,
+        }
+      );
       const updatedDb = await savePengaturanRecord(session, {
         ...targetDb.pengaturan,
         gasWebAppUrl: urlCheck.normalizedUrl,
@@ -1458,7 +1466,11 @@ export default function App() {
       const res = await postGasWebAppAddShipment(
         check.normalizedUrl,
         targetShipment,
-        targetContainers
+        targetContainers,
+        {
+          importirs: db.importirs,
+          checklistItems: db.pengaturan.checklistItems,
+        }
       );
       const savedDb = await savePengaturanRecord(session, {
         ...db.pengaturan,
