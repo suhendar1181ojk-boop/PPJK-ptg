@@ -68,6 +68,7 @@ interface MasterSettingsViewProps {
   driveUserEmail: string | null;
   driveConnecting: boolean;
   syncingSheets: boolean;
+  syncingGasWebApp: boolean;
   darkMode: boolean;
   onConnectGoogle: () => Promise<void>;
   onDisconnectGoogle: () => Promise<void>;
@@ -78,6 +79,12 @@ interface MasterSettingsViewProps {
   onToggleAutoSyncSpreadsheet: (enabled: boolean) => Promise<void>;
   onDisconnectSpreadsheet: () => Promise<void>;
   onListSpreadsheets: () => Promise<SpreadsheetDriveEntry[]>;
+  onSaveGasWebAppConfig: (config: {
+    gasWebAppUrl: string;
+    gasWebAppAutoSync: boolean;
+  }) => Promise<void>;
+  onPullFromGasWebApp: (overrideUrl?: string) => Promise<void>;
+  onPushShipmentToGasWebApp: (kodeOs?: string, overrideUrl?: string) => Promise<void>;
   isOnline: boolean;
   idbStatus: IndexedDbStatusSummary | null;
   offlineSyncQueue: OfflineSyncTask[];
@@ -119,6 +126,7 @@ export function MasterSettingsView({
   driveUserEmail,
   driveConnecting,
   syncingSheets,
+  syncingGasWebApp,
   darkMode,
   onConnectGoogle,
   onDisconnectGoogle,
@@ -129,6 +137,9 @@ export function MasterSettingsView({
   onToggleAutoSyncSpreadsheet,
   onDisconnectSpreadsheet,
   onListSpreadsheets,
+  onSaveGasWebAppConfig,
+  onPullFromGasWebApp,
+  onPushShipmentToGasWebApp,
   isOnline,
   idbStatus,
   offlineSyncQueue,
@@ -1185,6 +1196,7 @@ export function MasterSettingsView({
             driveUserEmail={driveUserEmail}
             driveConnecting={driveConnecting}
             syncingSheets={syncingSheets}
+            syncingGasWebApp={syncingGasWebApp}
             darkMode={darkMode}
             isAdmin={isAdmin}
             onConnectGoogle={onConnectGoogle}
@@ -1196,6 +1208,9 @@ export function MasterSettingsView({
             onToggleAutoSync={onToggleAutoSyncSpreadsheet}
             onDisconnectSpreadsheet={onDisconnectSpreadsheet}
             onListSpreadsheets={onListSpreadsheets}
+            onSaveGasWebAppConfig={onSaveGasWebAppConfig}
+            onPullFromGasWebApp={onPullFromGasWebApp}
+            onPushShipmentToGasWebApp={onPushShipmentToGasWebApp}
           />
         )}
 

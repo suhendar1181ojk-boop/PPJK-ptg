@@ -5,14 +5,19 @@ import {
   CheckCircle2,
   Cloud,
   CloudOff,
+  Code2,
   Copy,
   Download,
   ExternalLink,
   FileSpreadsheet,
   FolderSearch,
+  Globe,
   Link2,
   PlusCircle,
   RefreshCw,
+  RotateCcw,
+  Save,
+  Send,
   ShieldCheck,
   Table2,
   Unlink,
@@ -24,6 +29,11 @@ import {
   DATABASE_SHEET_TABS,
   extractSpreadsheetIdFromInput,
 } from '../utils/sheetsSchema';
+import {
+  buildSampleGasWebAppScript,
+  DEFAULT_GAS_WEBAPP_URL,
+  validateGasWebAppUrl,
+} from '../utils/gasWebAppLogic';
 import type { SpreadsheetDriveEntry } from '../services/googleSheetsService';
 import { fetchFirebaseAuthorizedDomains } from '../services/googleDriveService';
 import {
@@ -36,6 +46,7 @@ interface SpreadsheetDatabaseViewProps {
   driveUserEmail: string | null;
   driveConnecting: boolean;
   syncingSheets: boolean;
+  syncingGasWebApp: boolean;
   darkMode: boolean;
   isAdmin: boolean;
   onConnectGoogle: () => Promise<void>;
@@ -47,6 +58,12 @@ interface SpreadsheetDatabaseViewProps {
   onToggleAutoSync: (enabled: boolean) => Promise<void>;
   onDisconnectSpreadsheet: () => Promise<void>;
   onListSpreadsheets: () => Promise<SpreadsheetDriveEntry[]>;
+  onSaveGasWebAppConfig: (config: {
+    gasWebAppUrl: string;
+    gasWebAppAutoSync: boolean;
+  }) => Promise<void>;
+  onPullFromGasWebApp: (overrideUrl?: string) => Promise<void>;
+  onPushShipmentToGasWebApp: (kodeOs?: string, overrideUrl?: string) => Promise<void>;
 }
 
 export function SpreadsheetDatabaseView({
@@ -54,6 +71,7 @@ export function SpreadsheetDatabaseView({
   driveUserEmail,
   driveConnecting,
   syncingSheets,
+  syncingGasWebApp,
   darkMode,
   isAdmin,
   onConnectGoogle,
@@ -65,6 +83,9 @@ export function SpreadsheetDatabaseView({
   onToggleAutoSync,
   onDisconnectSpreadsheet,
   onListSpreadsheets,
+  onSaveGasWebAppConfig,
+  onPullFromGasWebApp,
+  onPushShipmentToGasWebApp,
 }: SpreadsheetDatabaseViewProps) {
   const [newSheetTitle, setNewSheetTitle] = useState(
     db.pengaturan.spreadsheetTitle || 'PTG_PPJK_DATABASE'
@@ -75,6 +96,28 @@ export function SpreadsheetDatabaseView({
   const [domainStatus, setDomainStatus] = useState<GoogleAuthDomainStatus | null>(null);
   const [checkingDomain, setCheckingDomain] = useState(false);
   const [copiedDomain, setCopiedDomain] = useState(false);
+
+  const savedGasUrl =
+    db.pengaturan.gasWebAppUrl !== undefined
+      ? db.pengaturan.gasWebAppUrl
+      : DEFAULT_GAS_WEBAPP_URL;
+  const savedGasAutoSync = db.pengaturan.gasWebAppAutoSync !== false;
+  const [gasUrlInput, setGasUrlInput] = useState(savedGasUrl);
+  const [selectedPushKodeOs, setSelectedPushKodeOs] = useState(
+    db.shipments[0]?.kodeOs || ''
+  );
+  const [showSampleGasCode, setShowSampleGasCode] = useState(false);
+  const [copiedSampleScript, setCopiedSampleScript] = useState(false);
+
+  useEffect(() => {
+    setGasUrlInput(savedGasUrl);
+  }, [savedGasUrl]);
+
+  useEffect(() => {
+    if (!selectedPushKodeOs && db.shipments.length > 0) {
+      setSelectedPushKodeOs(db.shipments[0].kodeOs);
+    }
+  }, [db.shipments, selectedPushKodeOs]);
 
   const checkDomainStatus = async (forceRefresh = false) => {
     setCheckingDomain(true);
@@ -97,6 +140,29 @@ export function SpreadsheetDatabaseView({
     (linkedId ? `https://docs.google.com/spreadsheets/d/${linkedId}/edit` : '');
   const autoSyncEnabled = Boolean(db.pengaturan.spreadsheetAutoSync);
   const lastSyncAt = db.pengaturan.spreadsheetLastSyncAt || '';
+
+  const gasValidation = validateGasWebAppUrl(gasUrlInput);
+  const activeGasLastSyncAt = db.pengaturan.gasWebAppLastSyncAt || '';
+  const activeGasLastDir = db.pengaturan.gasWebAppLastSyncDirection || '';
+  const activeGasLastMsg = db.pengaturan.gasWebAppLastSyncMessage || '';
+
+  const handleSaveGasUrlSubmit = async () => {
+    const check = validateGasWebAppUrl(gasUrlInput);
+    if (!check.valid) {
+      await Swal.fire({
+        title: 'URL Endpoint Tidak Valid',
+        text: check.error || 'Periksa kembali format URL Web App Google Apps Script.',
+        icon: 'warning',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+      return;
+    }
+    await onSaveGasWebAppConfig({
+      gasWebAppUrl: check.normalizedUrl,
+      gasWebAppAutoSync: savedGasAutoSync,
+    });
+  };
 
   const tabCounts: Record<string, number> = {
     Shipments: db.shipments.length,
@@ -185,12 +251,12 @@ export function SpreadsheetDatabaseView({
               Database &amp; Sinkronisasi Penuh Google Spreadsheet
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 max-w-2xl">
-              Simpan dan sinkronkan seluruh database PPJK (Shipments, Kontainer, Master Data, User, Log, Catatan, Dokumen, dan Pengaturan) secara langsung dengan file Google Spreadsheet Anda.
+              Hubungkan aplikasi ke endpoint Web App Google Apps Script (GET daftar data &amp; POST action: &apos;add&apos;) atau sinkronkan langsung via akun Google Sheets API.
             </p>
           </div>
         </div>
 
-        {/* Status Pill */}
+        {/* Status Indicator */}
         <div className="flex items-center gap-2">
           {linkedId ? (
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/15 border border-emerald-200 dark:border-emerald-500/35 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
@@ -199,6 +265,11 @@ export function SpreadsheetDatabaseView({
                 {autoSyncEnabled ? 'Auto-Sync Spreadsheet Aktif' : 'Spreadsheet Terhubung'}
               </span>
             </span>
+          ) : gasValidation.valid ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/15 border border-emerald-200 dark:border-emerald-500/35 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+              <Globe className="w-3.5 h-3.5" />
+              <span>Endpoint GAS Terkonfigurasi</span>
+            </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-500/15 border border-amber-200 dark:border-amber-500/35 text-xs font-semibold text-amber-800 dark:text-amber-300">
               <CloudOff className="w-3.5 h-3.5" />
@@ -206,6 +277,208 @@ export function SpreadsheetDatabaseView({
             </span>
           )}
         </div>
+      </div>
+
+      {/* Section A: Direct Google Apps Script Web App Endpoint (GET & POST action: 'add') */}
+      <div
+        data-testid="gas-webapp-panel"
+        className="p-4 rounded-xl bg-emerald-50/50 dark:bg-[#161D2F] border border-emerald-200/80 dark:border-emerald-500/25 space-y-3.5"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="space-y-0.5 min-w-0 flex-1">
+            <div className="text-xs font-bold text-[#0B2545] dark:text-white flex items-center gap-1.5 flex-wrap">
+              <Globe className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <span>Koneksi Endpoint Google Apps Script (Web App GET &amp; POST)</span>
+              {gasValidation.valid && gasValidation.isDevEndpoint && (
+                <span className="px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 text-[10px] font-semibold">
+                  Mode /dev
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-600 dark:text-slate-400">
+              Mengambil daftar data melalui HTTP <code className="font-mono-code font-semibold">GET</code> dan otomatis mengirim data shipment baru via HTTP <code className="font-mono-code font-semibold">POST</code> dengan payload <code className="font-mono-code">{`{ action: 'add', data: {...} }`}</code>.
+            </p>
+          </div>
+
+          {isAdmin && (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={savedGasAutoSync}
+              data-testid="toggle-gas-webapp-autosync"
+              onClick={() =>
+                void onSaveGasWebAppConfig({
+                  gasWebAppUrl: gasValidation.valid ? gasValidation.normalizedUrl : savedGasUrl,
+                  gasWebAppAutoSync: !savedGasAutoSync,
+                })
+              }
+              disabled={syncingGasWebApp}
+              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition-colors shrink-0 self-start sm:self-center ${
+                savedGasAutoSync
+                  ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700'
+                  : 'bg-white dark:bg-[#182032] border-slate-300 dark:border-white/15 text-slate-700 dark:text-slate-200'
+              }`}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncingGasWebApp ? 'animate-spin' : ''}`} />
+              <span>Auto-POST Baru: {savedGasAutoSync ? 'ON' : 'OFF'}</span>
+            </button>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <label
+            htmlFor="gasWebAppUrlInput"
+            className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300"
+          >
+            URL Web App Google Apps Script
+          </label>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              id="gasWebAppUrlInput"
+              data-testid="gas-webapp-url-input"
+              type="url"
+              value={gasUrlInput}
+              onChange={(e) => setGasUrlInput(e.target.value)}
+              disabled={!isAdmin || syncingGasWebApp}
+              placeholder={DEFAULT_GAS_WEBAPP_URL}
+              className={`flex-1 ${inputCls} font-mono-code`}
+            />
+            {isAdmin && (
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  data-testid="save-gas-webapp-url-btn"
+                  onClick={() => void handleSaveGasUrlSubmit()}
+                  disabled={syncingGasWebApp}
+                  className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#0B2545] hover:bg-[#123663] dark:bg-violet-600 dark:hover:bg-violet-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Simpan URL</span>
+                </button>
+                {gasUrlInput !== DEFAULT_GAS_WEBAPP_URL && (
+                  <button
+                    type="button"
+                    onClick={() => setGasUrlInput(DEFAULT_GAS_WEBAPP_URL)}
+                    title="Kembalikan ke URL endpoint default"
+                    className="inline-flex items-center gap-1 px-2.5 py-2 rounded-xl border border-slate-300 dark:border-white/15 bg-white dark:bg-[#182032] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Default</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          {!gasValidation.valid && gasUrlInput.trim() !== '' && (
+            <div className="text-[11px] font-medium text-red-600 dark:text-red-400">
+              {gasValidation.error}
+            </div>
+          )}
+        </div>
+
+        {/* Action Row: GET List + POST { action: 'add', data } */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-emerald-200/70 dark:border-white/[0.08]">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              data-testid="gas-webapp-get-btn"
+              onClick={() => void onPullFromGasWebApp(gasUrlInput)}
+              disabled={!gasValidation.valid || syncingGasWebApp}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer"
+            >
+              <Download className={`w-3.5 h-3.5 ${syncingGasWebApp ? 'animate-pulse' : ''}`} />
+              <span>{syncingGasWebApp ? 'Memproses...' : 'Ambil Data dari GAS (GET)'}</span>
+            </button>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              {db.shipments.length > 0 && (
+                <select
+                  aria-label="Pilih shipment untuk dikirim ke GAS"
+                  data-testid="gas-webapp-push-select"
+                  value={selectedPushKodeOs}
+                  onChange={(e) => setSelectedPushKodeOs(e.target.value)}
+                  className={`${inputCls} max-w-[270px]`}
+                >
+                  {db.shipments.slice(0, 30).map((s) => (
+                    <option key={s.kodeOs} value={s.kodeOs}>
+                      {s.kodeOs} — {s.noBl || s.namaCustomer}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <button
+                type="button"
+                data-testid="gas-webapp-post-btn"
+                onClick={() =>
+                  void onPushShipmentToGasWebApp(
+                    selectedPushKodeOs || db.shipments[0]?.kodeOs,
+                    gasUrlInput
+                  )
+                }
+                disabled={!gasValidation.valid || syncingGasWebApp || db.shipments.length === 0}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#F28C28] hover:bg-[#D97719] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] disabled:opacity-50 text-white text-xs font-semibold cursor-pointer"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Kirim Data Baru (POST add)</span>
+              </button>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowSampleGasCode((prev) => !prev)}
+            className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#0B2545] dark:text-violet-300 hover:underline cursor-pointer"
+          >
+            <Code2 className="w-3.5 h-3.5" />
+            <span>{showSampleGasCode ? 'Sembunyikan Contoh Code.gs' : 'Lihat Contoh Code.gs (doGet / doPost)'}</span>
+          </button>
+        </div>
+
+        {(activeGasLastSyncAt || activeGasLastMsg) && (
+          <div
+            data-testid="gas-webapp-last-sync"
+            className="px-3 py-2 rounded-lg bg-white/80 dark:bg-[#131926] border border-emerald-200/70 dark:border-white/[0.06] text-[11px] text-slate-600 dark:text-slate-300 flex flex-wrap items-center justify-between gap-2"
+          >
+            <div>
+              Status GAS terakhir:{' '}
+              <strong>{activeGasLastSyncAt ? formatDateTimeId(activeGasLastSyncAt) : 'Baru saja'}</strong>
+              {activeGasLastDir ? ` (${activeGasLastDir.toUpperCase()})` : ''}
+            </div>
+            {activeGasLastMsg && (
+              <div className="text-emerald-700 dark:text-emerald-300 font-medium">
+                {activeGasLastMsg}
+              </div>
+            )}
+          </div>
+        )}
+
+        {showSampleGasCode && (
+          <div className="p-3 rounded-xl bg-slate-900 text-slate-100 space-y-2 border border-slate-700">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-mono-code font-semibold text-emerald-400">
+                Code.gs — Google Apps Script (doGet &amp; doPost action: &apos;add&apos;)
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (navigator.clipboard?.writeText) {
+                    void navigator.clipboard.writeText(buildSampleGasWebAppScript()).then(() => {
+                      setCopiedSampleScript(true);
+                      setTimeout(() => setCopiedSampleScript(false), 2000);
+                    });
+                  }
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[11px] font-semibold text-white cursor-pointer"
+              >
+                <Copy className="w-3 h-3" />
+                <span>{copiedSampleScript ? 'Tersalin!' : 'Salin Code.gs'}</span>
+              </button>
+            </div>
+            <pre className="text-[10.5px] font-mono-code overflow-x-auto leading-relaxed text-slate-200">
+              {buildSampleGasWebAppScript()}
+            </pre>
+          </div>
+        )}
       </div>
 
       {/* Step 1: Google Account Auth Status */}

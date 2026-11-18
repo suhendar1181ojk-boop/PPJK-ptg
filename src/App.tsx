@@ -113,6 +113,15 @@ import {
   DATABASE_SHEET_TABS,
 } from './utils/sheetsSchema';
 import {
+  fetchGasWebAppShipments,
+  postGasWebAppAddShipment,
+} from './services/gasWebAppService';
+import {
+  DEFAULT_GAS_WEBAPP_URL,
+  mergeGasFetchedShipments,
+  validateGasWebAppUrl,
+} from './utils/gasWebAppLogic';
+import {
   canPerformAction,
   computeBillingSummary,
   filterShipments,
@@ -205,6 +214,7 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [syncingSheets, setSyncingSheets] = useState(false);
+  const [syncingGasWebApp, setSyncingGasWebApp] = useState(false);
   const [masterInitialTab, setMasterInitialTab] = useState<MasterTab>('customer');
   const autoSyncInFlightRef = useRef(false);
   const isOnline = useOnlineStatus();
@@ -1247,6 +1257,250 @@ export default function App() {
     return listUserSpreadsheets(accessToken, 20);
   };
 
+  const syncNewShipmentToGasWebAppIfEnabled = async (
+    targetDb: DatabaseState,
+    shipment: Shipment,
+    containers: KontainerItem[] = []
+  ): Promise<{ synced: boolean; error?: string; nextDb?: DatabaseState }> => {
+    if (!session) return { synced: false };
+    const configuredUrl =
+      targetDb.pengaturan.gasWebAppUrl !== undefined
+        ? targetDb.pengaturan.gasWebAppUrl
+        : DEFAULT_GAS_WEBAPP_URL;
+    const autoSync = targetDb.pengaturan.gasWebAppAutoSync !== false;
+    if (!autoSync || !configuredUrl || !isOnline) {
+      return { synced: false };
+    }
+    const urlCheck = validateGasWebAppUrl(configuredUrl);
+    if (!urlCheck.valid) return { synced: false };
+
+    try {
+      const res = await postGasWebAppAddShipment(urlCheck.normalizedUrl, shipment, containers);
+      const updatedDb = await savePengaturanRecord(session, {
+        ...targetDb.pengaturan,
+        gasWebAppUrl: urlCheck.normalizedUrl,
+        gasWebAppLastSyncAt: res.sentAt,
+        gasWebAppLastSyncDirection: 'post',
+        gasWebAppLastSyncMessage: `POST add ${shipment.kodeOs} (${shipment.noBl}) berhasil`,
+      });
+      await flushIndexedDbWrites();
+      setDb({ ...updatedDb });
+      return { synced: true, nextDb: updatedDb };
+    } catch (err) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : 'Gagal mengirim data baru ke Google Apps Script.';
+      return { synced: false, error: msg };
+    }
+  };
+
+  const handleSaveGasWebAppConfig = async (config: {
+    gasWebAppUrl: string;
+    gasWebAppAutoSync: boolean;
+  }) => {
+    if (!db || !session) return;
+    const nextDb = await savePengaturanRecord(session, {
+      ...db.pengaturan,
+      gasWebAppUrl: config.gasWebAppUrl.trim(),
+      gasWebAppAutoSync: config.gasWebAppAutoSync,
+    });
+    await applyDbUpdate(nextDb);
+    void Swal.fire({
+      toast: true,
+      position: 'bottom-end',
+      icon: 'success',
+      title: 'Konfigurasi Endpoint GAS Disimpan',
+      text: config.gasWebAppAutoSync
+        ? 'Auto-POST { action: "add" } aktif untuk shipment baru.'
+        : 'Auto-POST dimatikan (sinkronisasi manual).',
+      background: darkMode ? '#151B2B' : '#FFFFFF',
+      color: darkMode ? '#F1F5F9' : '#0F172A',
+      showConfirmButton: false,
+      timer: 2600,
+    });
+  };
+
+  const handlePullFromGasWebApp = async (overrideUrl?: string) => {
+    if (!db || !session) return;
+    const targetUrl = (
+      overrideUrl ??
+      (db.pengaturan.gasWebAppUrl !== undefined
+        ? db.pengaturan.gasWebAppUrl
+        : DEFAULT_GAS_WEBAPP_URL)
+    ).trim();
+    const check = validateGasWebAppUrl(targetUrl);
+    if (!check.valid) {
+      await Swal.fire({
+        title: 'URL Endpoint GAS Tidak Valid',
+        text: check.error || 'Periksa kembali URL Web App Google Apps Script.',
+        icon: 'warning',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+      return;
+    }
+
+    setSyncingGasWebApp(true);
+    try {
+      const fetched = await fetchGasWebAppShipments(
+        check.normalizedUrl,
+        db.pengaturan.checklistItems,
+        db.shipments
+      );
+
+      if (fetched.shipments.length === 0) {
+        const metaDb = await savePengaturanRecord(session, {
+          ...db.pengaturan,
+          gasWebAppUrl: check.normalizedUrl,
+          gasWebAppLastSyncAt: fetched.fetchedAt,
+          gasWebAppLastSyncDirection: 'get',
+          gasWebAppLastSyncMessage: 'GET berhasil, belum ada baris shipment di endpoint GAS.',
+        });
+        await applyDbUpdate(metaDb);
+        await Swal.fire({
+          title: 'Data GAS Kosong',
+          text: 'Endpoint Google Apps Script merespons sukses (GET), namun daftar data shipment masih kosong.',
+          icon: 'info',
+          background: darkMode ? '#131926' : '#ffffff',
+          color: darkMode ? '#f1f5f9' : '#0f172a',
+        });
+        return;
+      }
+
+      const merged = mergeGasFetchedShipments(db, fetched.shipments, session.username);
+      const imported = await importDatabaseSnapshot({
+        ...merged.nextDb,
+        pengaturan: {
+          ...merged.nextDb.pengaturan,
+          gasWebAppUrl: check.normalizedUrl,
+        },
+      });
+      setDb({ ...imported });
+      setLastSyncedAt(fetched.fetchedAt);
+      await refreshOfflineTelemetry(imported);
+
+      await Swal.fire({
+        title: 'Data Berhasil Diambil dari GAS (GET)',
+        text: `Berhasil memproses ${merged.totalRemote} baris dari Google Apps Script (${merged.insertedCount} baru ditambahkan, ${merged.updatedCount} diperbarui).`,
+        icon: 'success',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Gagal mengambil data dari endpoint Google Apps Script.';
+      const errDb = await savePengaturanRecord(session, {
+        ...db.pengaturan,
+        gasWebAppUrl: check.normalizedUrl,
+        gasWebAppLastSyncAt: new Date().toISOString(),
+        gasWebAppLastSyncDirection: 'get',
+        gasWebAppLastSyncMessage: `GET gagal: ${message}`,
+      });
+      setDb({ ...errDb });
+      await Swal.fire({
+        title: 'Gagal Mengambil Data GAS (GET)',
+        text: message,
+        icon: 'error',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+    } finally {
+      setSyncingGasWebApp(false);
+    }
+  };
+
+  const handlePushShipmentToGasWebApp = async (
+    kodeOs?: string,
+    overrideUrl?: string
+  ) => {
+    if (!db || !session) return;
+    const targetUrl = (
+      overrideUrl ??
+      (db.pengaturan.gasWebAppUrl !== undefined
+        ? db.pengaturan.gasWebAppUrl
+        : DEFAULT_GAS_WEBAPP_URL)
+    ).trim();
+    const check = validateGasWebAppUrl(targetUrl);
+    if (!check.valid) {
+      await Swal.fire({
+        title: 'URL Endpoint GAS Tidak Valid',
+        text: check.error || 'Periksa kembali URL Web App Google Apps Script.',
+        icon: 'warning',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+      return;
+    }
+
+    const targetShipment =
+      (kodeOs
+        ? db.shipments.find((s) => s.kodeOs === kodeOs)
+        : db.shipments[0]) || null;
+    if (!targetShipment) {
+      await Swal.fire({
+        title: 'Belum Ada Data Shipment',
+        text: 'Tambahkan minimal 1 data shipment terlebih dahulu untuk dikirim ke endpoint GAS.',
+        icon: 'info',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+      return;
+    }
+
+    setSyncingGasWebApp(true);
+    try {
+      const targetContainers = db.kontainers.filter(
+        (k) => k.kodeOs === targetShipment.kodeOs
+      );
+      const res = await postGasWebAppAddShipment(
+        check.normalizedUrl,
+        targetShipment,
+        targetContainers
+      );
+      const savedDb = await savePengaturanRecord(session, {
+        ...db.pengaturan,
+        gasWebAppUrl: check.normalizedUrl,
+        gasWebAppLastSyncAt: res.sentAt,
+        gasWebAppLastSyncDirection: 'post',
+        gasWebAppLastSyncMessage: `POST { action: 'add' } ${targetShipment.kodeOs} berhasil.`,
+      });
+      await flushIndexedDbWrites();
+      setDb({ ...savedDb });
+      await Swal.fire({
+        title: 'Data Berhasil Dikirim ke GAS (POST add)',
+        text: `Shipment ${targetShipment.kodeOs} (BL: ${targetShipment.noBl}) telah dikirim dengan payload { action: 'add', data: {...} }.`,
+        icon: 'success',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Gagal mengirim data ke endpoint Google Apps Script.';
+      const errDb = await savePengaturanRecord(session, {
+        ...db.pengaturan,
+        gasWebAppUrl: check.normalizedUrl,
+        gasWebAppLastSyncAt: new Date().toISOString(),
+        gasWebAppLastSyncDirection: 'post',
+        gasWebAppLastSyncMessage: `POST gagal: ${message}`,
+      });
+      setDb({ ...errDb });
+      await Swal.fire({
+        title: 'Gagal Mengirim Data ke GAS (POST)',
+        text: message,
+        icon: 'error',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+    } finally {
+      setSyncingGasWebApp(false);
+    }
+  };
+
   const uploadSingleDocument = async (
     kodeOs: string,
     jenisDokumen: string,
@@ -1333,18 +1587,34 @@ export default function App() {
       }
     }
     await applyDbUpdate(latestDb);
+    let gasNote = '';
+    if (isNew) {
+      const savedContainers = latestDb.kontainers.filter(
+        (k) => k.kodeOs === res.saved.kodeOs
+      );
+      const gasRes = await syncNewShipmentToGasWebAppIfEnabled(
+        latestDb,
+        res.saved,
+        savedContainers
+      );
+      if (gasRes.synced) {
+        gasNote = ' & tersinkron ke GAS Spreadsheet (POST add).';
+      } else if (gasRes.error) {
+        gasNote = ` (Lokal tersimpan · GAS POST tertunda: ${gasRes.error})`;
+      }
+    }
     await Swal.fire({
       title: 'Tersimpan',
       text:
         pendingUploads.length > 0
           ? driveUploadedCount > 0
-            ? `Shipment ${res.saved.kodeOs} disimpan & ${driveUploadedCount} file berhasil diupload ke Google Drive.`
+            ? `Shipment ${res.saved.kodeOs} disimpan & ${driveUploadedCount} file berhasil diupload ke Google Drive.${gasNote}`
             : driveFallbackError
-            ? `Shipment ${res.saved.kodeOs} disimpan (Drive fallback lokal: ${driveFallbackError}).`
-            : `Shipment ${res.saved.kodeOs} berhasil disimpan beserta ${pendingUploads.length} file dokumen.`
-          : `Shipment ${res.saved.kodeOs} berhasil disimpan.`,
+            ? `Shipment ${res.saved.kodeOs} disimpan (Drive fallback lokal: ${driveFallbackError}).${gasNote}`
+            : `Shipment ${res.saved.kodeOs} berhasil disimpan beserta ${pendingUploads.length} file dokumen.${gasNote}`
+          : `Shipment ${res.saved.kodeOs} berhasil disimpan.${gasNote}`,
       icon: 'success',
-      timer: 2000,
+      timer: 2200,
       showConfirmButton: false,
     });
   };
@@ -1572,11 +1842,20 @@ export default function App() {
     if (!session) return undefined;
     const res = await saveShipmentRecord(session, shipment, containers, true);
     await applyDbUpdate(res.db);
+    const savedContainers = res.db.kontainers.filter(
+      (k) => k.kodeOs === res.saved.kodeOs
+    );
+    const gasRes = await syncNewShipmentToGasWebAppIfEnabled(
+      res.db,
+      res.saved,
+      savedContainers
+    );
     const sjInfo = res.saved.suratJalanNomor
       ? ` & Surat Jalan ${res.saved.suratJalanNomor} terbit`
       : '';
+    const gasInfo = gasRes.synced ? ' · GAS Sync OK' : '';
     void Swal.fire({
-      title: `Catatan D/O ${res.saved.kodeOs} dibuat (${res.saved.statusDokumen})${sjInfo}`,
+      title: `Catatan D/O ${res.saved.kodeOs} dibuat (${res.saved.statusDokumen})${sjInfo}${gasInfo}`,
       icon: 'success',
       toast: true,
       position: 'top-end',
@@ -1595,10 +1874,29 @@ export default function App() {
     if (!session) return;
     const res = await importShipmentsFromExcelBatch(session, items, options);
     await applyDbUpdate(res.db);
+
+    let gasSyncedCount = 0;
+    let currentDbForGas = res.db;
+    for (const createdKode of res.createdKodeOsList) {
+      const createdShip = currentDbForGas.shipments.find((s) => s.kodeOs === createdKode);
+      if (!createdShip) continue;
+      const createdCont = currentDbForGas.kontainers.filter((k) => k.kodeOs === createdKode);
+      const gasRes = await syncNewShipmentToGasWebAppIfEnabled(
+        currentDbForGas,
+        createdShip,
+        createdCont
+      );
+      if (gasRes.synced) {
+        gasSyncedCount++;
+        if (gasRes.nextDb) currentDbForGas = gasRes.nextDb;
+      }
+    }
+
     const parts: string[] = [];
     if (res.insertedCount > 0) parts.push(`${res.insertedCount} baru ditambahkan`);
     if (res.updatedCount > 0) parts.push(`${res.updatedCount} diperbarui`);
     if (res.skippedCount > 0) parts.push(`${res.skippedCount} dilewati`);
+    if (gasSyncedCount > 0) parts.push(`${gasSyncedCount} dikirim ke GAS`);
     await Swal.fire({
       title: 'Upload Excel / CSV Selesai',
       text: parts.length > 0 ? parts.join(' · ') : 'Tidak ada baris yang diproses.',
@@ -2270,6 +2568,7 @@ export default function App() {
               driveUserEmail={driveUserEmail}
               driveConnecting={driveConnecting}
               syncingSheets={syncingSheets}
+              syncingGasWebApp={syncingGasWebApp}
               darkMode={darkMode}
               onConnectGoogle={handleConnectGoogleDrive}
               onDisconnectGoogle={handleDisconnectGoogleDrive}
@@ -2280,6 +2579,9 @@ export default function App() {
               onToggleAutoSyncSpreadsheet={handleToggleAutoSyncSpreadsheet}
               onDisconnectSpreadsheet={handleDisconnectSpreadsheet}
               onListSpreadsheets={handleListUserSpreadsheets}
+              onSaveGasWebAppConfig={handleSaveGasWebAppConfig}
+              onPullFromGasWebApp={handlePullFromGasWebApp}
+              onPushShipmentToGasWebApp={handlePushShipmentToGasWebApp}
               isOnline={isOnline}
               idbStatus={idbStatus}
               offlineSyncQueue={offlineSyncQueue}

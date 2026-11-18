@@ -86,6 +86,12 @@ export const DEFAULT_PENGATURAN: Pengaturan = {
   adminEmail: 'admin.billing@ptg-ppjk.co.id',
   billingBankInfo:
     'Bank Mandiri Cab. Tanjung Priok · No. Rek: 120-00-8899123-4 a.n. PT PTG Logistik Kepabeanan',
+  gasWebAppUrl:
+    'https://script.google.com/macros/s/AKfycbxS0527e6Urzg4Dyipl8oJpzSCxx7DU3qAntocgwg/dev',
+  gasWebAppAutoSync: true,
+  gasWebAppLastSyncAt: '',
+  gasWebAppLastSyncDirection: '',
+  gasWebAppLastSyncMessage: '',
   seqPengeluaranByMonth: {},
 };
 

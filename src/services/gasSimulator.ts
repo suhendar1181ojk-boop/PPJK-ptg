@@ -928,7 +928,9 @@ export async function ensureDbInitialized(): Promise<DatabaseState> {
       !existing.pengaturan.billingBankInfo ||
       !existing.pengaturan.ppjkBrandName ||
       !existing.pengaturan.ppjkCompanyName ||
-      !existing.pengaturan.roleModuleAccess
+      !existing.pengaturan.roleModuleAccess ||
+      existing.pengaturan.gasWebAppUrl === undefined ||
+      existing.pengaturan.gasWebAppAutoSync === undefined
     ) {
       existing.pengaturan = {
         ...DEFAULT_PENGATURAN,
@@ -954,6 +956,17 @@ export async function ensureDbInitialized(): Promise<DatabaseState> {
         adminWhatsapp: existing.pengaturan.adminWhatsapp || DEFAULT_PENGATURAN.adminWhatsapp,
         adminEmail: existing.pengaturan.adminEmail || DEFAULT_PENGATURAN.adminEmail,
         billingBankInfo: existing.pengaturan.billingBankInfo || DEFAULT_PENGATURAN.billingBankInfo,
+        gasWebAppUrl:
+          existing.pengaturan.gasWebAppUrl !== undefined
+            ? existing.pengaturan.gasWebAppUrl
+            : DEFAULT_PENGATURAN.gasWebAppUrl,
+        gasWebAppAutoSync:
+          existing.pengaturan.gasWebAppAutoSync !== undefined
+            ? existing.pengaturan.gasWebAppAutoSync
+            : DEFAULT_PENGATURAN.gasWebAppAutoSync,
+        gasWebAppLastSyncAt: existing.pengaturan.gasWebAppLastSyncAt || '',
+        gasWebAppLastSyncDirection: existing.pengaturan.gasWebAppLastSyncDirection || '',
+        gasWebAppLastSyncMessage: existing.pengaturan.gasWebAppLastSyncMessage || '',
       };
       changed = true;
     }
