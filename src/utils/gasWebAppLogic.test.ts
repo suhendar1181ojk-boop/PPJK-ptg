@@ -2,10 +2,13 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildGasAddActionPayload,
+  buildGasFullGetUrl,
+  buildGasSyncAllActionPayload,
   buildSampleGasWebAppScript,
   DEFAULT_GAS_WEBAPP_URL,
   GAS_SHIPMENT_SHEET_HEADERS,
   mergeGasFetchedShipments,
+  parseGasWebAppFullDatabaseGetResponse,
   parseGasWebAppGetResponse,
   validateGasWebAppUrl,
 } from './gasWebAppLogic';
@@ -236,7 +239,7 @@ describe('gasWebAppLogic', () => {
     assert.equal(merged.nextDb.pengaturan.gasWebAppLastSyncDirection, 'get');
   });
 
-  it('generates sample Apps Script handler matching GET & 41-column POST action: add', () => {
+  it('generates sample Apps Script handler matching GET & 41/82-column + 12-tab database structure', () => {
     assert.equal(GAS_SHIPMENT_SHEET_HEADERS.length, 41);
     assert.equal(GAS_SHIPMENT_SHEET_HEADERS[0], 'No.');
     assert.equal(GAS_SHIPMENT_SHEET_HEADERS[40], 'Dok. OS');
@@ -244,11 +247,119 @@ describe('gasWebAppLogic', () => {
     const script = buildSampleGasWebAppScript();
     assert.match(script, /function doGet/);
     assert.match(script, /function doPost/);
+    assert.match(script, /ensureDatabaseTabs_/);
+    assert.match(script, /body\.action === 'syncAll'/);
+    assert.match(script, /body\.action === 'initTabs'/);
+    assert.match(script, /body\.action === 'appendTabRow'/);
     assert.match(script, /body\.action === 'add'/);
-    assert.match(script, /sheet\.appendRow\(\[/);
+    assert.match(script, /build82ColShipmentRow_/);
+    assert.match(script, /build41ColShipmentRow_/);
     for (const header of GAS_SHIPMENT_SHEET_HEADERS) {
       assert.ok(script.includes(header), `Expected script to include header "${header}"`);
     }
     assert.match(script, /41\. Dok\. OS/);
+    for (const tabName of [
+      'Shipments',
+      'Kontainer',
+      'Master_Customer',
+      'Master_Importir',
+      'Master_Shipper',
+      'Users',
+      'Log_Perubahan',
+      'Catatan',
+      'Dokumen',
+      'Pengeluaran_Ops',
+      'Pengaturan',
+      'Sync_Metadata',
+    ]) {
+      assert.ok(script.includes(tabName), `Expected script to include tab "${tabName}"`);
+    }
+  });
+
+  it('builds 12-tab syncAll POST payload with exact column counts and round-trips via full GET parser', () => {
+    const baseDb: DatabaseState = {
+      shipments: [makeShipment()],
+      kontainers: [
+        { id: 'c1', kodeOs: 'OS-2611-0001', noCont: 'MSKU1234567', ukuranTipe: '40HC' },
+      ],
+      customers: [{ kodeCustomer: 'CUST-001', namaCustomer: 'PT Maju Jaya', kontak: '0812345' }],
+      importirs: [{ kodeImportir: 'IMP-01', namaImportir: 'PT Importir Utama' }],
+      shippers: [{ namaShipper: 'SHANGHAI CORP', negara: 'CHINA' }],
+      users: [],
+      logs: [
+        {
+          id: 'log-1',
+          waktu: '2026-11-10T08:00:00.000Z',
+          user: 'admin',
+          kodeOs: 'OS-2611-0001',
+          kolom: 'status',
+          nilaiLama: 'Draft',
+          nilaiBaru: 'Proses PIB/AJU',
+        },
+      ],
+      catatan: [
+        {
+          id: 'cat-1',
+          kodeOs: 'OS-2611-0001',
+          waktu: '2026-11-10T08:00:00.000Z',
+          user: 'admin',
+          isi: 'Dokumen lengkap',
+        },
+      ],
+      dokumen: [],
+      pengeluaranOps: [],
+      pengaturan: { ...DEFAULT_PENGATURAN },
+    };
+
+    const payload = buildGasSyncAllActionPayload(baseDb, 'admin', '2026-11-18T10:00:00.000Z');
+    assert.equal(payload.action, 'syncAll');
+    assert.equal(payload.tabs.length, 12);
+
+    const colCounts = Object.fromEntries(payload.tabs.map((t) => [t.title, t.headers.length]));
+    assert.deepEqual(colCounts, {
+      Shipments: 82,
+      Kontainer: 4,
+      Master_Customer: 3,
+      Master_Importir: 2,
+      Master_Shipper: 2,
+      Users: 9,
+      Log_Perubahan: 7,
+      Catatan: 5,
+      Dokumen: 10,
+      Pengeluaran_Ops: 26,
+      Pengaturan: 2,
+      Sync_Metadata: 2,
+    });
+
+    assert.equal(
+      buildGasFullGetUrl(DEFAULT_GAS_WEBAPP_URL),
+      `${DEFAULT_GAS_WEBAPP_URL}?mode=full`
+    );
+
+    const emptyFallback: DatabaseState = {
+      ...baseDb,
+      shipments: [],
+      kontainers: [],
+      customers: [],
+      importirs: [],
+      shippers: [],
+      logs: [],
+      catatan: [],
+    };
+    const parsed = parseGasWebAppFullDatabaseGetResponse(
+      { ok: true, mode: 'full', sheets: payload.sheets },
+      emptyFallback
+    );
+    assert.equal(parsed.matchedFullTabs, true);
+    assert.equal(parsed.errorMessage, undefined);
+    assert.equal(parsed.nextDb.shipments.length, 1);
+    assert.equal(parsed.nextDb.kontainers.length, 1);
+    assert.equal(parsed.nextDb.customers.length, 1);
+    assert.equal(parsed.nextDb.importirs.length, 1);
+    assert.equal(parsed.nextDb.shippers.length, 1);
+    assert.equal(parsed.nextDb.logs.length, 1);
+    assert.equal(parsed.nextDb.catatan.length, 1);
+    assert.equal(parsed.tabRowCounts.Shipments, 1);
+    assert.equal(parsed.tabRowCounts.Kontainer, 1);
   });
 });

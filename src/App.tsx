@@ -113,8 +113,10 @@ import {
   DATABASE_SHEET_TABS,
 } from './utils/sheetsSchema';
 import {
+  fetchGasWebAppFullDatabase,
   fetchGasWebAppShipments,
   postGasWebAppAddShipment,
+  postGasWebAppSyncAllDatabase,
 } from './services/gasWebAppService';
 import {
   DEFAULT_GAS_WEBAPP_URL,
@@ -1513,6 +1515,164 @@ export default function App() {
     }
   };
 
+  const handlePushFullDatabaseToGasWebApp = async (overrideUrl?: string) => {
+    if (!db || !session) return;
+    const targetUrl = (
+      overrideUrl ??
+      (db.pengaturan.gasWebAppUrl !== undefined
+        ? db.pengaturan.gasWebAppUrl
+        : DEFAULT_GAS_WEBAPP_URL)
+    ).trim();
+    const check = validateGasWebAppUrl(targetUrl);
+    if (!check.valid) {
+      await Swal.fire({
+        title: 'URL Endpoint GAS Tidak Valid',
+        text: check.error || 'Periksa kembali URL Web App Google Apps Script.',
+        icon: 'warning',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+      return;
+    }
+
+    setSyncingGasWebApp(true);
+    try {
+      const res = await postGasWebAppSyncAllDatabase(
+        check.normalizedUrl,
+        db,
+        session.username
+      );
+      const savedDb = await savePengaturanRecord(session, {
+        ...db.pengaturan,
+        gasWebAppUrl: check.normalizedUrl,
+        gasWebAppLastSyncAt: res.sentAt,
+        gasWebAppLastSyncDirection: 'post',
+        gasWebAppLastSyncMessage: `POST syncAll (${res.tabCount} tab, ${res.totalRows} baris) berhasil.`,
+      });
+      await flushIndexedDbWrites();
+      setDb({ ...savedDb });
+      await Swal.fire({
+        title: '12 Tab Database Tersinkron ke GAS',
+        text: `Berhasil mengirim ${res.tabCount} tab database (${res.totalRows} total baris data termasuk Shipments 82 kolom, Kontainer, Master, Users, Dokumen, Pengeluaran_Ops, Pengaturan, dan Sync_Metadata) via POST { action: 'syncAll' }.`,
+        icon: 'success',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Gagal mengirim 12 tab database ke Google Apps Script.';
+      const errDb = await savePengaturanRecord(session, {
+        ...db.pengaturan,
+        gasWebAppUrl: check.normalizedUrl,
+        gasWebAppLastSyncAt: new Date().toISOString(),
+        gasWebAppLastSyncDirection: 'post',
+        gasWebAppLastSyncMessage: `POST syncAll gagal: ${message}`,
+      });
+      setDb({ ...errDb });
+      await Swal.fire({
+        title: 'Gagal Push 12 Tab Database ke GAS',
+        text: message,
+        icon: 'error',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+    } finally {
+      setSyncingGasWebApp(false);
+    }
+  };
+
+  const handlePullFullDatabaseFromGasWebApp = async (overrideUrl?: string) => {
+    if (!db || !session) return;
+    const targetUrl = (
+      overrideUrl ??
+      (db.pengaturan.gasWebAppUrl !== undefined
+        ? db.pengaturan.gasWebAppUrl
+        : DEFAULT_GAS_WEBAPP_URL)
+    ).trim();
+    const check = validateGasWebAppUrl(targetUrl);
+    if (!check.valid) {
+      await Swal.fire({
+        title: 'URL Endpoint GAS Tidak Valid',
+        text: check.error || 'Periksa kembali URL Web App Google Apps Script.',
+        icon: 'warning',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+      return;
+    }
+
+    setSyncingGasWebApp(true);
+    try {
+      const res = await fetchGasWebAppFullDatabase(check.normalizedUrl, db);
+      if (res.totalRemoteDataRows === 0 || (res.tabRowCounts.Shipments || 0) === 0) {
+        const metaDb = await savePengaturanRecord(session, {
+          ...db.pengaturan,
+          gasWebAppUrl: check.normalizedUrl,
+          gasWebAppLastSyncAt: res.fetchedAt,
+          gasWebAppLastSyncDirection: 'get',
+          gasWebAppLastSyncMessage:
+            'GET ?mode=full terhubung, tab Spreadsheet di GAS masih kosong (hanya header).',
+        });
+        await applyDbUpdate(metaDb);
+        await Swal.fire({
+          title: 'Tab Spreadsheet GAS Masih Kosong',
+          text: 'Endpoint GAS sudah memiliki struktur tab, namun tab Shipments masih kosong. Klik "Push 12 Tab DB ke GAS (POST syncAll)" untuk mengisi data awal.',
+          icon: 'info',
+          background: darkMode ? '#131926' : '#ffffff',
+          color: darkMode ? '#f1f5f9' : '#0f172a',
+        });
+        return;
+      }
+
+      const imported = await importDatabaseSnapshot({
+        ...res.nextDb,
+        pengaturan: {
+          ...res.nextDb.pengaturan,
+          gasWebAppUrl: check.normalizedUrl,
+          gasWebAppAutoSync: db.pengaturan.gasWebAppAutoSync,
+          gasWebAppLastSyncAt: res.fetchedAt,
+          gasWebAppLastSyncDirection: 'get',
+          gasWebAppLastSyncMessage: `GET ?mode=full berhasil (${res.totalRemoteDataRows} total baris dari 12 tab).`,
+        },
+      });
+      setDb({ ...imported });
+      setLastSyncedAt(res.fetchedAt);
+      await refreshOfflineTelemetry(imported);
+
+      await Swal.fire({
+        title: '12 Tab Database Berhasil Diambil dari GAS',
+        text: `Berhasil menyinkronkan ${res.totalRemoteDataRows} total baris across ${Object.keys(res.tabRowCounts).length} tab (Shipments: ${res.tabRowCounts.Shipments || 0}, Kontainer: ${res.tabRowCounts.Kontainer || 0}, Customer: ${res.tabRowCounts.Master_Customer || 0}, Pengeluaran Ops: ${res.tabRowCounts.Pengeluaran_Ops || 0}).`,
+        icon: 'success',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Gagal menarik 12 tab database dari Google Apps Script.';
+      const errDb = await savePengaturanRecord(session, {
+        ...db.pengaturan,
+        gasWebAppUrl: check.normalizedUrl,
+        gasWebAppLastSyncAt: new Date().toISOString(),
+        gasWebAppLastSyncDirection: 'get',
+        gasWebAppLastSyncMessage: `GET ?mode=full gagal: ${message}`,
+      });
+      setDb({ ...errDb });
+      await Swal.fire({
+        title: 'Gagal Pull 12 Tab Database dari GAS',
+        text: message,
+        icon: 'error',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+    } finally {
+      setSyncingGasWebApp(false);
+    }
+  };
+
   const uploadSingleDocument = async (
     kodeOs: string,
     jenisDokumen: string,
@@ -2594,6 +2754,8 @@ export default function App() {
               onSaveGasWebAppConfig={handleSaveGasWebAppConfig}
               onPullFromGasWebApp={handlePullFromGasWebApp}
               onPushShipmentToGasWebApp={handlePushShipmentToGasWebApp}
+              onPushFullDatabaseToGasWebApp={handlePushFullDatabaseToGasWebApp}
+              onPullFullDatabaseFromGasWebApp={handlePullFullDatabaseFromGasWebApp}
               isOnline={isOnline}
               idbStatus={idbStatus}
               offlineSyncQueue={offlineSyncQueue}

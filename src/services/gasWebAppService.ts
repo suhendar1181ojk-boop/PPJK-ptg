@@ -1,9 +1,14 @@
-import type { KontainerItem, Shipment } from '../types/ppjk';
+import type { DatabaseState, KontainerItem, Shipment } from '../types/ppjk';
 import {
   buildGasAddActionPayload,
+  buildGasFullGetUrl,
+  buildGasSyncAllActionPayload,
   type BuildGasPayloadOptions,
   type GasAddActionPayload,
+  type GasSyncAllActionPayload,
+  parseGasWebAppFullDatabaseGetResponse,
   parseGasWebAppGetResponse,
+  type ParseGasFullDbResponseResult,
   type ParseGasGetResponseResult,
   validateGasWebAppUrl,
 } from '../utils/gasWebAppLogic';
@@ -174,5 +179,145 @@ export async function postGasWebAppAddShipment(
     sentAt: new Date().toISOString(),
     payload,
     responseBody: parsedBody,
+  };
+}
+
+export interface GasWebAppPostSyncAllResult {
+  url: string;
+  sentAt: string;
+  payload: GasSyncAllActionPayload;
+  responseBody: unknown;
+  tabCount: number;
+  totalRows: number;
+}
+
+export async function postGasWebAppSyncAllDatabase(
+  url: string,
+  db: DatabaseState,
+  updatedBy = 'admin'
+): Promise<GasWebAppPostSyncAllResult> {
+  const validation = validateGasWebAppUrl(url);
+  if (!validation.valid) {
+    throw new Error(validation.error || 'URL Web App Google Apps Script tidak valid.');
+  }
+
+  const syncedAt = new Date().toISOString();
+  const payload = buildGasSyncAllActionPayload(db, updatedBy, syncedAt);
+
+  let response: Response;
+  try {
+    response = await fetch(validation.normalizedUrl, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    throw new Error(
+      `Gagal mengirim seluruh 12 tab database (POST action: 'syncAll') ke Google Apps Script: ${
+        err instanceof Error ? err.message : 'Koneksi jaringan/CORS terblokir.'
+      }${
+        validation.isDevEndpoint
+          ? ' Pastikan akses Web App atau login Google aktif jika memakai URL /dev.'
+          : ''
+      }`
+    );
+  }
+
+  const rawText = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `Endpoint Google Apps Script menolak POST syncAll (HTTP ${response.status} ${response.statusText || ''}).`
+    );
+  }
+
+  const parsedBody = assertJsonTextResponse(
+    rawText,
+    response.status,
+    validation.isDevEndpoint
+  );
+  if (parsedBody && typeof parsedBody === 'object' && !Array.isArray(parsedBody)) {
+    const obj = parsedBody as Record<string, unknown>;
+    const statusStr = String(obj.status || '').trim().toLowerCase();
+    if (obj.ok === false || obj.success === false || statusStr === 'error') {
+      throw new Error(
+        String(obj.error || obj.message || 'Endpoint Apps Script menolak sinkronisasi 12 tab.')
+      );
+    }
+  }
+
+  const totalRows = Object.values(payload.sheets).reduce(
+    (sum, matrix) => sum + Math.max(0, matrix.length - 1),
+    0
+  );
+
+  return {
+    url: validation.normalizedUrl,
+    sentAt: syncedAt,
+    payload,
+    responseBody: parsedBody,
+    tabCount: payload.tabs.length,
+    totalRows,
+  };
+}
+
+export interface GasWebAppFullGetResult extends ParseGasFullDbResponseResult {
+  url: string;
+  fetchedAt: string;
+  rawPayload: unknown;
+}
+
+export async function fetchGasWebAppFullDatabase(
+  url: string,
+  fallbackDb: DatabaseState
+): Promise<GasWebAppFullGetResult> {
+  const validation = validateGasWebAppUrl(url);
+  if (!validation.valid) {
+    throw new Error(validation.error || 'URL Web App Google Apps Script tidak valid.');
+  }
+
+  const fullUrl = buildGasFullGetUrl(validation.normalizedUrl);
+
+  let response: Response;
+  try {
+    response = await fetch(fullUrl, {
+      method: 'GET',
+      redirect: 'follow',
+      headers: {
+        Accept: 'application/json, text/plain, */*',
+      },
+    });
+  } catch (err) {
+    throw new Error(
+      `Gagal menarik seluruh 12 tab database (GET ?mode=full) dari Google Apps Script: ${
+        err instanceof Error ? err.message : 'Koneksi jaringan/CORS terblokir.'
+      }`
+    );
+  }
+
+  const rawText = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `Endpoint Google Apps Script mengembalikan HTTP ${response.status} ${response.statusText || ''}.`
+    );
+  }
+
+  const rawPayload = assertJsonTextResponse(
+    rawText,
+    response.status,
+    validation.isDevEndpoint
+  );
+  const parsed = parseGasWebAppFullDatabaseGetResponse(rawPayload, fallbackDb);
+  if (parsed.errorMessage) {
+    throw new Error(parsed.errorMessage);
+  }
+
+  return {
+    ...parsed,
+    url: validation.normalizedUrl,
+    fetchedAt: new Date().toISOString(),
+    rawPayload,
   };
 }

@@ -25,6 +25,12 @@ import {
   normalizeStatusSuratJalan,
   normalizeStatusTrucking,
 } from './ppjkLogic';
+import {
+  DATABASE_SHEET_TABS,
+  parseSheetMatrixMapToDatabase,
+  serializeDatabaseToSheetMatrixMap,
+  type SheetTabSchema,
+} from './sheetsSchema';
 
 export const DEFAULT_GAS_WEBAPP_URL =
   'https://script.google.com/macros/s/AKfycbxS0527e6Urzg4Dyipl8oJpzSCxx7DU3qAntocgwg/dev';
@@ -80,6 +86,7 @@ export interface GasAddActionData {
   kodeCustomer: string;
   namaCustomer: string;
   tglTerimaDok: string;
+  terimaDokJson: string;
   terimaDokRingkasan: string;
   noPackinglist: string;
   noBl: string;
@@ -96,6 +103,7 @@ export interface GasAddActionData {
   bc11Ringkasan: string;
   doPelayaranStatus: string;
   doBerlakuSampai: string;
+  doCatatanPerpanjangan: string;
   doPelayaranRingkasan: string;
   doGatePassStatus: string;
   doGatePassJenis: string;
@@ -103,15 +111,33 @@ export interface GasAddActionData {
   truckingStatus: string;
   truckingNamaSupir: string;
   truckingNoPlat: string;
+  truckingNoHpSupir: string;
   gatePassTruckingRingkasan: string;
   gateOutStatus: string;
   gateOutTanggal: string;
+  gateOutCatatan: string;
   suratJalanNomor: string;
+  suratJalanTanggal: string;
   suratJalanStatus: string;
+  suratJalanTujuan: string;
+  suratJalanPenerima: string;
+  suratJalanCatatan: string;
+  suratJalanUpdatedAt: string;
   gateOutSuratJalanRingkasan: string;
   billingStatus: string;
   billingNomor: string;
+  billingTanggal: string;
+  billingJatuhTempo: string;
+  billingItemsJson: string;
+  billingPpnPersen: number | '';
   billingTotal: number | '';
+  billingCatatan: string;
+  billingOwnerNotifiedAt: string;
+  billingOwnerNotifiedVia: string;
+  billingOwnerNotifiedBy: string;
+  billingCustomerSentAt: string;
+  billingCustomerSentVia: string;
+  billingCreatedBy: string;
   penagihanRingkasan: string;
   noAju: string;
   tglAju: string;
@@ -142,6 +168,7 @@ export interface GasAddActionData {
   eslah: string;
   tglEslah: string;
   pascaSppbRingkasan: string;
+  dokumenOsJson: string;
   dokumenOsRingkasan: string;
   createdAt: string;
   createdBy: string;
@@ -152,6 +179,14 @@ export interface GasAddActionData {
 export interface GasAddActionPayload {
   action: 'add';
   data: GasAddActionData;
+}
+
+export interface GasSyncAllActionPayload {
+  action: 'syncAll';
+  updatedBy: string;
+  syncedAt: string;
+  tabs: SheetTabSchema[];
+  sheets: Record<string, string[][]>;
 }
 
 export interface GasUrlValidationResult {
@@ -216,6 +251,26 @@ export function validateGasWebAppUrl(rawUrl: string): GasUrlValidationResult {
 export interface BuildGasPayloadOptions {
   importirs?: Importir[];
   checklistItems?: string[];
+}
+
+export function buildGasFullGetUrl(baseUrl: string): string {
+  const parsed = new URL(baseUrl);
+  parsed.searchParams.set('mode', 'full');
+  return parsed.toString();
+}
+
+export function buildGasSyncAllActionPayload(
+  db: DatabaseState,
+  updatedBy = 'admin',
+  syncedAt = new Date().toISOString()
+): GasSyncAllActionPayload {
+  return {
+    action: 'syncAll',
+    updatedBy,
+    syncedAt,
+    tabs: DATABASE_SHEET_TABS.map((t) => ({ title: t.title, headers: [...t.headers] })),
+    sheets: serializeDatabaseToSheetMatrixMap(db, updatedBy, syncedAt),
+  };
 }
 
 export function buildGasAddActionPayload(
@@ -329,6 +384,7 @@ export function buildGasAddActionPayload(
       kodeCustomer: shipment.kodeCustomer || '',
       namaCustomer: shipment.namaCustomer || '',
       tglTerimaDok: shipment.tglTerimaDok || '',
+      terimaDokJson: JSON.stringify(shipment.terimaDok || {}),
       terimaDokRingkasan,
       noPackinglist: shipment.noPackinglist || '',
       noBl: shipment.noBl || '',
@@ -345,6 +401,7 @@ export function buildGasAddActionPayload(
       bc11Ringkasan,
       doPelayaranStatus,
       doBerlakuSampai: shipment.doBerlakuSampai || '',
+      doCatatanPerpanjangan: shipment.doCatatanPerpanjangan || '',
       doPelayaranRingkasan,
       doGatePassStatus,
       doGatePassJenis,
@@ -352,15 +409,33 @@ export function buildGasAddActionPayload(
       truckingStatus,
       truckingNamaSupir: shipment.truckingNamaSupir || '',
       truckingNoPlat: shipment.truckingNoPlat || '',
+      truckingNoHpSupir: shipment.truckingNoHpSupir || '',
       gatePassTruckingRingkasan,
       gateOutStatus,
       gateOutTanggal: shipment.gateOutTanggal || '',
+      gateOutCatatan: shipment.gateOutCatatan || '',
       suratJalanNomor: shipment.suratJalanNomor || '',
+      suratJalanTanggal: shipment.suratJalanTanggal || '',
       suratJalanStatus,
+      suratJalanTujuan: shipment.suratJalanTujuan || '',
+      suratJalanPenerima: shipment.suratJalanPenerima || '',
+      suratJalanCatatan: shipment.suratJalanCatatan || '',
+      suratJalanUpdatedAt: shipment.suratJalanUpdatedAt || '',
       gateOutSuratJalanRingkasan,
       billingStatus,
       billingNomor: shipment.billingNomor || '',
+      billingTanggal: shipment.billingTanggal || '',
+      billingJatuhTempo: shipment.billingJatuhTempo || '',
+      billingItemsJson: JSON.stringify(shipment.billingItems || []),
+      billingPpnPersen: shipment.billingPpnPersen ?? '',
       billingTotal,
+      billingCatatan: shipment.billingCatatan || '',
+      billingOwnerNotifiedAt: shipment.billingOwnerNotifiedAt || '',
+      billingOwnerNotifiedVia: shipment.billingOwnerNotifiedVia || '',
+      billingOwnerNotifiedBy: shipment.billingOwnerNotifiedBy || '',
+      billingCustomerSentAt: shipment.billingCustomerSentAt || '',
+      billingCustomerSentVia: shipment.billingCustomerSentVia || '',
+      billingCreatedBy: shipment.billingCreatedBy || '',
       penagihanRingkasan,
       noAju: shipment.noAju || '',
       tglAju: shipment.tglAju || '',
@@ -391,6 +466,7 @@ export function buildGasAddActionPayload(
       eslah: shipment.eslah || '',
       tglEslah: shipment.tglEslah || '',
       pascaSppbRingkasan,
+      dokumenOsJson: JSON.stringify(shipment.dokumenOs || {}),
       dokumenOsRingkasan,
       createdAt: shipment.createdAt || new Date().toISOString(),
       createdBy: shipment.createdBy || '',
@@ -885,16 +961,157 @@ export function mergeGasFetchedShipments(
   };
 }
 
-export function buildSampleGasWebAppScript(): string {
-  const headersLiteral = JSON.stringify(GAS_SHIPMENT_SHEET_HEADERS);
-  return `// Tempel pada Google Apps Script (Code.gs) di Spreadsheet Anda
-const SHEET_NAME = 'Shipments';
-const SHIPMENT_HEADERS = ${headersLiteral};
+function normalizeCellToSheetString(cell: unknown): string {
+  if (cell === null || cell === undefined) return '';
+  if (typeof cell === 'boolean') return cell ? 'TRUE' : 'FALSE';
+  return String(cell);
+}
 
-function doGet() {
+export interface ParseGasFullDbResponseResult {
+  matchedFullTabs: boolean;
+  nextDb: DatabaseState;
+  tabRowCounts: Record<string, number>;
+  totalRemoteDataRows: number;
+  errorMessage?: string;
+}
+
+export function parseGasWebAppFullDatabaseGetResponse(
+  rawPayload: unknown,
+  fallbackDb: DatabaseState
+): ParseGasFullDbResponseResult {
+  if (!rawPayload || typeof rawPayload !== 'object' || Array.isArray(rawPayload)) {
+    return {
+      matchedFullTabs: false,
+      nextDb: fallbackDb,
+      tabRowCounts: {},
+      totalRemoteDataRows: 0,
+      errorMessage: 'Respons GAS GET full tidak berisi objek sheets 12 tab.',
+    };
+  }
+
+  const obj = rawPayload as Record<string, unknown>;
+  const statusStr = String(obj.status || '').trim().toLowerCase();
+  if (obj.ok === false || obj.success === false || statusStr === 'error') {
+    return {
+      matchedFullTabs: false,
+      nextDb: fallbackDb,
+      tabRowCounts: {},
+      totalRemoteDataRows: 0,
+      errorMessage:
+        String(obj.error || obj.message || '').trim() ||
+        'Endpoint Google Apps Script mengembalikan status error.',
+    };
+  }
+
+  const rawSheets =
+    obj.sheets && typeof obj.sheets === 'object' && !Array.isArray(obj.sheets)
+      ? (obj.sheets as Record<string, unknown>)
+      : null;
+
+  if (!rawSheets) {
+    return {
+      matchedFullTabs: false,
+      nextDb: fallbackDb,
+      tabRowCounts: {},
+      totalRemoteDataRows: 0,
+      errorMessage:
+        'Endpoint GAS belum mengembalikan properti "sheets" untuk 12 tab. Perbarui Code.gs dengan script 12-tab terbaru.',
+    };
+  }
+
+  const normalizedSheets: Record<string, string[][]> = {};
+  const tabRowCounts: Record<string, number> = {};
+  let totalRemoteDataRows = 0;
+
+  for (const tab of DATABASE_SHEET_TABS) {
+    const rawMatrix = rawSheets[tab.title];
+    if (!Array.isArray(rawMatrix)) continue;
+    const matrix: string[][] = rawMatrix
+      .filter((row): row is unknown[] => Array.isArray(row))
+      .map((row) => row.map(normalizeCellToSheetString));
+    normalizedSheets[tab.title] = matrix;
+    const dataRows = Math.max(0, matrix.length - 1);
+    tabRowCounts[tab.title] = dataRows;
+    totalRemoteDataRows += dataRows;
+  }
+
+  if (Object.keys(normalizedSheets).length === 0) {
+    return {
+      matchedFullTabs: false,
+      nextDb: fallbackDb,
+      tabRowCounts: {},
+      totalRemoteDataRows: 0,
+      errorMessage: 'Tidak ada tab database yang dikenali di respons GAS.',
+    };
+  }
+
+  const hasAnyShipmentData = (tabRowCounts.Shipments || 0) > 0;
+  if (totalRemoteDataRows === 0 || !hasAnyShipmentData) {
+    return {
+      matchedFullTabs: true,
+      nextDb: fallbackDb,
+      tabRowCounts,
+      totalRemoteDataRows,
+    };
+  }
+
+  const parsedDb = parseSheetMatrixMapToDatabase(normalizedSheets, fallbackDb);
+  return {
+    matchedFullTabs: true,
+    nextDb: parsedDb,
+    tabRowCounts,
+    totalRemoteDataRows,
+  };
+}
+
+export function buildSampleGasWebAppScript(): string {
+  const reportHeadersLiteral = JSON.stringify(GAS_SHIPMENT_SHEET_HEADERS);
+  const databaseTabsLiteral = JSON.stringify(
+    DATABASE_SHEET_TABS.map((t) => ({ title: t.title, headers: t.headers })),
+    null,
+    2
+  );
+  return `// Tempel pada Google Apps Script (Code.gs) di Spreadsheet Anda
+// Mendukung Struktur 12 Tab Database Lengkap + endpoint GET & POST (syncAll, initTabs, add, appendTabRow)
+const SHEET_NAME = 'Shipments';
+const SHIPMENT_REPORT_HEADERS = ${reportHeadersLiteral};
+const DATABASE_TABS = ${databaseTabsLiteral};
+
+function ensureDatabaseTabs_(ss) {
+  const createdOrVerified = [];
+  DATABASE_TABS.forEach((tab) => {
+    let sheet = ss.getSheetByName(tab.title);
+    if (!sheet) {
+      sheet = ss.insertSheet(tab.title);
+    }
+    if (sheet.getLastRow() === 0) {
+      sheet.getRange(1, 1, 1, tab.headers.length).setValues([tab.headers]);
+      sheet.getRange(1, 1, 1, tab.headers.length).setFontWeight('bold');
+      sheet.setFrozenRows(1);
+    }
+    createdOrVerified.push({ title: tab.title, columns: tab.headers.length });
+  });
+  return createdOrVerified;
+}
+
+function doGet(e) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const mode = (e && e.parameter && e.parameter.mode) || '';
+
+  if (mode === 'full') {
+    ensureDatabaseTabs_(ss);
+    const sheets = {};
+    DATABASE_TABS.forEach((tab) => {
+      const sheet = ss.getSheetByName(tab.title);
+      sheets[tab.title] = sheet ? sheet.getDataRange().getValues() : [tab.headers];
+    });
+    return ContentService.createTextOutput(
+      JSON.stringify({ ok: true, mode: 'full', sheets: sheets })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
   const sheet = ss.getSheetByName(SHEET_NAME) || ss.getSheets()[0];
-  const values = sheet.getDataRange().getValues();
+  const values = sheet ? sheet.getDataRange().getValues() : [];
   if (values.length < 2) {
     return ContentService.createTextOutput(JSON.stringify({ ok: true, data: [] }))
       .setMimeType(ContentService.MimeType.JSON);
@@ -909,73 +1126,238 @@ function doGet() {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+function build41ColShipmentRow_(rowNo, d) {
+  const bc11Text = d.bc11Ringkasan || (d.noBc11 ? d.noBc11 + (d.tglBc11 ? ' (' + d.tglBc11 + ')' : '') : (d.bc11Terbit ? 'Terbit' : '-'));
+  const countdownText = d.countdownLabel || (d.countDownEta !== null && d.countDownEta !== undefined ? d.countDownEta + ' hari' : '-');
+  const sptnpText = d.sptnpRingkasan || ((d.sptnp || '-') + (d.noSptnp || d.tglSptnp ? ' (' + (d.noSptnp || '-') + (d.tglSptnp ? ' / ' + d.tglSptnp : '') + ')' : ''));
+  const doText = d.doPelayaranRingkasan || ((d.doPelayaranStatus || 'Belum') + (d.doBerlakuSampai ? ' (s.d. ' + d.doBerlakuSampai + ')' : ''));
+  const gateTruckText = d.gatePassTruckingRingkasan || ('Gate: ' + (d.doGatePassStatus || 'Belum') + (d.doGatePassNomor ? ' (' + (d.doGatePassJenis || 'Gate Pass') + ': ' + d.doGatePassNomor + ')' : '') + ' | Trucking: ' + (d.truckingStatus || 'Belum') + (d.truckingNoPlat ? ' (' + d.truckingNoPlat + ')' : ''));
+  const gateOutSjText = d.gateOutSuratJalanRingkasan || ('Gate-Out: ' + (d.gateOutStatus || 'Belum') + (d.gateOutTanggal ? ' (' + d.gateOutTanggal + ')' : '') + ' | SJ: ' + (d.suratJalanNomor || '-') + ' [' + (d.suratJalanStatus || 'Belum') + ']');
+  const penagihanText = d.penagihanRingkasan || ((d.billingStatus || 'Belum') + (d.billingNomor ? ' · ' + d.billingNomor : ''));
+  const pascaSppbText = d.pascaSppbRingkasan || ('PFPB: ' + (d.pfpb || '-') + (d.tglPfpb ? ' (' + d.tglPfpb + ')' : '') + ' | PFPD: ' + (d.pfpd || '-') + (d.tglPfpd ? ' (' + d.tglPfpd + ')' : '') + ' | ESLAH: ' + (d.eslah || '-') + (d.tglEslah ? ' (' + d.tglEslah + ')' : ''));
+
+  return [
+    rowNo,                                                        // 1. No.
+    d.kodeOs || '',                                               // 2. Kode OS
+    d.kodeManualDokOs || '',                                      // 3. Dok. OS (Manual)
+    d.dokumenChecker || '',                                       // 4. Checker
+    d.statusDokumen || 'Draft',                                   // 5. Status Dok
+    d.kodeCustomer || '',                                         // 6. Kode Customer
+    d.namaCustomer || '',                                         // 7. Nama Customer
+    d.kodeImportir || '',                                         // 8. Kode Importir
+    d.namaImportir || '',                                         // 9. Nama Importir
+    d.tglTerimaDok || '',                                         // 10. Tgl. Terima Dok
+    d.terimaDokRingkasan || '-',                                  // 11. Terima Dok
+    d.noPackinglist || '',                                        // 12. No. Packinglist
+    d.noBl || '',                                                 // 13. No. BL
+    bc11Text,                                                     // 14. BC 1.1
+    d.ship || '',                                                 // 15. Ship / Vessel
+    d.shipper || '',                                              // 16. Shipper
+    d.negaraAsal || '',                                           // 17. Negara Asal
+    d.description || '',                                          // 18. Description
+    d.noCont || '',                                               // 19. No. Kontainer
+    d.etd || '',                                                  // 20. ETD
+    d.eta || '',                                                  // 21. ETA
+    countdownText,                                                // 22. Countdown
+    d.noAju || '',                                                // 23. No. AJU
+    d.tglAju || '',                                               // 24. Tgl. AJU
+    d.nopen || '',                                                // 25. NOPEN
+    d.tglNopen || '',                                             // 26. Tgl. NOPEN
+    d.status || '',                                               // 27. Status
+    d.jalur || '',                                                // 28. Jalur
+    d.currency || 'USD',                                          // 29. Currency
+    d.kurs !== undefined && d.kurs !== '' ? d.kurs : '',          // 30. Kurs
+    d.invoice !== undefined && d.invoice !== '' ? d.invoice : '', // 31. Nilai Invoice
+    d.bmPdri || '',                                               // 32. BM / PDRI
+    sptnpText,                                                    // 33. SPTNP
+    d.noSppb || '',                                               // 34. No. SPPB
+    d.tglSppb || '',                                              // 35. Tgl. SPPB
+    doText,                                                       // 36. D/O Pelayaran
+    gateTruckText,                                                // 37. Gate Pass & Trucking
+    gateOutSjText,                                                // 38. Gate-Out & Surat Jalan
+    penagihanText,                                                // 39. Penagihan
+    pascaSppbText,                                                // 40. PFPB / PFPD / ESLAH
+    d.dokumenOsRingkasan || '-'                                   // 41. Dok. OS
+  ];
+}
+
+function build82ColShipmentRow_(d) {
+  return [
+    d.kodeOs || '',
+    d.kodeManualDokOs || '',
+    d.ship || '',
+    d.kodeCustomer || '',
+    d.namaCustomer || '',
+    d.tglTerimaDok || '',
+    d.terimaDokJson || '{}',
+    d.noPackinglist || '',
+    d.noBl || '',
+    d.statusDokumen || 'Draft',
+    d.etd || '',
+    d.eta || '',
+    d.countDownEta === null || d.countDownEta === undefined ? '' : String(d.countDownEta),
+    d.noCont || '',
+    d.bc11Terbit ? 'TRUE' : 'FALSE',
+    d.noBc11 || '',
+    d.tglBc11 || '',
+    d.doPelayaranStatus || 'Belum',
+    d.doBerlakuSampai || '',
+    d.doCatatanPerpanjangan || '',
+    d.doGatePassStatus || 'Belum',
+    d.doGatePassJenis || '',
+    d.doGatePassNomor || '',
+    d.truckingStatus || 'Belum',
+    d.truckingNamaSupir || '',
+    d.truckingNoPlat || '',
+    d.truckingNoHpSupir || '',
+    d.gateOutStatus || 'Belum',
+    d.gateOutTanggal || '',
+    d.gateOutCatatan || '',
+    d.suratJalanNomor || '',
+    d.suratJalanTanggal || '',
+    d.suratJalanStatus || 'Belum',
+    d.suratJalanTujuan || '',
+    d.suratJalanPenerima || '',
+    d.suratJalanCatatan || '',
+    d.suratJalanUpdatedAt || '',
+    d.billingStatus || 'Belum',
+    d.billingNomor || '',
+    d.billingTanggal || '',
+    d.billingJatuhTempo || '',
+    d.billingItemsJson || '[]',
+    d.billingPpnPersen !== undefined ? d.billingPpnPersen : '',
+    d.billingTotal !== undefined ? d.billingTotal : '',
+    d.billingCatatan || '',
+    d.billingOwnerNotifiedAt || '',
+    d.billingOwnerNotifiedVia || '',
+    d.billingOwnerNotifiedBy || '',
+    d.billingCustomerSentAt || '',
+    d.billingCustomerSentVia || '',
+    d.billingCreatedBy || '',
+    d.noAju || '',
+    d.tglAju || '',
+    d.status || '',
+    d.nopen || '',
+    d.tglNopen || '',
+    d.jalur || '',
+    d.kodeImportir || '',
+    d.shipper || '',
+    d.description || '',
+    d.negaraAsal || '',
+    d.currency || 'USD',
+    d.kurs !== undefined ? d.kurs : '',
+    d.invoice !== undefined ? d.invoice : '',
+    d.bmPdri || '',
+    d.sptnp || 'Tidak',
+    d.noSppb || '',
+    d.tglSppb || '',
+    d.dokumenChecker || '',
+    d.noSptnp || '',
+    d.tglSptnp || '',
+    d.pfpb || '',
+    d.tglPfpb || '',
+    d.pfpd || '',
+    d.tglPfpd || '',
+    d.eslah || '',
+    d.tglEslah || '',
+    d.dokumenOsJson || '{}',
+    d.createdAt || new Date().toISOString(),
+    d.createdBy || '',
+    d.updatedAt || new Date().toISOString(),
+    d.updatedBy || ''
+  ];
+}
+
 function doPost(e) {
   const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // 1. Inisialisasi seluruh 12 tab database
+  if (body.action === 'initTabs') {
+    const tabs = ensureDatabaseTabs_(ss);
+    return ContentService.createTextOutput(
+      JSON.stringify({ ok: true, status: 'success', action: 'initTabs', tabs: tabs })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // 2. Sinkronisasi penuh seluruh 12 tab database (Shipments 82 col, Kontainer 4 col, Master_Customer 3 col, dst.)
+  if (body.action === 'syncAll' && body.sheets) {
+    ensureDatabaseTabs_(ss);
+    const syncedTabs = [];
+    let totalRows = 0;
+
+    DATABASE_TABS.forEach((tab) => {
+      const matrix = body.sheets[tab.title];
+      if (!Array.isArray(matrix) || matrix.length === 0) return;
+      const sheet = ss.getSheetByName(tab.title) || ss.insertSheet(tab.title);
+      const colCount = matrix[0].length || tab.headers.length;
+      sheet.clearContents();
+      sheet.getRange(1, 1, matrix.length, colCount).setValues(matrix);
+      sheet.getRange(1, 1, 1, colCount).setFontWeight('bold');
+      sheet.setFrozenRows(1);
+      syncedTabs.push({ title: tab.title, rows: Math.max(0, matrix.length - 1), columns: colCount });
+      totalRows += Math.max(0, matrix.length - 1);
+    });
+
+    return ContentService.createTextOutput(
+      JSON.stringify({ ok: true, status: 'success', action: 'syncAll', syncedTabs: syncedTabs, totalRows: totalRows })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // 3. Tambah 1 baris ke tab tertentu (Kontainer, Master_Customer, Master_Importir, Master_Shipper, Users, Log_Perubahan, Catatan, Dokumen, Pengeluaran_Ops, Pengaturan, Sync_Metadata)
+  if (body.action === 'appendTabRow' && body.tab && Array.isArray(body.row)) {
+    const tabSchema = DATABASE_TABS.find((t) => t.title === body.tab);
+    if (!tabSchema) {
+      return ContentService.createTextOutput(
+        JSON.stringify({ ok: false, error: 'Tab tidak ditemukan dalam skema: ' + body.tab })
+      ).setMimeType(ContentService.MimeType.JSON);
+    }
+    ensureDatabaseTabs_(ss);
+    const targetSheet = ss.getSheetByName(tabSchema.title);
+    targetSheet.appendRow(body.row);
+    return ContentService.createTextOutput(
+      JSON.stringify({ ok: true, status: 'success', action: 'appendTabRow', tab: tabSchema.title })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // 4. Tambah shipment baru (mendukung format 82-kolom Database maupun 41-kolom Laporan)
   if (body.action === 'add' && body.data) {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
     const d = body.data;
+    let sheet = ss.getSheetByName(SHEET_NAME);
+    if (!sheet) {
+      ensureDatabaseTabs_(ss);
+      sheet = ss.getSheetByName(SHEET_NAME);
+    }
     if (sheet.getLastRow() === 0) {
-      sheet.appendRow(SHIPMENT_HEADERS);
+      sheet.appendRow(SHIPMENT_REPORT_HEADERS);
     }
 
-    const rowNo = Math.max(1, sheet.getLastRow());
-    const bc11Text = d.bc11Ringkasan || (d.noBc11 ? d.noBc11 + (d.tglBc11 ? ' (' + d.tglBc11 + ')' : '') : (d.bc11Terbit ? 'Terbit' : '-'));
-    const countdownText = d.countdownLabel || (d.countDownEta !== null && d.countDownEta !== undefined ? d.countDownEta + ' hari' : '-');
-    const sptnpText = d.sptnpRingkasan || ((d.sptnp || '-') + (d.noSptnp || d.tglSptnp ? ' (' + (d.noSptnp || '-') + (d.tglSptnp ? ' / ' + d.tglSptnp : '') + ')' : ''));
-    const doText = d.doPelayaranRingkasan || ((d.doPelayaranStatus || 'Belum') + (d.doBerlakuSampai ? ' (s.d. ' + d.doBerlakuSampai + ')' : ''));
-    const gateTruckText = d.gatePassTruckingRingkasan || ('Gate: ' + (d.doGatePassStatus || 'Belum') + (d.doGatePassNomor ? ' (' + (d.doGatePassJenis || 'Gate Pass') + ': ' + d.doGatePassNomor + ')' : '') + ' | Trucking: ' + (d.truckingStatus || 'Belum') + (d.truckingNoPlat ? ' (' + d.truckingNoPlat + ')' : ''));
-    const gateOutSjText = d.gateOutSuratJalanRingkasan || ('Gate-Out: ' + (d.gateOutStatus || 'Belum') + (d.gateOutTanggal ? ' (' + d.gateOutTanggal + ')' : '') + ' | SJ: ' + (d.suratJalanNomor || '-') + ' [' + (d.suratJalanStatus || 'Belum') + ']');
-    const penagihanText = d.penagihanRingkasan || ((d.billingStatus || 'Belum') + (d.billingNomor ? ' · ' + d.billingNomor : ''));
-    const pascaSppbText = d.pascaSppbRingkasan || ('PFPB: ' + (d.pfpb || '-') + (d.tglPfpb ? ' (' + d.tglPfpb + ')' : '') + ' | PFPD: ' + (d.pfpd || '-') + (d.tglPfpd ? ' (' + d.tglPfpd + ')' : '') + ' | ESLAH: ' + (d.eslah || '-') + (d.tglEslah ? ' (' + d.tglEslah + ')' : ''));
+    const firstHeader = String(sheet.getRange(1, 1).getValue() || '').trim();
+    if (firstHeader === 'kodeOs') {
+      sheet.appendRow(build82ColShipmentRow_(d));
+      if (Array.isArray(d.kontainerList) && d.kontainerList.length > 0) {
+        const kontainerSheet = ss.getSheetByName('Kontainer');
+        if (kontainerSheet) {
+          d.kontainerList.forEach((c, idx) => {
+            kontainerSheet.appendRow([
+              'cont-' + Date.now() + '-' + (idx + 1),
+              d.kodeOs || '',
+              c.noCont || '',
+              c.ukuranTipe || '40HC'
+            ]);
+          });
+        }
+      }
+    } else {
+      const rowNo = Math.max(1, sheet.getLastRow());
+      sheet.appendRow(build41ColShipmentRow_(rowNo, d));
+    }
 
-    sheet.appendRow([
-      rowNo,                                                      // 1. No.
-      d.kodeOs || '',                                             // 2. Kode OS
-      d.kodeManualDokOs || '',                                    // 3. Dok. OS (Manual)
-      d.dokumenChecker || '',                                     // 4. Checker
-      d.statusDokumen || 'Draft',                                 // 5. Status Dok
-      d.kodeCustomer || '',                                       // 6. Kode Customer
-      d.namaCustomer || '',                                       // 7. Nama Customer
-      d.kodeImportir || '',                                       // 8. Kode Importir
-      d.namaImportir || '',                                       // 9. Nama Importir
-      d.tglTerimaDok || '',                                       // 10. Tgl. Terima Dok
-      d.terimaDokRingkasan || '-',                                // 11. Terima Dok
-      d.noPackinglist || '',                                      // 12. No. Packinglist
-      d.noBl || '',                                               // 13. No. BL
-      bc11Text,                                                   // 14. BC 1.1
-      d.ship || '',                                               // 15. Ship / Vessel
-      d.shipper || '',                                            // 16. Shipper
-      d.negaraAsal || '',                                         // 17. Negara Asal
-      d.description || '',                                        // 18. Description
-      d.noCont || '',                                             // 19. No. Kontainer
-      d.etd || '',                                                // 20. ETD
-      d.eta || '',                                                // 21. ETA
-      countdownText,                                              // 22. Countdown
-      d.noAju || '',                                              // 23. No. AJU
-      d.tglAju || '',                                             // 24. Tgl. AJU
-      d.nopen || '',                                              // 25. NOPEN
-      d.tglNopen || '',                                           // 26. Tgl. NOPEN
-      d.status || '',                                             // 27. Status
-      d.jalur || '',                                              // 28. Jalur
-      d.currency || 'USD',                                        // 29. Currency
-      d.kurs !== undefined && d.kurs !== '' ? d.kurs : '',        // 30. Kurs
-      d.invoice !== undefined && d.invoice !== '' ? d.invoice : '', // 31. Nilai Invoice
-      d.bmPdri || '',                                             // 32. BM / PDRI
-      sptnpText,                                                  // 33. SPTNP
-      d.noSppb || '',                                             // 34. No. SPPB
-      d.tglSppb || '',                                            // 35. Tgl. SPPB
-      doText,                                                     // 36. D/O Pelayaran
-      gateTruckText,                                              // 37. Gate Pass & Trucking
-      gateOutSjText,                                              // 38. Gate-Out & Surat Jalan
-      penagihanText,                                              // 39. Penagihan
-      pascaSppbText,                                              // 40. PFPB / PFPD / ESLAH
-      d.dokumenOsRingkasan || '-'                                 // 41. Dok. OS
-    ]);
-
-    return ContentService.createTextOutput(JSON.stringify({ ok: true, status: 'success', kodeOs: d.kodeOs || '' }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(
+      JSON.stringify({ ok: true, status: 'success', kodeOs: d.kodeOs || '' })
+    ).setMimeType(ContentService.MimeType.JSON);
   }
+
   return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'Action tidak dikenali' }))
     .setMimeType(ContentService.MimeType.JSON);
 }`;

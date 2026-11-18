@@ -64,6 +64,8 @@ interface SpreadsheetDatabaseViewProps {
   }) => Promise<void>;
   onPullFromGasWebApp: (overrideUrl?: string) => Promise<void>;
   onPushShipmentToGasWebApp: (kodeOs?: string, overrideUrl?: string) => Promise<void>;
+  onPushFullDatabaseToGasWebApp: (overrideUrl?: string) => Promise<void>;
+  onPullFullDatabaseFromGasWebApp: (overrideUrl?: string) => Promise<void>;
 }
 
 export function SpreadsheetDatabaseView({
@@ -86,6 +88,8 @@ export function SpreadsheetDatabaseView({
   onSaveGasWebAppConfig,
   onPullFromGasWebApp,
   onPushShipmentToGasWebApp,
+  onPushFullDatabaseToGasWebApp,
+  onPullFullDatabaseFromGasWebApp,
 }: SpreadsheetDatabaseViewProps) {
   const [newSheetTitle, setNewSheetTitle] = useState(
     db.pengaturan.spreadsheetTitle || 'PTG_PPJK_DATABASE'
@@ -434,6 +438,44 @@ export function SpreadsheetDatabaseView({
           </button>
         </div>
 
+        {/* Full 12-Tab Database Sync via GAS Web App Endpoint */}
+        <div
+          data-testid="gas-webapp-full-tabs-bar"
+          className="p-3 rounded-xl bg-white/80 dark:bg-[#131926] border border-emerald-200/70 dark:border-white/[0.08] flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2.5"
+        >
+          <div className="space-y-0.5">
+            <div className="text-[11.5px] font-bold text-[#0B2545] dark:text-white flex items-center gap-1.5">
+              <Table2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>Sinkronisasi Penuh Struktur Database (12 Tab via Endpoint GAS)</span>
+            </div>
+            <p className="text-[10.5px] text-slate-500 dark:text-slate-400">
+              Menulis &amp; membaca seluruh tab (<code className="font-mono-code">Shipments</code> 82 kolom, <code className="font-mono-code">Kontainer</code>, <code className="font-mono-code">Master_*</code>, <code className="font-mono-code">Users</code>, <code className="font-mono-code">Log_Perubahan</code>, <code className="font-mono-code">Catatan</code>, <code className="font-mono-code">Dokumen</code>, <code className="font-mono-code">Pengeluaran_Ops</code>, <code className="font-mono-code">Pengaturan</code>, <code className="font-mono-code">Sync_Metadata</code>) langsung ke endpoint GAS.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              data-testid="gas-webapp-sync-all-btn"
+              onClick={() => void onPushFullDatabaseToGasWebApp(gasUrlInput)}
+              disabled={!gasValidation.valid || syncingGasWebApp}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0B2545] hover:bg-[#123663] dark:bg-emerald-600 dark:hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>Push 12 Tab DB ke GAS (POST syncAll)</span>
+            </button>
+            <button
+              type="button"
+              data-testid="gas-webapp-get-full-btn"
+              onClick={() => void onPullFullDatabaseFromGasWebApp(gasUrlInput)}
+              disabled={!gasValidation.valid || syncingGasWebApp}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/15 hover:bg-emerald-100 dark:hover:bg-emerald-500/25 disabled:opacity-50 text-emerald-800 dark:text-emerald-200 text-xs font-semibold cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Pull 12 Tab DB (GET full)</span>
+            </button>
+          </div>
+        </div>
+
         {(activeGasLastSyncAt || activeGasLastMsg) && (
           <div
             data-testid="gas-webapp-last-sync"
@@ -459,7 +501,7 @@ export function SpreadsheetDatabaseView({
           >
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] font-mono-code font-semibold text-emerald-400">
-                Code.gs — Google Apps Script (doGet &amp; doPost 41 Kolom Lengkap)
+                Code.gs — Google Apps Script (Struktur 12 Tab Database + doGet &amp; doPost Lengkap)
               </span>
               <button
                 type="button"
