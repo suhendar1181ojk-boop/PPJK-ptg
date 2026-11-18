@@ -12,6 +12,10 @@ import type {
   Shipment,
 } from '../types/ppjk';
 import {
+  buildShipmentImportSampleRow,
+  SHIPMENT_IMPORT_TEMPLATE_HEADERS,
+} from './excelImportLogic';
+import {
   buildKdiCoverDocument,
   type KdiCoverDocument,
   type KdiCoverOptions,
@@ -160,6 +164,39 @@ export function exportShipmentsToExcel(rows: Shipment[], filename = 'PTG_PPJK_Sh
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Shipment');
   XLSX.writeFile(wb, filename);
+}
+
+export function downloadShipmentExcelTemplate(
+  filename = 'Template-Import-Shipment-PTG.xlsx'
+): void {
+  const sample = buildShipmentImportSampleRow();
+  const ws = XLSX.utils.json_to_sheet([sample], {
+    header: SHIPMENT_IMPORT_TEMPLATE_HEADERS,
+  });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Import Shipment');
+  XLSX.writeFile(wb, filename);
+}
+
+export function downloadShipmentCsvTemplate(
+  filename = 'Template-Import-Shipment-PTG.csv'
+): void {
+  const sample = buildShipmentImportSampleRow();
+  const escapeCsv = (val: unknown) => {
+    const s = String(val ?? '');
+    return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const headerLine = SHIPMENT_IMPORT_TEMPLATE_HEADERS.map(escapeCsv).join(',');
+  const rowLine = SHIPMENT_IMPORT_TEMPLATE_HEADERS.map((h) => escapeCsv(sample[h])).join(',');
+  const blob = new Blob([`\uFEFF${headerLine}\n${rowLine}\n`], {
+    type: 'text/csv;charset=utf-8;',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export function exportShipmentsToCSV(rows: Shipment[], filename = 'PTG_PPJK_Shipment.csv'): void {

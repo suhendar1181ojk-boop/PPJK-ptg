@@ -2451,3 +2451,180 @@ export async function deletePengeluaranOpsRecord(
   return db;
 }
 
+export interface BatchExcelImportItem {
+  shipment: Shipment;
+  containers: KontainerItem[];
+  matchedExistingKodeOs?: string;
+}
+
+export interface BatchExcelImportResult {
+  db: DatabaseState;
+  insertedCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  createdKodeOsList: string[];
+}
+
+export async function importShipmentsFromExcelBatch(
+  session: SessionUser,
+  items: BatchExcelImportItem[],
+  options: { updateExisting?: boolean; sourceFileName?: string } = {}
+): Promise<BatchExcelImportResult> {
+  const db = await ensureDbInitialized();
+  const activeUser = assertSessionActive(db, session);
+
+  if (!canPerformAction(activeUser.role, 'create_shipment')) {
+    throw new Error('Akses ditolak: Anda tidak memiliki hak mengimpor shipment baru.');
+  }
+
+  const nowIso = new Date().toISOString();
+  let insertedCount = 0;
+  let updatedCount = 0;
+  let skippedCount = 0;
+  const createdKodeOsList: string[] = [];
+
+  for (const item of items) {
+    const validation = validateShipmentInput(item.shipment);
+    if (!validation.valid) {
+      skippedCount++;
+      continue;
+    }
+
+    const existingIdx = item.matchedExistingKodeOs
+      ? db.shipments.findIndex(
+          (s) => s.kodeOs.toUpperCase() === item.matchedExistingKodeOs!.toUpperCase()
+        )
+      : -1;
+
+    if (existingIdx !== -1 && !options.updateExisting) {
+      skippedCount++;
+      continue;
+    }
+
+    let kodeOs = '';
+    let merged: Shipment;
+
+    if (existingIdx !== -1 && options.updateExisting) {
+      const prev = db.shipments[existingIdx];
+      kodeOs = prev.kodeOs;
+      merged = {
+        ...prev,
+        ...item.shipment,
+        kodeOs,
+        terimaDok: prev.terimaDok || item.shipment.terimaDok,
+        dokumenOs: prev.dokumenOs || item.shipment.dokumenOs,
+        createdAt: prev.createdAt || nowIso,
+        createdBy: prev.createdBy || activeUser.username,
+      };
+    } else {
+      const seq = generateNextKodeOS(db.pengaturan.seqByMonth);
+      kodeOs = seq.kodeOs;
+      db.pengaturan.seqByMonth[seq.monthKey] = seq.nextSeq;
+      merged = {
+        ...item.shipment,
+        kodeOs,
+        createdAt: nowIso,
+        createdBy: activeUser.username,
+      };
+    }
+
+    const validContainers = (item.containers || [])
+      .filter((c) => c.noCont.trim() !== '')
+      .map((c, idx) => ({
+        ...c,
+        id: `${kodeOs}_imp_${idx}_${Date.now()}`,
+        kodeOs,
+      }));
+
+    merged.kodeManualDokOs = (merged.kodeManualDokOs || '').trim();
+    if (validContainers.length > 0) {
+      merged.noCont = formatContainerSummary(validContainers);
+    }
+    merged.statusDokumen = normalizeStatusDokumen(merged.statusDokumen);
+    merged.doPelayaranStatus = normalizeStatusDoPelayaran(merged.doPelayaranStatus);
+    merged.doGatePassStatus = normalizeStatusGatePass(merged.doGatePassStatus);
+    merged.doGatePassJenis = normalizeGatePassJenis(merged.doGatePassJenis);
+    merged.truckingStatus = normalizeStatusTrucking(merged.truckingStatus);
+    merged.gateOutStatus = normalizeStatusGateOut(merged.gateOutStatus, merged.status);
+
+    if (merged.gateOutStatus === 'Sudah') {
+      if (!merged.gateOutTanggal) merged.gateOutTanggal = nowIso.slice(0, 10);
+      const autoSj = buildAutoSuratJalanFields(merged, merged.gateOutTanggal, nowIso);
+      merged.suratJalanNomor = autoSj.suratJalanNomor;
+      merged.suratJalanTanggal = autoSj.suratJalanTanggal;
+      merged.suratJalanStatus = autoSj.suratJalanStatus;
+      merged.suratJalanTujuan = autoSj.suratJalanTujuan;
+      merged.suratJalanUpdatedAt = autoSj.suratJalanUpdatedAt;
+    } else {
+      merged.suratJalanStatus = normalizeStatusSuratJalan(
+        merged.suratJalanStatus,
+        merged.gateOutStatus,
+        merged.status
+      );
+    }
+
+    merged.countDownEta = calculateCountdownEta(merged.eta);
+    if (isShipmentBillingEligible(merged)) {
+      const autoBill = buildAutoBillingFields(merged, nowIso.slice(0, 10));
+      merged.billingStatus = autoBill.billingStatus;
+      merged.billingNomor = autoBill.billingNomor;
+      merged.billingTanggal = autoBill.billingTanggal;
+      merged.billingJatuhTempo = autoBill.billingJatuhTempo;
+      merged.billingItems = autoBill.billingItems;
+      merged.billingPpnPersen = autoBill.billingPpnPersen;
+      merged.billingTotal = autoBill.billingTotal;
+    } else {
+      merged.billingStatus = normalizeStatusPenagihan(merged.billingStatus, merged);
+    }
+
+    merged.updatedAt = nowIso;
+    merged.updatedBy = activeUser.username;
+
+    if (existingIdx !== -1 && options.updateExisting) {
+      db.shipments[existingIdx] = merged;
+      updatedCount++;
+      db.logs.unshift({
+        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        waktu: nowIso,
+        user: activeUser.username,
+        kodeOs,
+        kolom: 'IMPORT_UPDATE',
+        nilaiLama: '-',
+        nilaiBaru: `Diperbarui via upload ${options.sourceFileName || 'Excel/CSV'} (BL: ${merged.noBl})`,
+      });
+    } else {
+      db.shipments.unshift(merged);
+      insertedCount++;
+      createdKodeOsList.push(kodeOs);
+      db.logs.unshift({
+        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        waktu: nowIso,
+        user: activeUser.username,
+        kodeOs,
+        kolom: 'IMPORT_CREATE',
+        nilaiLama: '-',
+        nilaiBaru: `Diimpor via ${options.sourceFileName || 'Excel/CSV'} (BL: ${merged.noBl})`,
+      });
+    }
+
+    if (validContainers.length > 0) {
+      db.kontainers = [
+        ...db.kontainers.filter((k) => k.kodeOs !== kodeOs),
+        ...validContainers,
+      ];
+    }
+  }
+
+  writeDbToStorage(db);
+  await flushIndexedDbWrites();
+
+  return {
+    db,
+    insertedCount,
+    updatedCount,
+    skippedCount,
+    createdKodeOsList,
+  };
+}
+
+

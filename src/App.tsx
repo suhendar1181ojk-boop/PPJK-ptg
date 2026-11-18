@@ -40,6 +40,7 @@ import {
   addShipmentComment,
   addShipmentDocument,
   authenticateUser,
+  type BatchExcelImportItem,
   type DatabaseState,
   DB_STORAGE_KEY,
   deleteCustomerMaster,
@@ -52,6 +53,7 @@ import {
   flushIndexedDbWrites,
   getStoredSession,
   importDatabaseSnapshot,
+  importShipmentsFromExcelBatch,
   OFFLINE_BROADCAST_CHANNEL,
   refreshAndSyncDatabase,
   resetDatabase,
@@ -1586,6 +1588,30 @@ export default function App() {
     return res.saved;
   };
 
+  const handleImportShipmentsFromExcel = async (
+    items: BatchExcelImportItem[],
+    options: { updateExisting: boolean; sourceFileName: string }
+  ) => {
+    if (!session) return;
+    const res = await importShipmentsFromExcelBatch(session, items, options);
+    await applyDbUpdate(res.db);
+    const parts: string[] = [];
+    if (res.insertedCount > 0) parts.push(`${res.insertedCount} baru ditambahkan`);
+    if (res.updatedCount > 0) parts.push(`${res.updatedCount} diperbarui`);
+    if (res.skippedCount > 0) parts.push(`${res.skippedCount} dilewati`);
+    await Swal.fire({
+      title: 'Upload Excel / CSV Selesai',
+      text: parts.length > 0 ? parts.join(' · ') : 'Tidak ada baris yang diproses.',
+      icon: res.insertedCount + res.updatedCount > 0 ? 'success' : 'info',
+      toast: true,
+      position: 'top-end',
+      timer: 3200,
+      showConfirmButton: false,
+      background: darkMode ? '#131926' : '#ffffff',
+      color: darkMode ? '#f1f5f9' : '#0f172a',
+    });
+  };
+
   const handleDeleteDocument = async (doc: DokumenItem) => {
     if (!session) return;
     const isRealDrive = Boolean(doc.driveFileId);
@@ -2207,6 +2233,7 @@ export default function App() {
             <ShipmentTableView
               mode={effectiveView === 'outstanding' ? 'outstanding' : 'all'}
               shipments={db.shipments}
+              customers={db.customers}
               importirs={db.importirs}
               pengaturan={db.pengaturan}
               pengeluaranOps={db.pengeluaranOps || []}
@@ -2214,12 +2241,16 @@ export default function App() {
               jalurList={db.pengaturan.jalurList}
               checklistItems={db.pengaturan.checklistItems}
               userRole={session.role}
+              currentUsername={session.nama}
               phasePermissions={session.phasePermissions}
               initialCheckerFilter={effectiveView === 'shipments' ? tableCheckerFilter : ''}
               initialSearchQuery={effectiveView === 'shipments' ? tableSearchQuery : ''}
               onOpenDetail={(kodeOs) => setDetailKodeOs(kodeOs)}
               onEditShipment={openEditForm}
               onCreateShipment={openCreateForm}
+              onImportExcelShipments={
+                effectiveView === 'shipments' ? handleImportShipmentsFromExcel : undefined
+              }
               onUpdateStatusDokumen={handleUpdateStatusDokumen}
               onUpdateKodeManualDokOs={handleUpdateKodeManualDokOs}
             />

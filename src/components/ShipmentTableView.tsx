@@ -12,9 +12,11 @@ import {
   Printer,
   RotateCcw,
   Search,
+  Upload,
   X,
 } from 'lucide-react';
 import type {
+  Customer,
   Importir,
   JalurType,
   Pengaturan,
@@ -25,6 +27,7 @@ import type {
   StatusDokumenType,
   UserRole,
 } from '../types/ppjk';
+import type { BatchExcelImportItem } from '../services/gasSimulator';
 import {
   canPerformAction,
   canUserEditAnyPhase,
@@ -44,6 +47,7 @@ import {
   exportShipmentsToPDF,
 } from '../utils/exportUtils';
 import { KdiPrintModal } from './KdiPrintModal';
+import { ExcelImportModal } from './ExcelImportModal';
 import {
   CountdownBadge,
   DoValidityBadge,
@@ -62,6 +66,7 @@ import {
 interface ShipmentTableViewProps {
   mode: 'all' | 'outstanding';
   shipments: Shipment[];
+  customers?: Customer[];
   importirs?: Importir[];
   pengaturan?: Pengaturan;
   pengeluaranOps?: PengeluaranOpsItem[];
@@ -69,12 +74,17 @@ interface ShipmentTableViewProps {
   jalurList: JalurType[];
   checklistItems: string[];
   userRole: UserRole;
+  currentUsername?: string;
   phasePermissions?: PhasePermissions;
   initialCheckerFilter?: string;
   initialSearchQuery?: string;
   onOpenDetail: (kodeOs: string) => void;
   onEditShipment: (kodeOs: string) => void;
   onCreateShipment: () => void;
+  onImportExcelShipments?: (
+    items: BatchExcelImportItem[],
+    options: { updateExisting: boolean; sourceFileName: string }
+  ) => Promise<void>;
   onUpdateStatusDokumen?: (kodeOs: string, nextStatus: StatusDokumenType) => Promise<void>;
   onUpdateKodeManualDokOs?: (kodeOs: string, nextCode: string) => Promise<void>;
 }
@@ -125,6 +135,7 @@ function formatNumberId(value: number | '' | undefined): string {
 export function ShipmentTableView({
   mode,
   shipments,
+  customers = [],
   importirs = [],
   pengaturan,
   pengeluaranOps = [],
@@ -132,12 +143,14 @@ export function ShipmentTableView({
   jalurList,
   checklistItems,
   userRole,
+  currentUsername = '',
   phasePermissions,
   initialCheckerFilter = '',
   initialSearchQuery = '',
   onOpenDetail,
   onEditShipment,
   onCreateShipment,
+  onImportExcelShipments,
   onUpdateStatusDokumen,
   onUpdateKodeManualDokOs,
 }: ShipmentTableViewProps) {
@@ -155,6 +168,7 @@ export function ShipmentTableView({
   const [sortKey, setSortKey] = useState<SortKey>('kodeOs');
   const [sortAsc, setSortAsc] = useState(false);
   const [kdiPreviewShipment, setKdiPreviewShipment] = useState<Shipment | null>(null);
+  const [excelImportOpen, setExcelImportOpen] = useState(false);
   const [editingManualOs, setEditingManualOs] = useState<{
     kodeOs: string;
     value: string;
@@ -532,6 +546,18 @@ export function ShipmentTableView({
               <Printer className="w-3.5 h-3.5" />
               <span>Cetak</span>
             </button>
+            {mode === 'all' && canCreate && onImportExcelShipments && (
+              <button
+                type="button"
+                data-testid="upload-excel-csv-btn"
+                onClick={() => setExcelImportOpen(true)}
+                title="Upload massal data shipment dari file Excel (.xlsx/.xls) atau CSV (.csv)"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#0B2545] dark:bg-gradient-to-r dark:from-emerald-600 dark:to-teal-600 hover:bg-[#143764] dark:hover:from-emerald-500 dark:hover:to-teal-500 text-xs font-semibold text-white whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Upload className="w-3.5 h-3.5 text-[#F28C28] dark:text-white" />
+                <span>Upload Excel / CSV</span>
+              </button>
+            )}
             {mode === 'outstanding' && (
               <button
                 type="button"
@@ -1040,6 +1066,16 @@ export function ShipmentTableView({
                 className="px-4 py-2 rounded-lg bg-slate-200 dark:bg-white/10 hover:bg-slate-300 dark:hover:bg-white/15 text-xs font-semibold text-slate-800 dark:text-white cursor-pointer"
               >
                 Reset Filter
+              </button>
+            )}
+            {mode === 'all' && canCreate && onImportExcelShipments && (
+              <button
+                type="button"
+                onClick={() => setExcelImportOpen(true)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#0B2545] dark:bg-emerald-600 hover:bg-[#143764] dark:hover:bg-emerald-500 text-xs font-semibold text-white cursor-pointer"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Upload Excel / CSV</span>
               </button>
             )}
             {canCreate && (
@@ -1965,6 +2001,20 @@ export function ShipmentTableView({
         pengeluaranOps={pengeluaranOps}
         onClose={() => setKdiPreviewShipment(null)}
       />
+
+      {mode === 'all' && onImportExcelShipments && (
+        <ExcelImportModal
+          isOpen={excelImportOpen}
+          existingShipments={shipments}
+          customers={customers}
+          importirs={importirs}
+          checklistItems={checklistItems}
+          statusList={statusList}
+          defaultChecker={currentUsername}
+          onClose={() => setExcelImportOpen(false)}
+          onConfirmImport={onImportExcelShipments}
+        />
+      )}
     </div>
   );
 }
