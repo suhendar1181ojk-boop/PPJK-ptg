@@ -183,6 +183,8 @@ import { NopenReportView } from './components/NopenReportView';
 import { BillingModal } from './components/BillingModal';
 import { GoogleSignInButton } from './components/GoogleDriveButton';
 import { OfflineIndicator } from './components/PWAStatusControls';
+import { ViewportModeSwitcher } from './components/ViewportModeSwitcher';
+import { useViewportMode } from './contexts/ViewportModeContext';
 
 const VIEW_TITLES: Record<AppView, string> = {
   dashboard: 'Dashboard Ringkasan',
@@ -215,8 +217,13 @@ export default function App() {
   const [selectedRecapChecker, setSelectedRecapChecker] = useState<string>('');
   const [tableSearchQuery, setTableSearchQuery] = useState<string>('');
   const [keuanganOpsFilterKodeOs, setKeuanganOpsFilterKodeOs] = useState<string>('');
+  const { viewportMode } = useViewportMode();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [viewportMode]);
 
   const [globalSearch, setGlobalSearch] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
@@ -2862,7 +2869,24 @@ export default function App() {
     .join('');
 
   return (
-    <div className="min-h-screen bg-[#F5F7FA] dark:bg-[#090C15] text-slate-900 dark:text-slate-100 flex overflow-x-hidden transition-colors duration-200">
+    <div
+      data-viewport-mode={viewportMode}
+      className={`min-h-screen text-slate-900 dark:text-slate-100 transition-colors duration-200 ${
+        viewportMode === 'desktop'
+          ? 'bg-[#F5F7FA] dark:bg-[#090C15] overflow-x-auto'
+          : 'bg-slate-200/80 dark:bg-[#05070D] flex justify-center overflow-x-hidden'
+      }`}
+    >
+      <div
+        data-testid="ptg-app-shell"
+        className={`ptg-app-shell min-h-screen flex bg-[#F5F7FA] dark:bg-[#090C15] ${
+          viewportMode === 'desktop'
+            ? 'w-full min-w-[1160px] lg:min-w-0'
+            : viewportMode === 'tablet'
+              ? 'relative w-full max-w-[820px] shadow-2xl border-x border-slate-300/70 dark:border-white/[0.08] [transform:translateZ(0)] overflow-x-hidden'
+              : 'relative w-full max-w-[412px] shadow-2xl border-x border-slate-300/70 dark:border-white/[0.08] [transform:translateZ(0)] overflow-x-hidden'
+        }`}
+      >
       <Sidebar
         activeView={effectiveView || 'dashboard'}
         onSelectView={(view) => {
@@ -2896,47 +2920,77 @@ export default function App() {
         isOnline={isOnline}
         pendingSyncCount={offlineSyncQueue.length}
         pengaturan={db.pengaturan}
+        viewportMode={viewportMode}
       />
 
       <div
         className={`flex-1 min-w-0 w-full max-w-full flex flex-col transition-all duration-200 ${
-          sidebarCollapsed ? 'lg:ml-[76px]' : 'lg:ml-[256px]'
+          viewportMode === 'desktop'
+            ? sidebarCollapsed
+              ? 'ml-[76px]'
+              : 'ml-[256px]'
+            : 'ml-0'
         }`}
       >
         {/* Top Bar matching dark ERP aesthetic */}
-        <header className="sticky top-0 z-30 h-16 bg-[#0B2545] dark:bg-[#0D111C]/95 dark:backdrop-blur-md text-white px-4 sm:px-6 flex items-center justify-between gap-3 border-b border-white/10 dark:border-white/[0.06] no-print">
+        <header
+          className={`sticky top-0 z-30 h-16 bg-[#0B2545] dark:bg-[#0D111C]/95 dark:backdrop-blur-md text-white flex items-center justify-between gap-2.5 sm:gap-3 border-b border-white/10 dark:border-white/[0.06] no-print ${
+            viewportMode === 'mobile' ? 'px-3' : 'px-4 sm:px-6'
+          }`}
+        >
           {/* Left: Mobile Menu + Workspace Indicator */}
-          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 xl:flex-none xl:shrink-0">
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen(true)}
-              aria-label="Buka menu navigasi"
-              className="lg:hidden inline-flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/10 hover:bg-white/20 dark:bg-white/[0.06] text-white cursor-pointer shrink-0"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
+          <div
+            className={`flex items-center gap-2.5 sm:gap-3 min-w-0 ${
+              viewportMode === 'desktop' ? 'shrink-0' : 'flex-1'
+            }`}
+          >
+            {viewportMode !== 'desktop' && (
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(true)}
+                aria-label="Buka menu navigasi"
+                data-testid="mobile-menu-toggle-btn"
+                className="inline-flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/10 hover:bg-white/20 dark:bg-white/[0.06] text-white cursor-pointer shrink-0"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+            )}
 
-            <div className="hidden xl:flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-white/10 dark:bg-[#151B2B] border border-white/10 dark:border-white/[0.07] shrink-0">
-              <Building2 className="w-4 h-4 text-[#F28C28] dark:text-[#A78BFA] shrink-0" />
-              <span
+            {viewportMode === 'desktop' ? (
+              <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-white/10 dark:bg-[#151B2B] border border-white/10 dark:border-white/[0.07] shrink-0">
+                <Building2 className="w-4 h-4 text-[#F28C28] dark:text-[#A78BFA] shrink-0" />
+                <span
+                  data-testid="header-brand-title"
+                  className="text-xs font-semibold text-white truncate max-w-[190px]"
+                >
+                  {effectiveView === 'dashboard' || !effectiveView
+                    ? `${ppjkIdentity.brandName} — Tracking`
+                    : VIEW_TITLES[effectiveView]}
+                </span>
+              </div>
+            ) : (
+              <h1
                 data-testid="header-brand-title"
-                className="text-xs font-semibold text-white truncate max-w-[190px]"
+                className="text-xs sm:text-sm font-semibold text-white truncate min-w-0"
               >
                 {effectiveView === 'dashboard' || !effectiveView
-                  ? `${ppjkIdentity.brandName} — Tracking`
+                  ? `${ppjkIdentity.brandName}`
                   : VIEW_TITLES[effectiveView]}
-              </span>
-            </div>
-
-            <h1 className="xl:hidden text-xs sm:text-sm font-semibold text-white truncate min-w-0">
-              {effectiveView === 'dashboard' || !effectiveView
-                ? `${ppjkIdentity.brandName}`
-                : VIEW_TITLES[effectiveView]}
-            </h1>
+              </h1>
+            )}
           </div>
 
           {/* Center: Global Search Input (Ctrl + K) */}
-          <div ref={searchBoxRef} className="relative hidden md:block flex-1 min-w-[140px] max-w-xs lg:max-w-sm xl:max-w-md mx-1">
+          <div
+            ref={searchBoxRef}
+            className={`relative flex-1 mx-1 ${
+              viewportMode === 'mobile'
+                ? 'hidden'
+                : viewportMode === 'tablet'
+                  ? 'block min-w-[110px] max-w-[200px]'
+                  : 'block min-w-[140px] max-w-md'
+            }`}
+          >
             <div className="relative">
               <Search className="w-4 h-4 text-white/50 dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
@@ -3091,7 +3145,7 @@ export default function App() {
               {darkMode ? <Sun className="w-4 h-4 text-amber-300" /> : <Moon className="w-4 h-4" />}
             </button>
 
-            {canAccessMaster && (
+            {canAccessMaster && viewportMode !== 'mobile' && (
               <button
                 type="button"
                 data-testid="header-sheets-status-btn"
@@ -3106,7 +3160,7 @@ export default function App() {
                       })`
                     : 'Hubungkan Database ke Google Spreadsheet'
                 }
-                className={`hidden md:inline-flex items-center gap-1.5 h-9 px-2.5 rounded-xl border text-[11px] font-semibold cursor-pointer transition-colors ${
+                className={`inline-flex items-center gap-1.5 h-9 px-2.5 rounded-xl border text-[11px] font-semibold cursor-pointer transition-colors ${
                   db.pengaturan.spreadsheetId && driveUserEmail
                     ? 'bg-emerald-500/15 border-emerald-400/35 text-emerald-100 hover:bg-emerald-500/25'
                     : db.pengaturan.spreadsheetId
@@ -3115,42 +3169,46 @@ export default function App() {
                 }`}
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden xl:inline">
-                  {syncingSheets
-                    ? 'Sync Sheets...'
-                    : db.pengaturan.spreadsheetId
-                      ? driveUserEmail
-                        ? 'Sheets Aktif'
-                        : 'Sheets (Login)'
-                      : 'Sheets DB'}
-                </span>
+                {viewportMode === 'desktop' && (
+                  <span>
+                    {syncingSheets
+                      ? 'Sync Sheets...'
+                      : db.pengaturan.spreadsheetId
+                        ? driveUserEmail
+                          ? 'Sheets Aktif'
+                          : 'Sheets (Login)'
+                        : 'Sheets DB'}
+                  </span>
+                )}
               </button>
             )}
 
-            {driveUserEmail ? (
-              <div className="hidden xl:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-400/30 text-[11px] font-medium text-emerald-100">
-                <HardDrive className="w-3.5 h-3.5 text-emerald-300" />
-                <span className="max-w-[120px] truncate" title={driveUserEmail}>
-                  {driveUserEmail}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleDisconnectGoogleDrive}
-                  title="Putuskan koneksi Google Drive & Sheets"
-                  aria-label="Putuskan koneksi Google Drive & Sheets"
-                  className="ml-1 p-0.5 rounded hover:bg-white/10 text-emerald-200 cursor-pointer"
-                >
-                  <LogOutIcon className="w-3 h-3" />
-                </button>
-              </div>
-            ) : (
-              <div className="hidden xl:block">
-                <GoogleSignInButton
-                  onClick={handleConnectGoogleDrive}
-                  disabled={driveConnecting}
-                  label={driveConnecting ? 'Menghubungkan...' : 'Sign in with Google'}
-                />
-              </div>
+            {viewportMode === 'desktop' && (
+              driveUserEmail ? (
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-400/30 text-[11px] font-medium text-emerald-100">
+                  <HardDrive className="w-3.5 h-3.5 text-emerald-300" />
+                  <span className="max-w-[120px] truncate" title={driveUserEmail}>
+                    {driveUserEmail}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleDisconnectGoogleDrive}
+                    title="Putuskan koneksi Google Drive & Sheets"
+                    aria-label="Putuskan koneksi Google Drive & Sheets"
+                    className="ml-1 p-0.5 rounded hover:bg-white/10 text-emerald-200 cursor-pointer"
+                  >
+                    <LogOutIcon className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <GoogleSignInButton
+                    onClick={handleConnectGoogleDrive}
+                    disabled={driveConnecting}
+                    label={driveConnecting ? 'Menghubungkan...' : 'Sign in with Google'}
+                  />
+                </div>
+              )
             )}
 
             <button
@@ -3166,64 +3224,84 @@ export default function App() {
                     ? `Sync & Perbarui Data (Terakhir: ${formatSyncClock(lastSyncedAt)})`
                     : 'Sync & Perbarui Data'
               }
-              className="relative inline-flex items-center justify-center gap-1.5 h-9 px-2.5 lg:px-3 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-70 dark:bg-[#151B2B] dark:hover:bg-[#1D253B] border border-white/10 dark:border-white/[0.08] text-white cursor-pointer transition-colors"
+              className={`relative inline-flex items-center justify-center gap-1.5 h-9 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-70 dark:bg-[#151B2B] dark:hover:bg-[#1D253B] border border-white/10 dark:border-white/[0.08] text-white cursor-pointer transition-colors ${
+                viewportMode === 'desktop' ? 'px-3' : 'px-2.5'
+              }`}
             >
               <RefreshCw
                 className={`w-4 h-4 shrink-0 ${
                   refreshing ? 'animate-spin text-amber-300' : 'text-emerald-300'
                 }`}
               />
-              <span className="hidden lg:inline text-[11.5px] font-semibold whitespace-nowrap">
-                {refreshing ? 'Sync...' : 'Sync'}
-              </span>
-              {!refreshing && lastSyncedAt && (
-                <span
-                  aria-hidden="true"
-                  className="lg:hidden absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-emerald-400"
-                />
+              {viewportMode === 'desktop' ? (
+                <span className="text-[11.5px] font-semibold whitespace-nowrap">
+                  {refreshing ? 'Sync...' : 'Sync'}
+                </span>
+              ) : (
+                !refreshing &&
+                lastSyncedAt && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-emerald-400"
+                  />
+                )
               )}
             </button>
 
-            {/* User Profile Pill matching mockup */}
-            <div
-              data-testid="active-role-badge"
-              title={`${session.nama} (${session.role})`}
-              className="hidden md:flex items-center gap-2 px-1.5 2xl:pl-2 2xl:pr-3 py-1 rounded-xl bg-white/10 dark:bg-[#151B2B] border border-white/10 dark:border-white/[0.07]"
-            >
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0">
-                {userInitials || 'U'}
-              </div>
-              <div className="hidden 2xl:block leading-tight min-w-0">
-                <div className="text-[11.5px] font-semibold text-white truncate max-w-[110px]">
-                  {session.nama}
+            {/* User Profile Pill */}
+            {viewportMode !== 'mobile' && (
+              <div
+                data-testid="active-role-badge"
+                title={`${session.nama} (${session.role})`}
+                className={`flex items-center gap-2 py-1 rounded-xl bg-white/10 dark:bg-[#151B2B] border border-white/10 dark:border-white/[0.07] ${
+                  viewportMode === 'desktop' ? 'pl-2 pr-3' : 'px-1.5'
+                }`}
+              >
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0">
+                  {userInitials || 'U'}
                 </div>
-                <div className="text-[10px] text-white/65 dark:text-slate-400 truncate">
-                  {session.role}
-                </div>
+                {viewportMode === 'desktop' && (
+                  <div className="leading-tight min-w-0 hidden 2xl:block">
+                    <div className="text-[11.5px] font-semibold text-white truncate max-w-[110px]">
+                      {session.nama}
+                    </div>
+                    <div className="text-[10px] text-white/65 dark:text-slate-400 truncate">
+                      {session.role}
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
+            )}
 
             {canCreate && (
               <button
                 type="button"
                 onClick={openCreateForm}
                 aria-label="Tambah Shipment"
-                className="inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-2 rounded-xl bg-[#F28C28] hover:bg-[#D97719] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] dark:hover:from-[#6D28D9] dark:hover:to-[#4F46E5] text-white text-xs font-semibold whitespace-nowrap cursor-pointer shadow-sm dark:shadow-lg dark:shadow-violet-600/20"
+                className={`inline-flex items-center gap-1.5 py-2 rounded-xl bg-[#F28C28] hover:bg-[#D97719] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] dark:hover:from-[#6D28D9] dark:hover:to-[#4F46E5] text-white text-xs font-semibold whitespace-nowrap cursor-pointer shadow-sm dark:shadow-lg dark:shadow-violet-600/20 ${
+                  viewportMode === 'mobile' ? 'px-2.5' : 'px-3.5'
+                }`}
               >
-                <Plus className="w-4 h-4" />
-                <span className="sm:hidden">Tambah</span>
-                <span className="hidden sm:inline">Tambah Shipment</span>
+                <Plus className="w-4 h-4 shrink-0" />
+                <span>{viewportMode === 'mobile' ? 'Tambah' : 'Tambah Shipment'}</span>
               </button>
             )}
           </div>
         </header>
 
+        {/* Bar Pilihan Mode Tampilan: Desktop, Tab, Mobile (HP) */}
+        <ViewportModeSwitcher />
+
         {/* Main Viewport */}
-        <main className="flex-1 min-w-0 p-4 sm:p-6 max-w-[1440px] w-full mx-auto">
+        <main
+          className={`flex-1 min-w-0 max-w-[1440px] w-full mx-auto ${
+            viewportMode === 'mobile' ? 'p-3' : 'p-4 sm:p-6'
+          }`}
+        >
           <div
             key={effectiveView || 'locked'}
             data-testid="module-fade-wrapper"
-            className="animate-module-fade-in"
+            className="ptg-viewport-content animate-module-fade-in"
           >
             {!effectiveView && (
             <div
@@ -3624,6 +3702,7 @@ export default function App() {
           void handleReplayOfflineQueue();
         }}
       />
+      </div>
     </div>
   );
 }

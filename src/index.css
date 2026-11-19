@@ -241,3 +241,163 @@
     transform: none !important;
   }
 }
+
+/* ============================================================================
+ * Display Mode Frame Overrides (Desktop, Tab 820px, Mobile HP 412px)
+ * Ensures responsive tables, mobile card views, and grids adapt authentically
+ * regardless of the user's physical browser window size.
+ * ============================================================================ */
+
+[data-viewport-mode="mobile"] .ptg-viewport-content .md\:hidden,
+[data-viewport-mode="mobile"] .ptg-viewport-content .lg\:hidden,
+[data-viewport-mode="mobile"] .ptg-viewport-content .xl\:hidden {
+  display: block;
+}
+
+[data-viewport-mode="mobile"] .ptg-viewport-content .sm\:hidden {
+  display: inline;
+}
+
+[data-viewport-mode="mobile"] .ptg-viewport-content .hidden[class*="sm:block"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .hidden[class*="md:block"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .hidden[class*="lg:block"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .hidden[class*="xl:block"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .hidden[class*="2xl:block"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .hidden[class*="sm:inline"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .hidden[class*="md:inline"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .hidden[class*="lg:inline"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .hidden[class*="xl:inline"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .hidden[class*="sm:inline-flex"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .hidden[class*="md:inline-flex"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .hidden[class*="lg:inline-flex"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .hidden[class*="xl:inline-flex"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .hidden[class*="md:flex"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .hidden[class*="lg:flex"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .hidden[class*="xl:flex"] {
+  display: none;
+}
+
+[data-viewport-mode="mobile"] .ptg-viewport-content .grid-cols-1[class*="sm:grid-cols-"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .grid-cols-1[class*="md:grid-cols-"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .grid-cols-1[class*="lg:grid-cols-"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .grid-cols-1[class*="xl:grid-cols-"] {
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+
+[data-viewport-mode="mobile"] .ptg-viewport-content .grid-cols-2[class*="sm:grid-cols-"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .grid-cols-2[class*="md:grid-cols-"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .grid-cols-2[class*="lg:grid-cols-"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .grid-cols-2[class*="xl:grid-cols-"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+[data-viewport-mode="mobile"] .ptg-viewport-content [class*="sm:col-span-"],
+[data-viewport-mode="mobile"] .ptg-viewport-content [class*="md:col-span-"],
+[data-viewport-mode="mobile"] .ptg-viewport-content [class*="lg:col-span-"],
+[data-viewport-mode="mobile"] .ptg-viewport-content [class*="xl:col-span-"] {
+  grid-column: span 1 / span 1;
+}
+
+[data-viewport-mode="mobile"] .ptg-viewport-content .flex-col[class*="sm:flex-row"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .flex-col[class*="lg:flex-row"],
+[data-viewport-mode="mobile"] .ptg-viewport-content .flex-col[class*="xl:flex-row"] {
+  flex-direction: column;
+}
+
+/* Tablet mode (~820px): keep sm/md layouts active, suppress lg/xl/2xl multi-column expansion */
+[data-viewport-mode="tablet"] .ptg-viewport-content .hidden[class*="lg:block"],
+[data-viewport-mode="tablet"] .ptg-viewport-content .hidden[class*="xl:block"],
+[data-viewport-mode="tablet"] .ptg-viewport-content .hidden[class*="2xl:block"],
+[data-viewport-mode="tablet"] .ptg-viewport-content .hidden[class*="lg:inline"],
+[data-viewport-mode="tablet"] .ptg-viewport-content .hidden[class*="xl:inline"],
+[data-viewport-mode="tablet"] .ptg-viewport-content .hidden[class*="lg:inline-flex"],
+[data-viewport-mode="tablet"] .ptg-viewport-content .hidden[class*="xl:inline-flex"],
+[data-viewport-mode="tablet"] .ptg-viewport-content .hidden[class*="lg:flex"],
+[data-viewport-mode="tablet"] .ptg-viewport-content .hidden[class*="xl:flex"] {
+  display: none;
+}
+
+[data-viewport-mode="tablet"] .ptg-viewport-content .grid-cols-1[class*="lg:grid-cols-"]:not([class*="sm:grid-cols-"]):not([class*="md:grid-cols-"]),
+[data-viewport-mode="tablet"] .ptg-viewport-content .grid-cols-1[class*="xl:grid-cols-"]:not([class*="sm:grid-cols-"]):not([class*="md:grid-cols-"]) {
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+
+[data-viewport-mode="tablet"] .ptg-viewport-content [class*="sm:grid-cols-2"][class*="lg:grid-cols-"],
+[data-viewport-mode="tablet"] .ptg-viewport-content [class*="sm:grid-cols-2"][class*="xl:grid-cols-"],
+[data-viewport-mode="tablet"] .ptg-viewport-content [class*="md:grid-cols-2"][class*="lg:grid-cols-"],
+[data-viewport-mode="tablet"] .ptg-viewport-content [class*="md:grid-cols-2"][class*="xl:grid-cols-"],
+[data-viewport-mode="tablet"] .ptg-viewport-content .grid-cols-2[class*="lg:grid-cols-"]:not([class*="sm:grid-cols-"]):not([class*="md:grid-cols-"]) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+[data-viewport-mode="tablet"] .ptg-viewport-content [class*="sm:grid-cols-3"][class*="lg:grid-cols-"],
+[data-viewport-mode="tablet"] .ptg-viewport-content [class*="md:grid-cols-3"][class*="xl:grid-cols-"] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+[data-viewport-mode="tablet"] .ptg-viewport-content [class*="lg:col-span-"]:not([class*="sm:col-span-"]):not([class*="md:col-span-"]),
+[data-viewport-mode="tablet"] .ptg-viewport-content [class*="xl:col-span-"]:not([class*="sm:col-span-"]):not([class*="md:col-span-"]) {
+  grid-column: span 1 / span 1;
+}
+
+[data-viewport-mode="tablet"] .ptg-viewport-content .flex-col[class*="lg:flex-row"]:not([class*="sm:flex-row"]),
+[data-viewport-mode="tablet"] .ptg-viewport-content .flex-col[class*="xl:flex-row"]:not([class*="sm:flex-row"]) {
+  flex-direction: column;
+}
+
+/* When a small physical device explicitly selects Desktop mode, restore desktop layout inside horizontal scroll */
+@media (max-width: 1023px) {
+  [data-viewport-mode="desktop"] .ptg-viewport-content .md\:hidden {
+    display: none;
+  }
+
+  [data-viewport-mode="desktop"] .ptg-viewport-content .hidden[class*="md:block"],
+  [data-viewport-mode="desktop"] .ptg-viewport-content .hidden[class*="lg:block"] {
+    display: block;
+  }
+
+  [data-viewport-mode="desktop"] .ptg-viewport-content [class*="lg:grid-cols-2"],
+  [data-viewport-mode="desktop"] .ptg-viewport-content [class*="md:grid-cols-2"]:not([class*="xl:grid-cols-"]):not([class*="lg:grid-cols-"]) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  [data-viewport-mode="desktop"] .ptg-viewport-content [class*="lg:grid-cols-3"],
+  [data-viewport-mode="desktop"] .ptg-viewport-content [class*="xl:grid-cols-3"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  [data-viewport-mode="desktop"] .ptg-viewport-content [class*="lg:grid-cols-4"],
+  [data-viewport-mode="desktop"] .ptg-viewport-content [class*="xl:grid-cols-4"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  [data-viewport-mode="desktop"] .ptg-viewport-content [class*="lg:grid-cols-5"],
+  [data-viewport-mode="desktop"] .ptg-viewport-content [class*="xl:grid-cols-5"] {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  [data-viewport-mode="desktop"] .ptg-viewport-content [class*="lg:grid-cols-12"],
+  [data-viewport-mode="desktop"] .ptg-viewport-content [class*="xl:grid-cols-12"] {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+
+  [data-viewport-mode="desktop"] .ptg-viewport-content .lg\:col-span-5,
+  [data-viewport-mode="desktop"] .ptg-viewport-content .xl\:col-span-5 {
+    grid-column: span 5 / span 5;
+  }
+
+  [data-viewport-mode="desktop"] .ptg-viewport-content .lg\:col-span-6 {
+    grid-column: span 6 / span 6;
+  }
+
+  [data-viewport-mode="desktop"] .ptg-viewport-content .lg\:col-span-7,
+  [data-viewport-mode="desktop"] .ptg-viewport-content .xl\:col-span-7 {
+    grid-column: span 7 / span 7;
+  }
+
+  [data-viewport-mode="desktop"] .ptg-viewport-content .flex-col[class*="sm:flex-row"],
+  [data-viewport-mode="desktop"] .ptg-viewport-content .flex-col[class*="lg:flex-row"],
+  [data-viewport-mode="desktop"] .ptg-viewport-content .flex-col[class*="xl:flex-row"] {
+    flex-direction: row;
+  }
+}

@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import type { AppView, Pengaturan, SessionUser } from '../types/ppjk';
+import type { ViewportMode } from '../utils/viewportModeLogic';
 import {
   canPerformAction,
   getPpjkIdentity,
@@ -44,6 +45,7 @@ interface SidebarProps {
   isOnline?: boolean;
   pendingSyncCount?: number;
   pengaturan?: Pengaturan;
+  viewportMode?: ViewportMode;
 }
 
 export function Sidebar({
@@ -63,7 +65,10 @@ export function Sidebar({
   isOnline = true,
   pendingSyncCount = 0,
   pengaturan,
+  viewportMode = 'desktop',
 }: SidebarProps) {
+  const isDrawerLayout = viewportMode !== 'desktop';
+  const effectiveCollapsed = !isDrawerLayout && collapsed;
   const identity = getPpjkIdentity(pengaturan);
   const moduleAccess = resolveUserModuleAccess(user, pengaturan);
   const canAccessMaster =
@@ -130,18 +135,21 @@ export function Sidebar({
 
   return (
     <>
-      {mobileOpen && (
+      {mobileOpen && isDrawerLayout && (
         <div
-          className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-40 lg:hidden"
+          className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-40"
           onClick={onCloseMobile}
           aria-hidden="true"
         />
       )}
 
       <aside
+        data-testid="app-sidebar"
         className={`fixed top-0 bottom-0 left-0 z-50 bg-[#0B2545] dark:bg-[#0D111C] text-white flex flex-col border-r border-white/10 dark:border-white/[0.06] overflow-hidden transition-[transform,width] duration-200 no-print ${
-          collapsed ? 'lg:w-[76px]' : 'lg:w-[256px]'
-        } w-[264px] ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
+          isDrawerLayout
+            ? `w-[264px] ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`
+            : `${effectiveCollapsed ? 'w-[76px]' : 'w-[256px]'} translate-x-0`
+        }`}
       >
         {/* Subtle bottom-left violet/indigo wave accent matching dark ERP aesthetic */}
         <div
@@ -151,7 +159,7 @@ export function Sidebar({
 
         {/* Brand Header */}
         <div className="relative z-10 h-16 px-4 border-b border-white/10 dark:border-white/[0.06] flex items-center justify-between gap-2 shrink-0">
-          {!collapsed && (
+          {!effectiveCollapsed && (
             <div className="flex items-center gap-2.5 min-w-0">
               {identity.logoDataUrl ? (
                 <div className="w-9 h-9 rounded-xl bg-white p-1 flex items-center justify-center shadow-lg shadow-black/20 shrink-0 overflow-hidden">
@@ -181,27 +189,31 @@ export function Sidebar({
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={onToggleCollapse}
-            aria-label={collapsed ? 'Perluas sidebar' : 'Lipat sidebar'}
-            className="hidden lg:inline-flex items-center justify-center w-8 h-8 rounded-lg bg-white/10 hover:bg-white/15 dark:bg-white/[0.05] dark:hover:bg-white/[0.1] text-white/80 hover:text-white transition-colors cursor-pointer shrink-0"
-          >
-            {collapsed ? (
-              <PanelLeftOpen className="w-4 h-4" />
-            ) : (
-              <PanelLeftClose className="w-4 h-4" />
-            )}
-          </button>
+          {!isDrawerLayout && (
+            <button
+              type="button"
+              onClick={onToggleCollapse}
+              aria-label={effectiveCollapsed ? 'Perluas sidebar' : 'Lipat sidebar'}
+              className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-white/10 hover:bg-white/15 dark:bg-white/[0.05] dark:hover:bg-white/[0.1] text-white/80 hover:text-white transition-colors cursor-pointer shrink-0"
+            >
+              {effectiveCollapsed ? (
+                <PanelLeftOpen className="w-4 h-4" />
+              ) : (
+                <PanelLeftClose className="w-4 h-4" />
+              )}
+            </button>
+          )}
 
-          <button
-            type="button"
-            onClick={onCloseMobile}
-            aria-label="Tutup menu"
-            className="lg:hidden inline-flex items-center justify-center w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          {isDrawerLayout && (
+            <button
+              type="button"
+              onClick={onCloseMobile}
+              aria-label="Tutup menu"
+              className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {/* Navigation Links */}
@@ -216,7 +228,7 @@ export function Sidebar({
                   key={item.id}
                   type="button"
                   onClick={() => handleNav(item.id)}
-                  title={collapsed ? item.label : undefined}
+                  title={effectiveCollapsed ? item.label : undefined}
                   className={`w-full min-h-[42px] flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all cursor-pointer ${
                     isActive
                       ? 'bg-[#F28C28] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] text-white font-semibold shadow-md dark:shadow-lg dark:shadow-violet-600/25'
@@ -229,12 +241,12 @@ export function Sidebar({
                         isActive ? 'text-white' : 'text-white/70 dark:text-slate-400'
                       }`}
                     />
-                    {!collapsed && (
+                    {!effectiveCollapsed && (
                       <span className="truncate whitespace-nowrap">{item.label}</span>
                     )}
                   </span>
 
-                  {!collapsed && (
+                  {!effectiveCollapsed && (
                     <span className="flex items-center gap-1.5 shrink-0">
                       {typeof item.badge === 'number' && item.badge > 0 && (
                         <span
@@ -263,7 +275,7 @@ export function Sidebar({
 
         {/* Bottom User Profile, PWA Install & Logout */}
         <div className="relative z-10 p-3.5 border-t border-white/10 dark:border-white/[0.06] shrink-0 space-y-2.5">
-          {!collapsed && (
+          {!effectiveCollapsed && (
             <div className="px-1 flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="text-xs font-semibold text-white truncate">{user.nama}</div>
@@ -295,7 +307,7 @@ export function Sidebar({
             </div>
           )}
 
-          <PWAInstallButton variant="sidebar" collapsed={collapsed} />
+          <PWAInstallButton variant="sidebar" collapsed={effectiveCollapsed} />
 
           <button
             type="button"
@@ -304,7 +316,7 @@ export function Sidebar({
             className="w-full min-h-[40px] flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 dark:bg-white/[0.05] dark:hover:bg-white/[0.1] border border-transparent dark:border-white/[0.06] text-white text-xs font-medium transition-colors cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5 shrink-0" />
-            {!collapsed && <span>Keluar</span>}
+            {!effectiveCollapsed && <span>Keluar</span>}
           </button>
         </div>
       </aside>

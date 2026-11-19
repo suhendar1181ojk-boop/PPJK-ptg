@@ -2,6 +2,7 @@ import {createRoot} from 'react-dom/client';
 import {registerSW} from 'virtual:pwa-register';
 import App from './App.tsx';
 import { CardCollapseProvider } from './contexts/CardCollapseContext.tsx';
+import { ViewportModeProvider } from './contexts/ViewportModeContext.tsx';
 import './index.css';
 
 if (typeof window !== 'undefined') {
@@ -21,7 +22,9 @@ if (typeof window !== 'undefined') {
 }
 
 createRoot(document.getElementById('root')!).render(
-  <CardCollapseProvider>
-    <App />
-  </CardCollapseProvider>
+  <ViewportModeProvider>
+    <CardCollapseProvider>
+      <App />
+    </CardCollapseProvider>
+  </ViewportModeProvider>
 );
