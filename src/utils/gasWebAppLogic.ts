@@ -1123,6 +1123,73 @@ export function parseGasWebAppFullDatabaseGetResponse(
   };
 }
 
+export interface GasUploadFileActionResult {
+  fileId: string;
+  name: string;
+  webViewLink: string;
+  folderId: string;
+  folderUrl?: string;
+  rootFolderId?: string;
+  rootFolderName?: string;
+  rootFolderLink?: string;
+  ownerEmail?: string;
+}
+
+export function parseGasUploadFileResponse(rawPayload: unknown): {
+  ok: boolean;
+  result?: GasUploadFileActionResult;
+  errorMessage?: string;
+} {
+  if (!rawPayload || typeof rawPayload !== 'object' || Array.isArray(rawPayload)) {
+    return {
+      ok: false,
+      errorMessage: 'Respons GAS uploadFile tidak valid.',
+    };
+  }
+  const obj = rawPayload as Record<string, unknown>;
+  const statusStr = String(obj.status || '').trim().toLowerCase();
+  if (obj.ok === false || obj.success === false || statusStr === 'error') {
+    const rawErr = String(obj.error || obj.message || '').trim();
+    if (/action tidak dikenali/i.test(rawErr)) {
+      return {
+        ok: false,
+        errorMessage:
+          'Script Code.gs pada endpoint GAS belum mendukung upload file Google Drive. Silakan salin ulang kode GAS terbaru dari Pengaturan / Kode GAS atau gunakan Sign in with Google.',
+      };
+    }
+    return {
+      ok: false,
+      errorMessage: rawErr || 'Endpoint GAS menolak upload file ke Google Drive.',
+    };
+  }
+
+  const fileId = String(obj.fileId || '').trim();
+  const folderId = String(obj.folderId || '').trim();
+  if (!fileId) {
+    return {
+      ok: false,
+      errorMessage: 'Endpoint GAS tidak mengembalikan fileId Google Drive.',
+    };
+  }
+
+  return {
+    ok: true,
+    result: {
+      fileId,
+      name: String(obj.name || '').trim() || 'dokumen',
+      webViewLink:
+        String(obj.webViewLink || '').trim() || `https://drive.google.com/file/d/${fileId}/view`,
+      folderId: folderId || String(obj.rootFolderId || '').trim(),
+      folderUrl: String(obj.folderUrl || '').trim() || undefined,
+      rootFolderId: String(obj.rootFolderId || '').trim() || undefined,
+      rootFolderName: String(obj.rootFolderName || '').trim() || undefined,
+      rootFolderLink:
+        String(obj.rootFolderUrl || obj.rootFolderLink || '').trim() || undefined,
+      ownerEmail: String(obj.ownerEmail || '').trim() || undefined,
+    },
+  };
+}
+
 export function buildSampleGasWebAppScript(): string {
   const reportHeadersLiteral = JSON.stringify(GAS_SHIPMENT_SHEET_HEADERS);
   const databaseTabsLiteral = JSON.stringify(
@@ -1131,10 +1198,56 @@ export function buildSampleGasWebAppScript(): string {
     2
   );
   return `// Tempel pada Google Apps Script (Code.gs) di Spreadsheet Anda
-// Mendukung Struktur 12 Tab Database Lengkap + endpoint GET & POST (syncAll, initTabs, add, appendTabRow)
+// Mendukung Struktur 12 Tab Database Lengkap + endpoint GET & POST (syncAll, initTabs, add, appendTabRow, uploadFile, verifyDriveFolder)
 const SHEET_NAME = 'Shipments';
+const DRIVE_ROOT_FOLDER_NAME = 'PTG_PPJK_DOKUMEN';
 const SHIPMENT_REPORT_HEADERS = ${reportHeadersLiteral};
 const DATABASE_TABS = ${databaseTabsLiteral};
+
+function extractDriveFolderId_(rawInput) {
+  const trimmed = String(rawInput || '').trim();
+  if (!trimmed || trimmed === 'PTG_PPJK_DOKUMEN_ROOT') return '';
+  const folderMatch = trimmed.match(/\\/folders\\/([a-zA-Z0-9_-]{15,})/);
+  if (folderMatch && folderMatch[1]) return folderMatch[1];
+  const idParamMatch = trimmed.match(/[?&]id=([a-zA-Z0-9_-]{15,})/);
+  if (idParamMatch && idParamMatch[1]) return idParamMatch[1];
+  if (/^[a-zA-Z0-9_-]{15,}$/.test(trimmed)) return trimmed;
+  return '';
+}
+
+function resolveDriveRootFolder_(folderInput, ownerGmail) {
+  let rootFolder = null;
+  const folderId = extractDriveFolderId_(folderInput);
+  if (folderId) {
+    try {
+      rootFolder = DriveApp.getFolderById(folderId);
+    } catch (_) {
+      rootFolder = null;
+    }
+  }
+  if (!rootFolder) {
+    const it = DriveApp.getFoldersByName(DRIVE_ROOT_FOLDER_NAME);
+    rootFolder = it.hasNext() ? it.next() : DriveApp.createFolder(DRIVE_ROOT_FOLDER_NAME);
+  }
+  const cleanGmail = String(ownerGmail || '').trim().toLowerCase();
+  if (cleanGmail && cleanGmail.indexOf('@') > 0) {
+    try {
+      const effectiveEmail = String(Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
+      if (!effectiveEmail || effectiveEmail !== cleanGmail) {
+        rootFolder.addEditor(cleanGmail);
+      }
+    } catch (_) {
+      // Abaikan jika izin sharing dibatasi kebijakan Workspace
+    }
+  }
+  return rootFolder;
+}
+
+function getOrCreateChildFolder_(parentFolder, folderName) {
+  const cleanName = String(folderName || 'UMUM').trim() || 'UMUM';
+  const it = parentFolder.getFoldersByName(cleanName);
+  return it.hasNext() ? it.next() : parentFolder.createFolder(cleanName);
+}
 
 function ensureDatabaseTabs_(ss) {
   const createdOrVerified = [];
@@ -1414,6 +1527,63 @@ function doPost(e) {
 
     return ContentService.createTextOutput(
       JSON.stringify({ ok: true, status: 'success', kodeOs: d.kodeOs || '' })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // 5. Upload file scan/bukti ke Google Drive milik akun Gmail pemilik Script / folder terdaftar
+  if (body.action === 'uploadFile') {
+    if (!body.base64Data || !body.fileName) {
+      return ContentService.createTextOutput(
+        JSON.stringify({ ok: false, error: 'Parameter fileName dan base64Data wajib diisi untuk uploadFile.' })
+      ).setMimeType(ContentService.MimeType.JSON);
+    }
+    const rootFolder = resolveDriveRootFolder_(body.folderId || '', body.ownerGmail || '');
+    const osFolder = getOrCreateChildFolder_(rootFolder, body.kodeOs || 'UMUM');
+    const safePrefix = String(body.jenisDokumen || '').replace(/[^\\w\\s-]/g, '').trim().replace(/\\s+/g, '_');
+    const uploadName = safePrefix ? safePrefix + '__' + body.fileName : body.fileName;
+    const bytes = Utilities.base64Decode(body.base64Data);
+    const blob = Utilities.newBlob(bytes, body.mimeType || 'application/octet-stream', uploadName);
+    const file = osFolder.createFile(blob);
+    file.setDescription('Dokumen PPJK ' + (body.kodeOs || '-') + ' (' + (body.jenisDokumen || '-') + ')');
+    let effectiveEmail = '';
+    try {
+      effectiveEmail = String(Session.getEffectiveUser().getEmail() || '');
+    } catch (_) {}
+    return ContentService.createTextOutput(
+      JSON.stringify({
+        ok: true,
+        status: 'success',
+        action: 'uploadFile',
+        fileId: file.getId(),
+        name: file.getName(),
+        webViewLink: file.getUrl(),
+        folderId: osFolder.getId(),
+        folderUrl: osFolder.getUrl(),
+        rootFolderId: rootFolder.getId(),
+        rootFolderName: rootFolder.getName(),
+        rootFolderUrl: rootFolder.getUrl(),
+        ownerEmail: effectiveEmail
+      })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // 6. Verifikasi / siapkan folder Google Drive pada akun Gmail pemilik Script
+  if (body.action === 'verifyDriveFolder') {
+    const rootFolder = resolveDriveRootFolder_(body.folderId || '', body.ownerGmail || '');
+    let effectiveEmail = '';
+    try {
+      effectiveEmail = String(Session.getEffectiveUser().getEmail() || '');
+    } catch (_) {}
+    return ContentService.createTextOutput(
+      JSON.stringify({
+        ok: true,
+        status: 'success',
+        action: 'verifyDriveFolder',
+        rootFolderId: rootFolder.getId(),
+        rootFolderName: rootFolder.getName(),
+        rootFolderUrl: rootFolder.getUrl(),
+        ownerEmail: effectiveEmail
+      })
     ).setMimeType(ContentService.MimeType.JSON);
   }
 

@@ -56,6 +56,7 @@ import {
   exportTandaTerimaOpsPDF,
 } from '../utils/exportUtils';
 import { canPerformAction, getPpjkIdentity } from '../utils/ppjkLogic';
+import { describeRegisteredDriveDestination } from '../utils/googleDriveFolderLogic';
 
 interface KeuanganOpsViewProps {
   items: PengeluaranOpsItem[];
@@ -279,6 +280,8 @@ export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
     setPendingProofFile(file);
     setProofPrepNote('Memproses lampiran bukti untuk penyimpanan offline/Drive...');
     const prep = await prepareProofFileDataUrl(file);
+    const driveDest = describeRegisteredDriveDestination(pengaturan, googleDriveEmail);
+    const canDriveUpload = driveDest.hasDirectOrGasDestination;
     setDraft((prev) =>
       prev
         ? {
@@ -286,14 +289,14 @@ export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
             buktiNamaFile: file.name,
             buktiMimeType: file.type || 'application/octet-stream',
             buktiDataUrl: prep.dataUrl || '',
-            source: googleDriveEmail ? 'google-drive' : 'offline-local',
+            source: canDriveUpload ? 'google-drive' : 'offline-local',
           }
         : prev
     );
     setProofPrepNote(
       prep.note ||
-        (googleDriveEmail
-          ? `Siap upload ke Google Drive (${googleDriveEmail}) & preview offline.`
+        (canDriveUpload
+          ? `Siap upload ke folder Google Drive (${driveDest.registeredGmail || driveDest.folderLabel}) & preview offline.`
           : 'Lampiran siap disimpan secara offline-first ke IndexedDB.')
     );
   };
@@ -1376,7 +1379,10 @@ export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
                       <span>Bukti Pembayaran / Foto Tanda Terima Ops</span>
                     </div>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Unggah foto nota, struk transfer, atau tanda terima bertanda tangan (otomatis disimpan offline ke IndexedDB & Google Drive bila terhubung).
+                      Unggah foto nota, struk transfer, atau tanda terima bertanda tangan — otomatis disimpan offline ke IndexedDB &amp; Google Drive{' '}
+                      <strong>
+                        ({describeRegisteredDriveDestination(pengaturan, googleDriveEmail).registeredGmail || 'Akun Drive Terdaftar'} · {describeRegisteredDriveDestination(pengaturan, googleDriveEmail).folderLabel})
+                      </strong>.
                     </p>
                   </div>
                   <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B2545] dark:bg-violet-600 text-white text-xs font-semibold cursor-pointer hover:opacity-90">

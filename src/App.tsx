@@ -87,6 +87,7 @@ import type { OfflineSyncTask } from './utils/offlineDbLogic';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import {
   deleteGoogleDriveFile,
+  ensureRegisteredDriveRootFolder,
   fetchFirebaseAuthorizedDomains,
   getFirebaseAuthConfigInfo,
   getGoogleDriveAccessToken,
@@ -95,12 +96,20 @@ import {
   initGoogleDriveAuth,
   listGoogleDriveFiles,
   uploadFileToGoogleDrive,
+  verifyDriveFolderAccess,
 } from './services/googleDriveService';
 import {
   buildUnauthorizedDomainHelp,
   classifyGoogleAuthError,
   GoogleAuthDomainError,
 } from './utils/googleAuthLogic';
+import {
+  buildDriveFolderUrl,
+  chooseGoogleDriveUploadStrategy,
+  DEFAULT_DRIVE_ROOT_FOLDER_NAME,
+  extractDriveFolderIdFromInput,
+  normalizeGmailAddress,
+} from './utils/googleDriveFolderLogic';
 import {
   createDatabaseSpreadsheet,
   fetchSpreadsheetMetadata,
@@ -118,6 +127,8 @@ import {
   fetchGasWebAppShipments,
   postGasWebAppAddShipment,
   postGasWebAppSyncAllDatabase,
+  postGasWebAppUploadFile,
+  postGasWebAppVerifyDriveFolder,
 } from './services/gasWebAppService';
 import {
   computeGasNextSyncAt,
@@ -732,9 +743,17 @@ export default function App() {
     setDriveConnecting(true);
     try {
       const { user, accessToken } = await googleDriveSignIn();
-      setDriveUserEmail(user.email || user.displayName || 'Google Drive Terhubung');
+      const connectedEmail = user.email || user.displayName || 'Google Drive Terhubung';
+      setDriveUserEmail(connectedEmail);
 
       if (db && session) {
+        if (user.email && user.email.includes('@') && !db.pengaturan.driveOwnerGmail?.trim()) {
+          const updatedDb = await savePengaturanRecord(session, {
+            ...db.pengaturan,
+            driveOwnerGmail: user.email.trim(),
+          });
+          await applyDbUpdate(updatedDb);
+        }
         if (!db.pengaturan.spreadsheetId) {
           const foundSheet = await findDatabaseSpreadsheet(accessToken, 'PTG_PPJK_DATABASE');
           if (foundSheet) {
@@ -1879,33 +1898,179 @@ export default function App() {
     gasUrlValidForInterval,
   ]);
 
+  const persistResolvedDriveFolderToPengaturan = async (
+    targetDb: DatabaseState,
+    resolved: {
+      rootFolderId?: string;
+      rootFolderName?: string;
+      rootFolderLink?: string;
+      ownerEmail?: string;
+    }
+  ): Promise<DatabaseState> => {
+    if (!session || !resolved.rootFolderId) return targetDb;
+    const currentFolderId = extractDriveFolderIdFromInput(targetDb.pengaturan.driveParentFolderId);
+    const currentOwner = normalizeGmailAddress(targetDb.pengaturan.driveOwnerGmail);
+    const shouldUpdateFolder =
+      !currentFolderId ||
+      (resolved.rootFolderId === currentFolderId && !targetDb.pengaturan.driveParentFolderUrl);
+    const shouldUpdateOwner =
+      !currentOwner && Boolean(resolved.ownerEmail && resolved.ownerEmail.includes('@'));
+
+    if (!shouldUpdateFolder && !shouldUpdateOwner) {
+      return targetDb;
+    }
+
+    return savePengaturanRecord(session, {
+      ...targetDb.pengaturan,
+      driveOwnerGmail: shouldUpdateOwner
+        ? resolved.ownerEmail!.trim()
+        : targetDb.pengaturan.driveOwnerGmail,
+      driveParentFolderId: shouldUpdateFolder
+        ? resolved.rootFolderId
+        : targetDb.pengaturan.driveParentFolderId,
+      driveParentFolderName: shouldUpdateFolder
+        ? resolved.rootFolderName || DEFAULT_DRIVE_ROOT_FOLDER_NAME
+        : targetDb.pengaturan.driveParentFolderName,
+      driveParentFolderUrl: shouldUpdateFolder
+        ? resolved.rootFolderLink || buildDriveFolderUrl(resolved.rootFolderId)
+        : targetDb.pengaturan.driveParentFolderUrl,
+    });
+  };
+
+  const uploadFileViaRegisteredDrive = async (
+    targetDb: DatabaseState,
+    params: {
+      file: File;
+      kodeOs: string;
+      jenisDokumen: string;
+    }
+  ): Promise<{
+    fileId: string;
+    name: string;
+    webViewLink: string;
+    folderId: string;
+    rootFolderId?: string;
+    rootFolderName?: string;
+    rootFolderLink?: string;
+    ownerEmail?: string;
+    channel: 'oauth-direct' | 'gas-webapp';
+  }> => {
+    const accessToken = getGoogleDriveAccessToken();
+    const gasUrl = (targetDb.pengaturan.gasWebAppUrl || DEFAULT_GAS_WEBAPP_URL).trim();
+    const gasValidation = validateGasWebAppUrl(gasUrl);
+    const strategy = chooseGoogleDriveUploadStrategy({
+      hasOAuthToken: Boolean(accessToken),
+      connectedGoogleEmail: driveUserEmail,
+      registeredGmail: targetDb.pengaturan.driveOwnerGmail,
+      configuredFolderInput: targetDb.pengaturan.driveParentFolderId,
+      hasGasWebAppUrl: gasValidation.valid,
+    });
+
+    if (strategy.primary === 'local-fallback') {
+      throw new Error(strategy.reason);
+    }
+
+    const executeChannel = async (channel: 'oauth-direct' | 'gas-webapp') => {
+      if (channel === 'oauth-direct') {
+        if (!accessToken) {
+          throw new Error('Token OAuth Google Drive belum aktif.');
+        }
+        const res = await uploadFileToGoogleDrive({
+          accessToken,
+          file: params.file,
+          kodeOs: params.kodeOs,
+          parentFolderSetting: targetDb.pengaturan.driveParentFolderId,
+          jenisDokumen: params.jenisDokumen,
+          registeredGmail: targetDb.pengaturan.driveOwnerGmail,
+        });
+        return {
+          ...res,
+          ownerEmail:
+            driveUserEmail && driveUserEmail.includes('@') ? driveUserEmail : undefined,
+          channel: 'oauth-direct' as const,
+        };
+      }
+
+      const res = await postGasWebAppUploadFile({
+        url: gasValidation.normalizedUrl,
+        file: params.file,
+        kodeOs: params.kodeOs,
+        jenisDokumen: params.jenisDokumen,
+        parentFolderSetting: targetDb.pengaturan.driveParentFolderId,
+        ownerGmail: targetDb.pengaturan.driveOwnerGmail,
+      });
+      return {
+        ...res,
+        channel: 'gas-webapp' as const,
+      };
+    };
+
+    try {
+      return await executeChannel(strategy.primary);
+    } catch (primaryErr) {
+      if (strategy.secondary) {
+        try {
+          return await executeChannel(strategy.secondary);
+        } catch {
+          throw primaryErr;
+        }
+      }
+      throw primaryErr;
+    }
+  };
+
   const uploadSingleDocument = async (
     kodeOs: string,
     jenisDokumen: string,
     namaFile: string,
-    file?: File,
-    parentFolderSetting = 'PTG_PPJK_DOKUMEN_ROOT'
-  ) => {
-    if (!session) return;
-    const accessToken = getGoogleDriveAccessToken();
-    if (accessToken && file) {
-      const uploaded = await uploadFileToGoogleDrive({
-        accessToken,
-        file,
-        kodeOs,
-        parentFolderSetting,
-        jenisDokumen,
-      });
-      return addShipmentDocument(session, kodeOs, jenisDokumen, uploaded.name, {
-        linkDrive: uploaded.webViewLink,
-        driveFileId: uploaded.fileId,
-        driveFolderId: uploaded.folderId,
-        source: 'google-drive',
-      });
+    file?: File
+  ): Promise<{
+    nextDb: DatabaseState;
+    source: 'google-drive' | 'simulasi';
+    channel?: 'oauth-direct' | 'gas-webapp';
+    folderName?: string;
+    ownerEmail?: string;
+    fallbackReason?: string;
+  } | undefined> => {
+    if (!session || !db) return undefined;
+    if (file) {
+      try {
+        const uploaded = await uploadFileViaRegisteredDrive(db, {
+          file,
+          kodeOs,
+          jenisDokumen,
+        });
+        let nextDb = await addShipmentDocument(session, kodeOs, jenisDokumen, uploaded.name, {
+          linkDrive: uploaded.webViewLink,
+          driveFileId: uploaded.fileId,
+          driveFolderId: uploaded.folderId,
+          source: 'google-drive',
+        });
+        nextDb = await persistResolvedDriveFolderToPengaturan(nextDb, uploaded);
+        return {
+          nextDb,
+          source: 'google-drive',
+          channel: uploaded.channel,
+          folderName: uploaded.rootFolderName,
+          ownerEmail: uploaded.ownerEmail || db.pengaturan.driveOwnerGmail,
+        };
+      } catch (err) {
+        const fallbackReason =
+          err instanceof Error ? err.message : 'Gagal upload ke Google Drive';
+        const nextDb = await addShipmentDocument(session, kodeOs, jenisDokumen, namaFile, {
+          source: 'simulasi',
+        });
+        return {
+          nextDb,
+          source: 'simulasi',
+          fallbackReason,
+        };
+      }
     }
-    return addShipmentDocument(session, kodeOs, jenisDokumen, namaFile, {
+    const nextDb = await addShipmentDocument(session, kodeOs, jenisDokumen, namaFile, {
       source: 'simulasi',
     });
+    return { nextDb, source: 'simulasi' };
   };
 
   const handleSaveShipment = async (
@@ -1918,17 +2083,15 @@ export default function App() {
     const res = await saveShipmentRecord(session, shipment, containers, isNew);
     let latestDb = res.db;
     let driveUploadedCount = 0;
+    let driveViaGasCount = 0;
     let driveFallbackError = '';
 
     for (const item of pendingUploads) {
       try {
-        const accessToken = getGoogleDriveAccessToken();
-        if (accessToken && item.file) {
-          const uploaded = await uploadFileToGoogleDrive({
-            accessToken,
+        if (item.file) {
+          const uploaded = await uploadFileViaRegisteredDrive(latestDb, {
             file: item.file,
             kodeOs: res.saved.kodeOs,
-            parentFolderSetting: latestDb.pengaturan.driveParentFolderId,
             jenisDokumen: item.jenisDokumen,
           });
           latestDb = await addShipmentDocument(
@@ -1943,7 +2106,9 @@ export default function App() {
               source: 'google-drive',
             }
           );
+          latestDb = await persistResolvedDriveFolderToPengaturan(latestDb, uploaded);
           driveUploadedCount++;
+          if (uploaded.channel === 'gas-webapp') driveViaGasCount++;
         } else {
           latestDb = await addShipmentDocument(
             session,
@@ -1981,18 +2146,21 @@ export default function App() {
         gasNote = ` (Lokal tersimpan · GAS POST tertunda: ${gasRes.error})`;
       }
     }
+    const targetGmailNote = latestDb.pengaturan.driveOwnerGmail
+      ? ` (${latestDb.pengaturan.driveOwnerGmail})`
+      : '';
     await Swal.fire({
       title: 'Tersimpan',
       text:
         pendingUploads.length > 0
           ? driveUploadedCount > 0
-            ? `Shipment ${res.saved.kodeOs} disimpan & ${driveUploadedCount} file berhasil diupload ke Google Drive.${gasNote}`
+            ? `Shipment ${res.saved.kodeOs} disimpan & ${driveUploadedCount} file berhasil diupload ke folder Google Drive${targetGmailNote}${driveViaGasCount > 0 ? ' via GAS' : ''}.${gasNote}`
             : driveFallbackError
             ? `Shipment ${res.saved.kodeOs} disimpan (Drive fallback lokal: ${driveFallbackError}).${gasNote}`
             : `Shipment ${res.saved.kodeOs} berhasil disimpan beserta ${pendingUploads.length} file dokumen.${gasNote}`
           : `Shipment ${res.saved.kodeOs} berhasil disimpan.${gasNote}`,
       icon: 'success',
-      timer: 2200,
+      timer: 2600,
       showConfirmButton: false,
     });
   };
@@ -2027,14 +2195,35 @@ export default function App() {
     file?: File
   ) => {
     if (!session) return;
-    const nextDb = await uploadSingleDocument(
-      kodeOs,
-      jenisDokumen,
-      namaFile,
-      file,
-      db?.pengaturan.driveParentFolderId
-    );
-    if (nextDb) await applyDbUpdate(nextDb);
+    const result = await uploadSingleDocument(kodeOs, jenisDokumen, namaFile, file);
+    if (!result) return;
+    await applyDbUpdate(result.nextDb);
+    if (result.source === 'google-drive') {
+      const targetEmailLabel = result.ownerEmail ? ` (${result.ownerEmail})` : '';
+      void Swal.fire({
+        toast: true,
+        position: 'bottom-end',
+        icon: 'success',
+        title: `File tersimpan di Google Drive${targetEmailLabel}`,
+        text: `Folder ${result.folderName || DEFAULT_DRIVE_ROOT_FOLDER_NAME} / ${kodeOs}${result.channel === 'gas-webapp' ? ' (via GAS)' : ''}`,
+        timer: 3200,
+        showConfirmButton: false,
+        background: darkMode ? '#151B2B' : '#FFFFFF',
+        color: darkMode ? '#F1F5F9' : '#0F172A',
+      });
+    } else if (result.fallbackReason) {
+      void Swal.fire({
+        toast: true,
+        position: 'bottom-end',
+        icon: 'warning',
+        title: 'Upload Drive Fallback Lokal',
+        text: result.fallbackReason,
+        timer: 4200,
+        showConfirmButton: false,
+        background: darkMode ? '#151B2B' : '#FFFFFF',
+        color: darkMode ? '#F1F5F9' : '#0F172A',
+      });
+    }
   };
 
   const handleUpdateStatusDokumen = async (
@@ -2074,15 +2263,13 @@ export default function App() {
     if (!session || !db) return;
     let finalPayload: PengeluaranOpsInputPayload = { ...payload };
     let driveNote = '';
+    let workingDb = db;
 
-    const accessToken = getGoogleDriveAccessToken();
-    if (proofFile && accessToken) {
+    if (proofFile) {
       try {
-        const uploaded = await uploadFileToGoogleDrive({
-          accessToken,
+        const uploaded = await uploadFileViaRegisteredDrive(db, {
           file: proofFile,
           kodeOs: payload.kodeOs || 'UMUM_NON_OS',
-          parentFolderSetting: db.pengaturan.driveParentFolderId,
           jenisDokumen: `Bukti_Ops_${payload.kategori}`,
         });
         finalPayload = {
@@ -2092,24 +2279,27 @@ export default function App() {
           driveFileId: uploaded.fileId,
           source: 'google-drive',
         };
-        driveNote = ' Bukti berhasil diupload ke Google Drive.';
+        workingDb = await persistResolvedDriveFolderToPengaturan(workingDb, uploaded);
+        const targetEmail = uploaded.ownerEmail || workingDb.pengaturan.driveOwnerGmail;
+        driveNote = ` Bukti diupload ke Google Drive${targetEmail ? ` (${targetEmail})` : ''}${uploaded.channel === 'gas-webapp' ? ' via GAS' : ''}.`;
       } catch (err) {
         driveNote = ` (Bukti disimpan lokal offline: ${
           err instanceof Error ? err.message : 'Drive tidak terjangkau'
         })`;
         finalPayload.source = finalPayload.buktiDataUrl ? 'offline-local' : 'simulasi';
       }
-    } else if (proofFile) {
-      finalPayload.source = finalPayload.buktiDataUrl ? 'offline-local' : 'simulasi';
     }
 
     const res = await savePengeluaranOpsRecord(session, finalPayload, isNew);
-    await applyDbUpdate(res.db);
+    await applyDbUpdate({
+      ...res.db,
+      pengaturan: workingDb.pengaturan,
+    });
     await Swal.fire({
       title: isNew ? 'Pengeluaran Ops Tercatat' : 'Pengeluaran Ops Diperbarui',
       text: `${res.saved.kodePengeluaran} (${res.saved.noTandaTerima}) tersimpan untuk ${res.saved.kodeOs}.${driveNote}`,
       icon: 'success',
-      timer: 2000,
+      timer: 2400,
       showConfirmButton: false,
       background: darkMode ? '#131926' : '#ffffff',
       color: darkMode ? '#f1f5f9' : '#0f172a',
@@ -2327,6 +2517,129 @@ export default function App() {
       throw new Error('Silakan Sign in with Google terlebih dahulu untuk melihat file Drive.');
     }
     return listGoogleDriveFiles({ accessToken: token, pageSize: 15 });
+  };
+
+  const handlePrepareRegisteredDriveFolder = async (params: {
+    folderInput: string;
+    ownerGmail: string;
+  }) => {
+    if (!session || !db) {
+      throw new Error('Sesi pengguna belum siap.');
+    }
+    const cleanGmail = normalizeGmailAddress(params.ownerGmail);
+    const token = getGoogleDriveAccessToken();
+    const gasUrl = (db.pengaturan.gasWebAppUrl || DEFAULT_GAS_WEBAPP_URL).trim();
+    const gasValidation = validateGasWebAppUrl(gasUrl);
+
+    if (token) {
+      const prepared = await ensureRegisteredDriveRootFolder({
+        accessToken: token,
+        configuredFolderInput: params.folderInput,
+        registeredGmail: cleanGmail,
+      });
+      const updatedDb = await savePengaturanRecord(session, {
+        ...db.pengaturan,
+        driveOwnerGmail:
+          cleanGmail ||
+          (driveUserEmail && driveUserEmail.includes('@') ? driveUserEmail : db.pengaturan.driveOwnerGmail || ''),
+        driveParentFolderId: prepared.id,
+        driveParentFolderName: prepared.name,
+        driveParentFolderUrl: prepared.webViewLink,
+      });
+      await applyDbUpdate(updatedDb);
+      return {
+        folderId: prepared.id,
+        folderName: prepared.name,
+        folderUrl: prepared.webViewLink,
+        ownerEmail: cleanGmail || (driveUserEmail && driveUserEmail.includes('@') ? driveUserEmail : ''),
+        channel: 'oauth' as const,
+        sharedWithGmail: prepared.sharedWithGmail,
+        shareError: prepared.shareError,
+      };
+    }
+
+    if (gasValidation.valid) {
+      const prepared = await postGasWebAppVerifyDriveFolder({
+        url: gasValidation.normalizedUrl,
+        parentFolderSetting: params.folderInput,
+        ownerGmail: cleanGmail,
+      });
+      const resolvedGmail = cleanGmail || prepared.ownerEmail || db.pengaturan.driveOwnerGmail || '';
+      const updatedDb = await savePengaturanRecord(session, {
+        ...db.pengaturan,
+        driveOwnerGmail: resolvedGmail,
+        driveParentFolderId: prepared.rootFolderId,
+        driveParentFolderName: prepared.rootFolderName,
+        driveParentFolderUrl: prepared.rootFolderLink,
+      });
+      await applyDbUpdate(updatedDb);
+      return {
+        folderId: prepared.rootFolderId,
+        folderName: prepared.rootFolderName,
+        folderUrl: prepared.rootFolderLink,
+        ownerEmail: resolvedGmail,
+        channel: 'gas' as const,
+      };
+    }
+
+    throw new Error(
+      'Klik "Sign in with Google" terlebih dahulu atau pastikan Endpoint GAS Web App valid untuk menyiapkan folder Google Drive.'
+    );
+  };
+
+  const handleVerifyRegisteredDriveFolder = async (folderInput: string) => {
+    if (!session || !db) {
+      throw new Error('Sesi pengguna belum siap.');
+    }
+    const token = getGoogleDriveAccessToken();
+    const gasUrl = (db.pengaturan.gasWebAppUrl || DEFAULT_GAS_WEBAPP_URL).trim();
+    const gasValidation = validateGasWebAppUrl(gasUrl);
+
+    if (token) {
+      const verified = await verifyDriveFolderAccess(token, folderInput);
+      const updatedDb = await savePengaturanRecord(session, {
+        ...db.pengaturan,
+        driveOwnerGmail:
+          db.pengaturan.driveOwnerGmail || verified.ownerEmail || '',
+        driveParentFolderId: verified.id,
+        driveParentFolderName: verified.name,
+        driveParentFolderUrl: verified.webViewLink,
+      });
+      await applyDbUpdate(updatedDb);
+      return {
+        folderId: verified.id,
+        folderName: verified.name,
+        folderUrl: verified.webViewLink,
+        ownerEmail: verified.ownerEmail,
+      };
+    }
+
+    if (gasValidation.valid) {
+      const prepared = await postGasWebAppVerifyDriveFolder({
+        url: gasValidation.normalizedUrl,
+        parentFolderSetting: folderInput,
+        ownerGmail: db.pengaturan.driveOwnerGmail,
+      });
+      const updatedDb = await savePengaturanRecord(session, {
+        ...db.pengaturan,
+        driveOwnerGmail:
+          db.pengaturan.driveOwnerGmail || prepared.ownerEmail || '',
+        driveParentFolderId: prepared.rootFolderId,
+        driveParentFolderName: prepared.rootFolderName,
+        driveParentFolderUrl: prepared.rootFolderLink,
+      });
+      await applyDbUpdate(updatedDb);
+      return {
+        folderId: prepared.rootFolderId,
+        folderName: prepared.rootFolderName,
+        folderUrl: prepared.rootFolderLink,
+        ownerEmail: prepared.ownerEmail,
+      };
+    }
+
+    throw new Error(
+      'Silakan Sign in with Google atau siapkan Endpoint GAS Web App untuk mengecek folder Drive.'
+    );
   };
 
   const handleResetDb = async (mode: 'empty' | 'seed') => {
@@ -3032,6 +3345,8 @@ export default function App() {
               onSavePengaturan={async (p: Pengaturan) => {
                 await applyDbUpdate(await savePengaturanRecord(session, p));
               }}
+              onPrepareDriveFolder={handlePrepareRegisteredDriveFolder}
+              onVerifyDriveFolder={handleVerifyRegisteredDriveFolder}
               onResetDatabase={handleResetDb}
             />
           )}

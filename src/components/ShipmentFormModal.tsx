@@ -35,6 +35,7 @@ import {
   validateShipmentInput,
 } from '../utils/ppjkLogic';
 import { GoogleSignInButton } from './GoogleDriveButton';
+import { describeRegisteredDriveDestination } from '../utils/googleDriveFolderLogic';
 
 interface ShipmentFormModalProps {
   initialShipment: Shipment | null;
@@ -623,7 +624,12 @@ export function ShipmentFormModal({
                 </div>
               </div>
 
-              {canUpload && (
+              {canUpload && (() => {
+                const driveDest = describeRegisteredDriveDestination(
+                  pengaturan,
+                  googleDriveUserEmail
+                );
+                return (
                 <div className={boxCls}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 text-xs font-semibold text-[#0B2545] dark:text-white">
@@ -635,19 +641,52 @@ export function ShipmentFormModal({
                         <span className="px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-500/15 border border-emerald-200 dark:border-emerald-500/30 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
                           Google Drive Terhubung ({googleDriveUserEmail})
                         </span>
-                      ) : onConnectGoogleDrive ? (
-                        <GoogleSignInButton
-                          onClick={onConnectGoogleDrive}
-                          disabled={driveConnecting}
-                          label={driveConnecting ? 'Menghubungkan...' : 'Sign in with Google'}
-                        />
-                      ) : null}
+                      ) : (
+                        <>
+                          {pengaturan.gasWebAppUrl?.trim() && (
+                            <span className="px-2 py-0.5 rounded bg-sky-50 dark:bg-sky-500/15 border border-sky-200 dark:border-sky-500/30 text-[11px] font-semibold text-sky-700 dark:text-sky-300">
+                              Siap Upload via Endpoint GAS
+                            </span>
+                          )}
+                          {onConnectGoogleDrive && (
+                            <GoogleSignInButton
+                              onClick={onConnectGoogleDrive}
+                              disabled={driveConnecting}
+                              label={driveConnecting ? 'Menghubungkan...' : 'Sign in with Google'}
+                            />
+                          )}
+                        </>
+                      )}
                       {!isNew && existingDocuments.length > 0 && (
                         <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
                           {existingDocuments.length} dokumen sudah tersimpan
                         </span>
                       )}
                     </div>
+                  </div>
+
+                  <div
+                    data-testid="form-drive-destination-info"
+                    className="px-3 py-2 rounded-lg bg-white dark:bg-[#182032] border border-slate-200 dark:border-white/10 text-[11px] text-slate-600 dark:text-slate-300 flex flex-wrap items-center justify-between gap-2"
+                  >
+                    <span>
+                      Tujuan Drive:{' '}
+                      <strong className="text-slate-800 dark:text-white">
+                        {driveDest.registeredGmail || 'Akun Google Pemilik / Terhubung'}
+                      </strong>
+                      {' · Folder: '}
+                      <span className="font-mono-code font-semibold">{driveDest.folderLabel}</span>
+                    </span>
+                    {driveDest.folderUrl && (
+                      <a
+                        href={driveDest.folderUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-emerald-700 dark:text-emerald-300 font-semibold hover:underline"
+                      >
+                        Buka Folder Drive
+                      </a>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
@@ -756,11 +795,12 @@ export function ShipmentFormModal({
                     </div>
                   ) : (
                     <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      File yang dipilih di sini akan otomatis masuk ke folder Kode OS di Google Drive saat shipment disimpan.
+                      File yang dipilih akan otomatis masuk ke folder Kode OS di dalam folder Google Drive terdaftar saat shipment disimpan.
                     </p>
                   )}
                 </div>
-              )}
+                );
+              })()}
             </div>
           )}
 

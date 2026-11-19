@@ -15,6 +15,14 @@ import {
   type GoogleDriveConnectedAccount,
   isHostnameInAuthorizedDomains,
 } from '../utils/googleAuthLogic';
+import {
+  buildDriveFolderUrl,
+  DEFAULT_DRIVE_ROOT_FOLDER_NAME,
+  extractDriveFolderIdFromInput,
+  isValidEmailAddress,
+  normalizeGmailAddress,
+  sanitizeDriveDocPrefix,
+} from '../utils/googleDriveFolderLogic';
 
 export const SCOPES = [
   'https://www.googleapis.com/auth/drive',
@@ -498,7 +506,7 @@ export async function findOrCreateDriveFolder(
 
   const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
     q
-  )}&fields=files(id,name,webViewLink)&pageSize=1`;
+  )}&fields=files(id,name,webViewLink)&pageSize=1&supportsAllDrives=true&includeItemsFromAllDrives=true`;
 
   const found = await driveFetchJson<{ files?: Array<{ id: string; webViewLink?: string }> }>(
     searchUrl,
@@ -523,7 +531,7 @@ export async function findOrCreateDriveFolder(
   }
 
   const created = await driveFetchJson<{ id: string; webViewLink?: string }>(
-    'https://www.googleapis.com/drive/v3/files?fields=id,name,webViewLink',
+    'https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&fields=id,name,webViewLink',
     accessToken,
     {
       method: 'POST',
@@ -539,28 +547,172 @@ export async function findOrCreateDriveFolder(
   };
 }
 
-async function resolveParentDriveFolderId(
+export async function grantDriveFolderWriterPermission(
   accessToken: string,
-  configuredIdOrName: string
-): Promise<string> {
-  const clean = (configuredIdOrName || '').trim();
-  if (clean && clean !== 'PTG_PPJK_DOKUMEN_ROOT' && /^[a-zA-Z0-9_-]{18,}$/.test(clean)) {
-    try {
-      const folderMeta = await driveFetchJson<{ id: string; mimeType?: string }>(
-        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
-          clean
-        )}?fields=id,mimeType`,
-        accessToken
-      );
-      if (folderMeta?.id && folderMeta.mimeType === 'application/vnd.google-apps.folder') {
-        return folderMeta.id;
+  folderId: string,
+  email: string
+): Promise<{ shared: boolean; error?: string }> {
+  const cleanEmail = normalizeGmailAddress(email);
+  if (!isValidEmailAddress(cleanEmail)) {
+    return { shared: false, error: 'Alamat Gmail tidak valid.' };
+  }
+  try {
+    await driveFetchJson<Record<string, unknown>>(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
+        folderId
+      )}/permissions?supportsAllDrives=true&sendNotificationEmail=false`,
+      accessToken,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: 'writer',
+          type: 'user',
+          emailAddress: cleanEmail,
+        }),
       }
+    );
+    return { shared: true };
+  } catch (err) {
+    return {
+      shared: false,
+      error: err instanceof Error ? err.message : 'Gagal membagikan akses folder ke Gmail terdaftar.',
+    };
+  }
+}
+
+export async function verifyDriveFolderAccess(
+  accessToken: string,
+  folderInput: string
+): Promise<{
+  id: string;
+  name: string;
+  webViewLink: string;
+  ownerEmail?: string;
+}> {
+  const folderId = extractDriveFolderIdFromInput(folderInput);
+  if (!folderId) {
+    throw new Error(
+      'ID atau URL Folder Google Drive tidak valid. Masukkan ID folder atau link https://drive.google.com/drive/folders/...'
+    );
+  }
+  const meta = await driveFetchJson<{
+    id: string;
+    name?: string;
+    mimeType?: string;
+    webViewLink?: string;
+    owners?: Array<{ emailAddress?: string }>;
+  }>(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
+      folderId
+    )}?fields=id,name,mimeType,webViewLink,owners(emailAddress)&supportsAllDrives=true`,
+    accessToken
+  );
+
+  if (!meta?.id || meta.mimeType !== 'application/vnd.google-apps.folder') {
+    throw new Error('ID yang dimasukkan bukan merupakan folder Google Drive.');
+  }
+
+  return {
+    id: meta.id,
+    name: meta.name || DEFAULT_DRIVE_ROOT_FOLDER_NAME,
+    webViewLink: meta.webViewLink || buildDriveFolderUrl(meta.id),
+    ownerEmail: meta.owners?.[0]?.emailAddress,
+  };
+}
+
+async function resolveParentDriveFolder(
+  accessToken: string,
+  configuredIdOrName: string,
+  registeredGmail?: string
+): Promise<{
+  id: string;
+  name: string;
+  webViewLink: string;
+  sharedWithGmail?: boolean;
+  shareError?: string;
+}> {
+  const explicitId = extractDriveFolderIdFromInput(configuredIdOrName);
+  if (explicitId) {
+    try {
+      const verified = await verifyDriveFolderAccess(accessToken, explicitId);
+      return {
+        id: verified.id,
+        name: verified.name,
+        webViewLink: verified.webViewLink,
+      };
     } catch {
-      // Fallback ke folder default PTG_PPJK_DOKUMEN jika ID tidak ditemukan di akun user
+      // Fallback ke folder default PTG_PPJK_DOKUMEN jika ID tidak dapat diakses oleh sesi saat ini
     }
   }
-  const rootFolder = await findOrCreateDriveFolder(accessToken, 'PTG_PPJK_DOKUMEN');
-  return rootFolder.id;
+
+  const rootFolder = await findOrCreateDriveFolder(accessToken, DEFAULT_DRIVE_ROOT_FOLDER_NAME);
+  let sharedWithGmail = false;
+  let shareError: string | undefined;
+
+  const cleanRegistered = normalizeGmailAddress(registeredGmail);
+  const currentEmail = normalizeGmailAddress(cachedAccount?.email);
+  if (
+    isValidEmailAddress(cleanRegistered) &&
+    (!currentEmail || !currentEmail.includes('@') || currentEmail !== cleanRegistered)
+  ) {
+    const shareRes = await grantDriveFolderWriterPermission(
+      accessToken,
+      rootFolder.id,
+      cleanRegistered
+    );
+    sharedWithGmail = shareRes.shared;
+    shareError = shareRes.error;
+  }
+
+  return {
+    id: rootFolder.id,
+    name: DEFAULT_DRIVE_ROOT_FOLDER_NAME,
+    webViewLink: rootFolder.webViewLink || buildDriveFolderUrl(rootFolder.id),
+    sharedWithGmail,
+    shareError,
+  };
+}
+
+export async function ensureRegisteredDriveRootFolder(params: {
+  accessToken: string;
+  configuredFolderInput?: string;
+  registeredGmail?: string;
+}): Promise<{
+  id: string;
+  name: string;
+  webViewLink: string;
+  sharedWithGmail?: boolean;
+  shareError?: string;
+}> {
+  const explicitId = extractDriveFolderIdFromInput(params.configuredFolderInput);
+  if (explicitId) {
+    const verified = await verifyDriveFolderAccess(params.accessToken, explicitId);
+    let sharedWithGmail = false;
+    let shareError: string | undefined;
+    const cleanRegistered = normalizeGmailAddress(params.registeredGmail);
+    const currentEmail = normalizeGmailAddress(cachedAccount?.email);
+    if (
+      isValidEmailAddress(cleanRegistered) &&
+      (!currentEmail || !currentEmail.includes('@') || currentEmail !== cleanRegistered)
+    ) {
+      const shareRes = await grantDriveFolderWriterPermission(
+        params.accessToken,
+        verified.id,
+        cleanRegistered
+      );
+      sharedWithGmail = shareRes.shared;
+      shareError = shareRes.error;
+    }
+    return {
+      id: verified.id,
+      name: verified.name,
+      webViewLink: verified.webViewLink,
+      sharedWithGmail,
+      shareError,
+    };
+  }
+  return resolveParentDriveFolder(params.accessToken, '', params.registeredGmail);
 }
 
 export async function uploadFileToGoogleDrive(params: {
@@ -569,23 +721,28 @@ export async function uploadFileToGoogleDrive(params: {
   kodeOs: string;
   parentFolderSetting: string;
   jenisDokumen: string;
+  registeredGmail?: string;
 }): Promise<{
   fileId: string;
   name: string;
   webViewLink: string;
   folderId: string;
+  rootFolderId: string;
+  rootFolderName: string;
+  rootFolderLink: string;
 }> {
-  const parentId = await resolveParentDriveFolderId(
+  const rootFolder = await resolveParentDriveFolder(
     params.accessToken,
-    params.parentFolderSetting
+    params.parentFolderSetting,
+    params.registeredGmail
   );
   const osFolder = await findOrCreateDriveFolder(
     params.accessToken,
     params.kodeOs,
-    parentId
+    rootFolder.id
   );
 
-  const safeJenis = params.jenisDokumen.replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_');
+  const safeJenis = sanitizeDriveDocPrefix(params.jenisDokumen);
   const uploadName = safeJenis ? `${safeJenis}__${params.file.name}` : params.file.name;
 
   const metadata = {
@@ -606,7 +763,7 @@ export async function uploadFileToGoogleDrive(params: {
     name: string;
     webViewLink?: string;
   }>(
-    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink',
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,webViewLink',
     params.accessToken,
     {
       method: 'POST',
@@ -620,6 +777,9 @@ export async function uploadFileToGoogleDrive(params: {
     webViewLink:
       uploaded.webViewLink || `https://drive.google.com/file/d/${uploaded.id}/view`,
     folderId: osFolder.id,
+    rootFolderId: rootFolder.id,
+    rootFolderName: rootFolder.name,
+    rootFolderLink: rootFolder.webViewLink,
   };
 }
 
@@ -639,7 +799,7 @@ export async function listGoogleDriveFiles(params: {
 
   const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
     clauses.join(' and ')
-  )}&orderBy=modifiedTime desc&pageSize=${params.pageSize || 15}&fields=files(id,name,mimeType,webViewLink,modifiedTime,size)`;
+  )}&orderBy=modifiedTime desc&pageSize=${params.pageSize || 15}&fields=files(id,name,mimeType,webViewLink,modifiedTime,size)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
 
   const data = await driveFetchJson<{ files?: DriveFileEntry[] }>(url, params.accessToken);
   return data.files || [];

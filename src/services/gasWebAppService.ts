@@ -6,12 +6,19 @@ import {
   type BuildGasPayloadOptions,
   type GasAddActionPayload,
   type GasSyncAllActionPayload,
+  type GasUploadFileActionResult,
+  parseGasUploadFileResponse,
   parseGasWebAppFullDatabaseGetResponse,
   parseGasWebAppGetResponse,
   type ParseGasFullDbResponseResult,
   type ParseGasGetResponseResult,
   validateGasWebAppUrl,
 } from '../utils/gasWebAppLogic';
+import {
+  extractDriveFolderIdFromInput,
+  GAS_UPLOAD_MAX_FILE_BYTES,
+  normalizeGmailAddress,
+} from '../utils/googleDriveFolderLogic';
 
 export interface GasWebAppGetResult extends ParseGasGetResponseResult {
   url: string;
@@ -113,6 +120,166 @@ export async function fetchGasWebAppShipments(
     url: validation.normalizedUrl,
     fetchedAt: new Date().toISOString(),
     rawPayload,
+  };
+}
+
+export function fileToBase64Data(file: File): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      const commaIdx = result.indexOf(',');
+      resolve(commaIdx >= 0 ? result.slice(commaIdx + 1) : result);
+    };
+    reader.onerror = () => {
+      reject(new Error(`Gagal membaca file "${file.name}" untuk diupload.`));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function postGasWebAppUploadFile(params: {
+  url: string;
+  file: File;
+  kodeOs: string;
+  jenisDokumen: string;
+  parentFolderSetting?: string;
+  ownerGmail?: string;
+}): Promise<GasUploadFileActionResult> {
+  const validation = validateGasWebAppUrl(params.url);
+  if (!validation.valid) {
+    throw new Error(validation.error || 'URL Web App Google Apps Script tidak valid.');
+  }
+
+  if (params.file.size > GAS_UPLOAD_MAX_FILE_BYTES) {
+    throw new Error(
+      `Ukuran file "${params.file.name}" melebihi batas 20 MB untuk upload via GAS Web App. Silakan gunakan "Sign in with Google" untuk upload langsung.`
+    );
+  }
+
+  const base64Data = await fileToBase64Data(params.file);
+  const folderId = extractDriveFolderIdFromInput(params.parentFolderSetting);
+  const ownerGmail = normalizeGmailAddress(params.ownerGmail);
+
+  let response: Response;
+  try {
+    response = await fetch(validation.normalizedUrl, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
+      body: JSON.stringify({
+        action: 'uploadFile',
+        kodeOs: params.kodeOs || 'UMUM',
+        jenisDokumen: params.jenisDokumen || 'Dokumen',
+        fileName: params.file.name,
+        mimeType: params.file.type || 'application/octet-stream',
+        base64Data,
+        folderId,
+        ownerGmail,
+      }),
+    });
+  } catch (err) {
+    throw new Error(
+      `Gagal mengupload file via Endpoint GAS ke Google Drive: ${
+        err instanceof Error ? err.message : 'Koneksi jaringan/CORS terblokir.'
+      }`
+    );
+  }
+
+  const rawText = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `Endpoint Google Apps Script menolak upload file (HTTP ${response.status} ${response.statusText || ''}).`
+    );
+  }
+
+  const parsedBody = assertJsonTextResponse(
+    rawText,
+    response.status,
+    validation.isDevEndpoint
+  );
+  const parsed = parseGasUploadFileResponse(parsedBody);
+  if (!parsed.ok || !parsed.result) {
+    throw new Error(parsed.errorMessage || 'Endpoint GAS gagal mengupload file ke Google Drive.');
+  }
+
+  return parsed.result;
+}
+
+export async function postGasWebAppVerifyDriveFolder(params: {
+  url: string;
+  parentFolderSetting?: string;
+  ownerGmail?: string;
+}): Promise<{
+  rootFolderId: string;
+  rootFolderName: string;
+  rootFolderLink: string;
+  ownerEmail?: string;
+}> {
+  const validation = validateGasWebAppUrl(params.url);
+  if (!validation.valid) {
+    throw new Error(validation.error || 'URL Web App Google Apps Script tidak valid.');
+  }
+
+  const folderId = extractDriveFolderIdFromInput(params.parentFolderSetting);
+  const ownerGmail = normalizeGmailAddress(params.ownerGmail);
+
+  let response: Response;
+  try {
+    response = await fetch(validation.normalizedUrl, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
+      body: JSON.stringify({
+        action: 'verifyDriveFolder',
+        folderId,
+        ownerGmail,
+      }),
+    });
+  } catch (err) {
+    throw new Error(
+      `Gagal memverifikasi folder Google Drive via GAS: ${
+        err instanceof Error ? err.message : 'Koneksi jaringan/CORS terblokir.'
+      }`
+    );
+  }
+
+  const rawText = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `Endpoint GAS menolak verifikasi folder (HTTP ${response.status}).`
+    );
+  }
+
+  const parsedBody = assertJsonTextResponse(
+    rawText,
+    response.status,
+    validation.isDevEndpoint
+  ) as Record<string, unknown>;
+
+  const statusStr = String(parsedBody?.status || '').trim().toLowerCase();
+  if (parsedBody?.ok === false || parsedBody?.success === false || statusStr === 'error') {
+    throw new Error(
+      String(parsedBody?.error || parsedBody?.message || 'Gagal menyiapkan folder Drive via GAS.')
+    );
+  }
+
+  const rootFolderId = String(parsedBody?.rootFolderId || '').trim();
+  if (!rootFolderId) {
+    throw new Error('Endpoint GAS belum mendukung action verifyDriveFolder.');
+  }
+
+  return {
+    rootFolderId,
+    rootFolderName: String(parsedBody?.rootFolderName || 'PTG_PPJK_DOKUMEN').trim(),
+    rootFolderLink:
+      String(parsedBody?.rootFolderUrl || '').trim() ||
+      `https://drive.google.com/drive/folders/${rootFolderId}`,
+    ownerEmail: String(parsedBody?.ownerEmail || '').trim() || undefined,
   };
 }
 

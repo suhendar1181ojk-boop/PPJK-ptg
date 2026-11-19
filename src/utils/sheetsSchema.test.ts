@@ -190,6 +190,10 @@ function makeSampleDb(): DatabaseState {
     ],
     pengaturan: {
       ...DEFAULT_PENGATURAN,
+      driveOwnerGmail: 'arsip.ppjk@gmail.com',
+      driveParentFolderId: '1DriveRootFolder_99887766',
+      driveParentFolderName: 'PTG_PPJK_DOKUMEN',
+      driveParentFolderUrl: 'https://drive.google.com/drive/folders/1DriveRootFolder_99887766',
       seqByMonth: { '2611': 1 },
       seqPengeluaranByMonth: { '2611': 1 },
       spreadsheetId: '1AbCDefGhIjKlMnOpQrStUvWxYz_12345',
@@ -291,6 +295,13 @@ test('serializeDatabaseToSheetMatrixMap and parseSheetMatrixMapToDatabase round-
   assert.equal(parsed.pengaturan.gasWebAppAutoSync, true);
   assert.equal(parsed.pengaturan.gasWebAppFullSyncAuto, false);
   assert.equal(parsed.pengaturan.gasWebAppLastFullSyncAt, '2026-11-18T09:55:00.000Z');
+  assert.equal(parsed.pengaturan.driveOwnerGmail, 'arsip.ppjk@gmail.com');
+  assert.equal(parsed.pengaturan.driveParentFolderId, '1DriveRootFolder_99887766');
+  assert.equal(parsed.pengaturan.driveParentFolderName, 'PTG_PPJK_DOKUMEN');
+  assert.equal(
+    parsed.pengaturan.driveParentFolderUrl,
+    'https://drive.google.com/drive/folders/1DriveRootFolder_99887766'
+  );
 
   const diff = computeSpreadsheetSyncDiffSummary(sample, parsed);
   assert.equal(diff.localCounts.shipments, 1);

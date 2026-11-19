@@ -12,6 +12,7 @@ import {
   GAS_SHIPMENT_SHEET_HEADERS,
   isGasFullAutoSyncDue,
   mergeGasFetchedShipments,
+  parseGasUploadFileResponse,
   parseGasWebAppFullDatabaseGetResponse,
   parseGasWebAppGetResponse,
   validateGasWebAppUrl,
@@ -256,6 +257,10 @@ describe('gasWebAppLogic', () => {
     assert.match(script, /body\.action === 'initTabs'/);
     assert.match(script, /body\.action === 'appendTabRow'/);
     assert.match(script, /body\.action === 'add'/);
+    assert.match(script, /body\.action === 'uploadFile'/);
+    assert.match(script, /body\.action === 'verifyDriveFolder'/);
+    assert.match(script, /resolveDriveRootFolder_/);
+    assert.match(script, /DriveApp/);
     assert.match(script, /build82ColShipmentRow_/);
     assert.match(script, /build41ColShipmentRow_/);
     for (const header of GAS_SHIPMENT_SHEET_HEADERS) {
@@ -418,5 +423,32 @@ describe('gasWebAppLogic', () => {
       }),
       'pull-then-push'
     );
+  });
+
+  it('parses uploadFile responses cleanly and surfaces actionable errors', () => {
+    const okRes = parseGasUploadFileResponse({
+      ok: true,
+      status: 'success',
+      action: 'uploadFile',
+      fileId: 'drive_file_001',
+      name: 'Bill_of_Lading_BL__bl_test.pdf',
+      webViewLink: 'https://drive.google.com/file/d/drive_file_001/view',
+      folderId: 'drive_os_folder_001',
+      rootFolderId: 'drive_root_001',
+      rootFolderName: 'PTG_PPJK_DOKUMEN',
+      rootFolderUrl: 'https://drive.google.com/drive/folders/drive_root_001',
+      ownerEmail: 'arsip.ptg@gmail.com',
+    });
+    assert.equal(okRes.ok, true);
+    assert.equal(okRes.result?.fileId, 'drive_file_001');
+    assert.equal(okRes.result?.rootFolderId, 'drive_root_001');
+    assert.equal(okRes.result?.ownerEmail, 'arsip.ptg@gmail.com');
+
+    const legacyRes = parseGasUploadFileResponse({
+      ok: false,
+      error: 'Action tidak dikenali',
+    });
+    assert.equal(legacyRes.ok, false);
+    assert.match(legacyRes.errorMessage || '', /Code\.gs/i);
   });
 });

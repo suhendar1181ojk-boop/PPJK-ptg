@@ -243,6 +243,9 @@ export interface PendingUploadFile {
 export interface Pengaturan {
   seqByMonth: Record<string, number>;
   driveParentFolderId: string;
+  driveOwnerGmail?: string;
+  driveParentFolderName?: string;
+  driveParentFolderUrl?: string;
   statusList: string[];
   jalurList: JalurType[];
   checklistItems: string[];

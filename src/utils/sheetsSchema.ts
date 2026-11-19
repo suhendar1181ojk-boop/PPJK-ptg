@@ -549,6 +549,9 @@ export function serializeDatabaseToSheetMatrixMap(
     ['seqByMonth', safeJsonStringify(db.pengaturan.seqByMonth || {}, '{}')],
     ['seqPengeluaranByMonth', safeJsonStringify(db.pengaturan.seqPengeluaranByMonth || {}, '{}')],
     ['driveParentFolderId', toSheetStr(db.pengaturan.driveParentFolderId)],
+    ['driveOwnerGmail', toSheetStr(db.pengaturan.driveOwnerGmail)],
+    ['driveParentFolderName', toSheetStr(db.pengaturan.driveParentFolderName)],
+    ['driveParentFolderUrl', toSheetStr(db.pengaturan.driveParentFolderUrl)],
     ['statusList', safeJsonStringify(db.pengaturan.statusList || [], '[]')],
     ['jalurList', safeJsonStringify(db.pengaturan.jalurList || [], '[]')],
     ['checklistItems', safeJsonStringify(db.pengaturan.checklistItems || [], '[]')],
@@ -685,6 +688,18 @@ export function parseSheetMatrixMapToDatabase(
       settingsMap.get('driveParentFolderId') ||
       fallbackDb.pengaturan.driveParentFolderId ||
       DEFAULT_PENGATURAN.driveParentFolderId,
+    driveOwnerGmail:
+      settingsMap.get('driveOwnerGmail') ??
+      fallbackDb.pengaturan.driveOwnerGmail ??
+      '',
+    driveParentFolderName:
+      settingsMap.get('driveParentFolderName') ??
+      fallbackDb.pengaturan.driveParentFolderName ??
+      DEFAULT_PENGATURAN.driveParentFolderName,
+    driveParentFolderUrl:
+      settingsMap.get('driveParentFolderUrl') ??
+      fallbackDb.pengaturan.driveParentFolderUrl ??
+      '',
     statusList: safeJsonParse<string[]>(
       settingsMap.get('statusList'),
       fallbackDb.pengaturan.statusList || DEFAULT_PENGATURAN.statusList

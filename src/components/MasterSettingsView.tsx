@@ -1,8 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
 import {
+  CheckCircle2,
+  ExternalLink,
   FileSpreadsheet,
+  FolderPlus,
+  HardDrive,
   Lock,
+  Mail,
   Pencil,
   Power,
   RotateCcw,
@@ -37,6 +42,14 @@ import {
   resolveUserPhasePermissions,
   ROLE_LIMITS_INFO,
 } from '../utils/ppjkLogic';
+import {
+  buildDriveFolderUrl,
+  DEFAULT_DRIVE_ROOT_FOLDER_NAME,
+  describeRegisteredDriveDestination,
+  extractDriveFolderIdFromInput,
+  isValidEmailAddress,
+  normalizeGmailAddress,
+} from '../utils/googleDriveFolderLogic';
 
 interface MasterSettingsViewProps {
   customers: Customer[];
@@ -64,6 +77,24 @@ interface MasterSettingsViewProps {
   }) => Promise<void>;
   onDeleteUser: (username: string) => Promise<void>;
   onSavePengaturan: (p: Pengaturan) => Promise<void>;
+  onPrepareDriveFolder?: (params: {
+    folderInput: string;
+    ownerGmail: string;
+  }) => Promise<{
+    folderId: string;
+    folderName: string;
+    folderUrl: string;
+    ownerEmail?: string;
+    channel: 'oauth' | 'gas';
+    sharedWithGmail?: boolean;
+    shareError?: string;
+  }>;
+  onVerifyDriveFolder?: (folderInput: string) => Promise<{
+    folderId: string;
+    folderName: string;
+    folderUrl: string;
+    ownerEmail?: string;
+  }>;
   onResetDatabase: (mode: 'empty' | 'seed') => Promise<void>;
   dbSnapshot: DatabaseState;
   initialTab?: MasterTab;
@@ -130,6 +161,8 @@ export function MasterSettingsView({
   onSaveUser,
   onDeleteUser,
   onSavePengaturan,
+  onPrepareDriveFolder,
+  onVerifyDriveFolder,
   onResetDatabase,
   dbSnapshot,
   initialTab,
@@ -208,7 +241,11 @@ export function MasterSettingsView({
   const [userError, setUserError] = useState('');
   const [togglingPhaseKey, setTogglingPhaseKey] = useState<string | null>(null);
 
+  const [driveOwnerGmail, setDriveOwnerGmail] = useState(pengaturan.driveOwnerGmail || '');
   const [driveId, setDriveId] = useState(pengaturan.driveParentFolderId);
+  const [driveActionBusy, setDriveActionBusy] = useState(false);
+  const [driveActionMsg, setDriveActionMsg] = useState('');
+  const [driveActionErr, setDriveActionErr] = useState('');
   const [emailsText, setEmailsText] = useState(pengaturan.notificationEmails.join(', '));
   const [statusText, setStatusText] = useState(pengaturan.statusList.join(', '));
   const [checklistText, setChecklistText] = useState(pengaturan.checklistItems.join(', '));
@@ -234,6 +271,11 @@ export function MasterSettingsView({
     pengaturan.billingBankInfo || DEFAULT_PENGATURAN.billingBankInfo || ''
   );
   const [feedback, setFeedback] = useState('');
+
+  useEffect(() => {
+    setDriveOwnerGmail(pengaturan.driveOwnerGmail || '');
+    setDriveId(pengaturan.driveParentFolderId || 'PTG_PPJK_DOKUMEN_ROOT');
+  }, [pengaturan.driveOwnerGmail, pengaturan.driveParentFolderId]);
 
   const notify = (msg: string) => {
     setFeedback(msg);
@@ -410,6 +452,34 @@ export function MasterSettingsView({
 
   const handleSettingsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setDriveActionErr('');
+    setDriveActionMsg('');
+
+    const cleanGmail = normalizeGmailAddress(driveOwnerGmail);
+    if (cleanGmail && !isValidEmailAddress(cleanGmail)) {
+      setDriveActionErr('Format alamat Gmail Google Drive tidak valid (contoh: nama@gmail.com).');
+      return;
+    }
+
+    const extractedFolderId = extractDriveFolderIdFromInput(driveId);
+    const trimmedRawDrive = driveId.trim();
+    if (
+      trimmedRawDrive &&
+      trimmedRawDrive !== 'PTG_PPJK_DOKUMEN_ROOT' &&
+      !extractedFolderId
+    ) {
+      setDriveActionErr(
+        'ID atau Link Folder Google Drive tidak dikenali. Masukkan Folder ID atau URL https://drive.google.com/drive/folders/...'
+      );
+      return;
+    }
+
+    const nextFolderId = extractedFolderId || 'PTG_PPJK_DOKUMEN_ROOT';
+    const nextFolderUrl = extractedFolderId ? buildDriveFolderUrl(extractedFolderId) : '';
+    const nextFolderName = extractedFolderId
+      ? pengaturan.driveParentFolderName || DEFAULT_DRIVE_ROOT_FOLDER_NAME
+      : DEFAULT_DRIVE_ROOT_FOLDER_NAME;
+
     const splitCsv = (s: string) =>
       s
         .split(',')
@@ -417,7 +487,10 @@ export function MasterSettingsView({
         .filter(Boolean);
     await onSavePengaturan({
       ...pengaturan,
-      driveParentFolderId: driveId.trim(),
+      driveOwnerGmail: cleanGmail,
+      driveParentFolderId: nextFolderId,
+      driveParentFolderName: nextFolderName,
+      driveParentFolderUrl: nextFolderUrl,
       notificationEmails: splitCsv(emailsText),
       statusList: splitCsv(statusText),
       checklistItems: splitCsv(checklistText),
@@ -429,7 +502,65 @@ export function MasterSettingsView({
       adminEmail: adminEmail.trim(),
       billingBankInfo: billingBankInfo.trim(),
     });
-    notify('Pengaturan sistem & kontak penagihan Owner/Admin diperbarui.');
+    setDriveId(nextFolderId);
+    notify('Pengaturan sistem, folder Google Drive & akun Gmail terdaftar diperbarui.');
+  };
+
+  const handlePrepareDriveClick = async () => {
+    if (!onPrepareDriveFolder) return;
+    setDriveActionErr('');
+    setDriveActionMsg('');
+    const cleanGmail = normalizeGmailAddress(driveOwnerGmail);
+    if (cleanGmail && !isValidEmailAddress(cleanGmail)) {
+      setDriveActionErr('Masukkan alamat Gmail yang valid terlebih dahulu (contoh: kantor@gmail.com).');
+      return;
+    }
+    setDriveActionBusy(true);
+    try {
+      const res = await onPrepareDriveFolder({
+        folderInput: driveId,
+        ownerGmail: cleanGmail,
+      });
+      setDriveId(res.folderId);
+      if (res.ownerEmail) setDriveOwnerGmail(res.ownerEmail);
+      const shareNote = res.sharedWithGmail
+        ? ` Folder juga dibagikan (Editor) ke ${cleanGmail}.`
+        : res.shareError
+        ? ` Catatan sharing: ${res.shareError}`
+        : '';
+      setDriveActionMsg(
+        `Folder "${res.folderName}" (${res.folderId}) siap digunakan${
+          res.channel === 'gas' ? ' melalui Endpoint GAS.' : ' di Google Drive.'
+        }${shareNote}`
+      );
+    } catch (err) {
+      setDriveActionErr(err instanceof Error ? err.message : 'Gagal menyiapkan folder Google Drive.');
+    } finally {
+      setDriveActionBusy(false);
+    }
+  };
+
+  const handleVerifyDriveClick = async () => {
+    if (!onVerifyDriveFolder) return;
+    setDriveActionErr('');
+    setDriveActionMsg('');
+    setDriveActionBusy(true);
+    try {
+      const res = await onVerifyDriveFolder(driveId);
+      setDriveId(res.folderId);
+      if (!driveOwnerGmail.trim() && res.ownerEmail) {
+        setDriveOwnerGmail(res.ownerEmail);
+      }
+      setDriveActionMsg(
+        `Folder terverifikasi: "${res.folderName}" (${res.folderId})${
+          res.ownerEmail ? ` · Pemilik: ${res.ownerEmail}` : ''
+        }.`
+      );
+    } catch (err) {
+      setDriveActionErr(err instanceof Error ? err.message : 'Folder Drive tidak dapat diverifikasi.');
+    } finally {
+      setDriveActionBusy(false);
+    }
   };
 
   const tabBtnCls = (active: boolean) =>
@@ -1032,18 +1163,173 @@ export function MasterSettingsView({
           <div className="space-y-5">
             <h3 className="text-sm font-semibold text-[#0B2545] dark:text-white">Pengaturan Sistem</h3>
             <form onSubmit={handleSettingsSubmit} className="space-y-4">
+              {/* Panel Tujuan Google Drive & Akun Gmail Terdaftar */}
+              {(() => {
+                const driveSummary = describeRegisteredDriveDestination(
+                  {
+                    ...pengaturan,
+                    driveOwnerGmail: driveOwnerGmail || pengaturan.driveOwnerGmail,
+                    driveParentFolderId: driveId || pengaturan.driveParentFolderId,
+                  },
+                  driveUserEmail
+                );
+                const previewFolderUrl =
+                  driveSummary.folderUrl || buildDriveFolderUrl(driveId);
+
+                return (
+                  <div
+                    data-testid="drive-destination-settings"
+                    className="p-4 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-500/30 space-y-3"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <HardDrive className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                          <h4 className="text-xs font-bold text-[#0B2545] dark:text-emerald-300 uppercase tracking-wide">
+                            Tujuan Upload Google Drive &amp; Akun Gmail Terdaftar
+                          </h4>
+                        </div>
+                        <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                          Seluruh file scan shipment dan bukti pengeluaran operasional akan disimpan otomatis ke dalam folder Google Drive akun Gmail di bawah ini (mendukung Login Google OAuth maupun otomatis via Endpoint GAS Web App).
+                        </p>
+                      </div>
+                      {previewFolderUrl && (
+                        <a
+                          href={previewFolderUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          data-testid="link-open-drive-folder"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-[#182032] border border-emerald-300 dark:border-emerald-500/40 text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 shrink-0"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          <span>Buka Folder Google Drive</span>
+                        </a>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                      <div>
+                        <label
+                          htmlFor="settingDriveOwnerGmail"
+                          className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"
+                        >
+                          Akun Gmail Tujuan Google Drive
+                        </label>
+                        <div className="flex gap-2">
+                          <div className="relative flex-1">
+                            <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                            <input
+                              id="settingDriveOwnerGmail"
+                              data-testid="input-drive-owner-gmail"
+                              type="email"
+                              value={driveOwnerGmail}
+                              onChange={(e) => setDriveOwnerGmail(e.target.value)}
+                              placeholder="contoh: arsip.ppjk@gmail.com"
+                              className={`w-full pl-8 ${inputCls}`}
+                            />
+                          </div>
+                          {driveUserEmail && driveUserEmail.includes('@') ? (
+                            <button
+                              type="button"
+                              onClick={() => setDriveOwnerGmail(driveUserEmail)}
+                              className="px-2.5 py-2 rounded-lg border border-emerald-300 dark:border-emerald-500/40 bg-white dark:bg-[#182032] hover:bg-emerald-50 dark:hover:bg-emerald-500/15 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 whitespace-nowrap cursor-pointer"
+                            >
+                              Pakai Akun Login
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={driveConnecting}
+                              onClick={() => void onConnectGoogle()}
+                              className="px-2.5 py-2 rounded-lg border border-slate-300 dark:border-white/15 bg-white dark:bg-[#182032] hover:bg-slate-50 dark:hover:bg-[#1F2940] text-[11px] font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap cursor-pointer disabled:opacity-60"
+                            >
+                              {driveConnecting ? 'Menghubungkan...' : 'Hubungkan Google'}
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                          {driveUserEmail && driveUserEmail.includes('@')
+                            ? `Sesi Google aktif saat ini: ${driveUserEmail}`
+                            : 'Bila tidak login Google di browser, file tetap dapat masuk ke Drive pemilik GAS Script atau folder yang dibagikan.'}
+                        </p>
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="settingDriveFolderId"
+                          className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"
+                        >
+                          ID atau Link Folder Induk Google Drive
+                        </label>
+                        <input
+                          id="settingDriveFolderId"
+                          data-testid="input-drive-folder-id"
+                          type="text"
+                          value={driveId}
+                          onChange={(e) => setDriveId(e.target.value)}
+                          placeholder="Tempel Folder ID atau URL https://drive.google.com/drive/folders/..."
+                          className={`w-full ${inputCls} font-mono-code`}
+                        />
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                          Kosongkan atau biarkan <code className="font-mono-code">PTG_PPJK_DOKUMEN_ROOT</code> untuk membuat folder <code className="font-mono-code">{DEFAULT_DRIVE_ROOT_FOLDER_NAME}</code> otomatis.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white dark:bg-[#182032] border border-slate-200 dark:border-white/10 font-medium">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                          <span>
+                            Tujuan aktif:{' '}
+                            <strong>{driveSummary.registeredGmail || 'Belum diatur'}</strong>
+                            {' · '}
+                            <span className="font-mono-code">{driveSummary.folderLabel}</span>
+                          </span>
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {onPrepareDriveFolder && (
+                          <button
+                            type="button"
+                            data-testid="btn-prepare-drive-folder"
+                            disabled={driveActionBusy}
+                            onClick={() => void handlePrepareDriveClick()}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-semibold cursor-pointer"
+                          >
+                            <FolderPlus className="w-3.5 h-3.5" />
+                            <span>{driveActionBusy ? 'Memproses...' : 'Siapkan / Buat Folder Drive'}</span>
+                          </button>
+                        )}
+                        {onVerifyDriveFolder && (
+                          <button
+                            type="button"
+                            data-testid="btn-verify-drive-folder"
+                            disabled={driveActionBusy || !extractDriveFolderIdFromInput(driveId)}
+                            onClick={() => void handleVerifyDriveClick()}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-white/15 bg-white dark:bg-[#182032] hover:bg-slate-50 dark:hover:bg-[#1F2940] disabled:opacity-50 text-slate-700 dark:text-slate-200 text-xs font-semibold cursor-pointer"
+                          >
+                            <span>Cek Folder</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {driveActionMsg && (
+                      <div className="px-3 py-2 rounded-lg bg-emerald-100/80 dark:bg-emerald-500/15 border border-emerald-300 dark:border-emerald-500/35 text-xs font-medium text-emerald-800 dark:text-emerald-200">
+                        {driveActionMsg}
+                      </div>
+                    )}
+                    {driveActionErr && (
+                      <div role="alert" className="px-3 py-2 rounded-lg bg-red-50 dark:bg-red-500/15 border border-red-200 dark:border-red-500/35 text-xs font-medium text-red-700 dark:text-red-300">
+                        {driveActionErr}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    ID Folder Induk Google Drive
-                  </label>
-                  <input
-                    type="text"
-                    value={driveId}
-                    onChange={(e) => setDriveId(e.target.value)}
-                    className={`w-full ${inputCls} font-mono-code`}
-                  />
-                </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Email Penerima Notifikasi Harian (pisahkan koma)
@@ -1066,12 +1352,12 @@ export function MasterSettingsView({
                     className={`w-full ${inputCls}`}
                   />
                 </div>
-                <div>
+                <div className="md:col-span-2">
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Item Checklist Dokumen (pisahkan koma)
                   </label>
                   <textarea
-                    rows={3}
+                    rows={2}
                     value={checklistText}
                     onChange={(e) => setChecklistText(e.target.value)}
                     className={`w-full ${inputCls}`}

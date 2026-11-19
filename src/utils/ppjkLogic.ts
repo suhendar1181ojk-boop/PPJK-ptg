@@ -60,6 +60,9 @@ export const DEFAULT_CHECKLIST_ITEMS = [
 export const DEFAULT_PENGATURAN: Pengaturan = {
   seqByMonth: {},
   driveParentFolderId: 'PTG_PPJK_DOKUMEN_ROOT',
+  driveOwnerGmail: '',
+  driveParentFolderName: 'PTG_PPJK_DOKUMEN',
+  driveParentFolderUrl: '',
   statusList: [...DEFAULT_STATUS_LIST],
   jalurList: [...DEFAULT_JALUR_LIST],
   checklistItems: [...DEFAULT_CHECKLIST_ITEMS],
