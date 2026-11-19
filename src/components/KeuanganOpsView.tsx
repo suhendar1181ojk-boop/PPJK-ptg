@@ -57,6 +57,8 @@ import {
 } from '../utils/exportUtils';
 import { canPerformAction, getPpjkIdentity } from '../utils/ppjkLogic';
 import { describeRegisteredDriveDestination } from '../utils/googleDriveFolderLogic';
+import { useCardCollapse } from '../contexts/CardCollapseContext';
+import { CardWindowToggleButton, ModuleCardBatchToggle } from './CardWindowControls';
 
 interface KeuanganOpsViewProps {
   items: PengeluaranOpsItem[];
@@ -114,6 +116,7 @@ export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
   const canManage = canPerformAction(session.role, 'manage_pengeluaran_ops');
   const canDelete = canPerformAction(session.role, 'delete_pengeluaran_ops');
   const identity = useMemo(() => getPpjkIdentity(pengaturan), [pengaturan]);
+  const { isCollapsed } = useCardCollapse();
 
   const [subTab, setSubTab] = useState<KeuanganSubTab>('list');
   const [search, setSearch] = useState('');
@@ -365,6 +368,23 @@ export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
     [shipments]
   );
 
+  const kopModuleCardIds = useMemo(() => {
+    const base = [
+      'kop-header-banner',
+      'kop-kpi-total',
+      'kop-kpi-kasbon',
+      'kop-kpi-settled',
+      'kop-kpi-bukti',
+      'kop-filter-bar',
+    ];
+    if (subTab === 'list') base.push('kop-list-card');
+    else if (subTab === 'by-dokumen') base.push('kop-bydoc-card');
+    else if (subTab === 'by-petugas') {
+      summary.byPetugas.forEach((p) => base.push(`kop-petugas-${p.petugasOps}`));
+    }
+    return base;
+  }, [subTab, summary.byPetugas]);
+
   return (
     <div className="space-y-5">
       {/* Header Banner */}
@@ -383,150 +403,194 @@ export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
                   Per Dokumen OS · Bukti & Tanda Terima Ops
                 </span>
               </div>
-              <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                Catat setiap biaya operasional per dokumen shipment beserta keterangan, petugas ops penerima dana, lampiran bukti pembayaran, serta cetak PDF Tanda Terima resmi.
-              </p>
+              {!isCollapsed('kop-header-banner') && (
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                  Catat setiap biaya operasional per dokumen shipment beserta keterangan, petugas ops penerima dana, lampiran bukti pembayaran, serta cetak PDF Tanda Terima resmi.
+                </p>
+              )}
             </div>
           </div>
 
           <div className="flex flex-wrap lg:flex-nowrap items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => exportPengeluaranOpsToExcel(filteredItems, summary, shipments)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-[#182032] hover:bg-slate-50 dark:hover:bg-[#1F2940] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer transition-colors whitespace-nowrap"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>Ekspor Excel</span>
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                exportPengeluaranOpsToPDF(filteredItems, summary, shipments, pengaturan)
-              }
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-[#182032] hover:bg-slate-50 dark:hover:bg-[#1F2940] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer transition-colors whitespace-nowrap"
-            >
-              <FileText className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
-              <span>Ekspor PDF</span>
-            </button>
-            {canManage && (
-              <button
-                type="button"
-                onClick={() => openCreateModal()}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#0B2545] dark:bg-gradient-to-r dark:from-violet-600 dark:to-indigo-600 hover:bg-[#143764] text-white text-xs font-semibold shadow-sm cursor-pointer transition-colors whitespace-nowrap"
-              >
-                <Plus className="w-4 h-4 text-[#F28C28] dark:text-white" />
-                <span>Catat Pengeluaran Ops</span>
-              </button>
+            <ModuleCardBatchToggle cardIds={kopModuleCardIds} moduleName="keuangan-ops" />
+            <CardWindowToggleButton cardId="kop-header-banner" label="Header Keuangan Ops" compact />
+            {!isCollapsed('kop-header-banner') && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => exportPengeluaranOpsToExcel(filteredItems, summary, shipments)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-[#182032] hover:bg-slate-50 dark:hover:bg-[#1F2940] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer transition-colors whitespace-nowrap"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>Ekspor Excel</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    exportPengeluaranOpsToPDF(filteredItems, summary, shipments, pengaturan)
+                  }
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-[#182032] hover:bg-slate-50 dark:hover:bg-[#1F2940] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer transition-colors whitespace-nowrap"
+                >
+                  <FileText className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                  <span>Ekspor PDF</span>
+                </button>
+                {canManage && (
+                  <button
+                    type="button"
+                    onClick={() => openCreateModal()}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#0B2545] dark:bg-gradient-to-r dark:from-violet-600 dark:to-indigo-600 hover:bg-[#143764] text-white text-xs font-semibold shadow-sm cursor-pointer transition-colors whitespace-nowrap"
+                  >
+                    <Plus className="w-4 h-4 text-[#F28C28] dark:text-white" />
+                    <span>Catat Pengeluaran Ops</span>
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
       </div>
 
       {/* KPI Filter Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
-        <button
-          type="button"
-          onClick={() => {
-            setFilterStatus('');
-            setBuktiFilter('all');
-          }}
-          className={`text-left rounded-xl p-4 border transition-all cursor-pointer ${
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5 items-start">
+        <div
+          className={`rounded-xl p-4 border transition-all ${
             !filterStatus && buktiFilter === 'all'
               ? 'bg-white dark:bg-[#131926] border-[#0B2545]/40 dark:border-violet-500/45 shadow-sm'
               : 'bg-white dark:bg-[#131926] border-slate-200 dark:border-white/[0.08] hover:border-slate-300'
           }`}
         >
-          <div className="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
-            <span>Total Pengeluaran Ops</span>
-            <Wallet className="w-4 h-4 text-[#0B2545] dark:text-violet-400" />
+          <div className="flex items-start justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setFilterStatus('');
+                setBuktiFilter('all');
+              }}
+              className="text-left min-w-0 flex-1 cursor-pointer"
+            >
+              <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+                <Wallet className="w-4 h-4 text-[#0B2545] dark:text-violet-400 shrink-0" />
+                <span className="truncate">Total Pengeluaran Ops</span>
+              </div>
+              <div className={`${isCollapsed('kop-kpi-total') ? 'text-base' : 'text-xl'} font-bold text-slate-900 dark:text-white mt-1.5 tabular-nums`}>
+                {formatRupiahOps(summary.totalNominal)}
+              </div>
+            </button>
+            <CardWindowToggleButton cardId="kop-kpi-total" label="Total Pengeluaran Ops" compact />
           </div>
-          <div className="text-xl font-bold text-slate-900 dark:text-white mt-1.5 tabular-nums">
-            {formatRupiahOps(summary.totalNominal)}
-          </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 tabular-nums">
-            {summary.totalTransaksi} transaksi · {summary.dokumenTercatatCount} dokumen OS
-          </div>
-        </button>
+          {!isCollapsed('kop-kpi-total') && (
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 tabular-nums">
+              {summary.totalTransaksi} transaksi · {summary.dokumenTercatatCount} dokumen OS
+            </div>
+          )}
+        </div>
 
-        <button
-          type="button"
-          onClick={() =>
-            setFilterStatus((prev) =>
-              prev === 'Uang Muka / Kasbon' ? '' : 'Uang Muka / Kasbon'
-            )
-          }
-          className={`text-left rounded-xl p-4 border transition-all cursor-pointer ${
+        <div
+          className={`rounded-xl p-4 border transition-all ${
             filterStatus === 'Uang Muka / Kasbon'
               ? 'bg-amber-50/70 dark:bg-amber-500/10 border-amber-400 dark:border-amber-500/50 shadow-sm'
               : 'bg-white dark:bg-[#131926] border-slate-200 dark:border-white/[0.08] hover:border-amber-300'
           }`}
         >
-          <div className="flex items-center justify-between text-xs font-medium text-amber-700 dark:text-amber-300">
-            <span>Uang Muka / Kasbon Ops</span>
-            <Receipt className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+          <div className="flex items-start justify-between gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setFilterStatus((prev) =>
+                  prev === 'Uang Muka / Kasbon' ? '' : 'Uang Muka / Kasbon'
+                )
+              }
+              className="text-left min-w-0 flex-1 cursor-pointer"
+            >
+              <div className="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+                <Receipt className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span className="truncate">Uang Muka / Kasbon Ops</span>
+              </div>
+              <div className={`${isCollapsed('kop-kpi-kasbon') ? 'text-base' : 'text-xl'} font-bold text-slate-900 dark:text-white mt-1.5 tabular-nums`}>
+                {formatRupiahOps(summary.totalKasbonNominal)}
+              </div>
+            </button>
+            <CardWindowToggleButton cardId="kop-kpi-kasbon" label="Uang Muka atau Kasbon" compact />
           </div>
-          <div className="text-xl font-bold text-slate-900 dark:text-white mt-1.5 tabular-nums">
-            {formatRupiahOps(summary.totalKasbonNominal)}
-          </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 tabular-nums">
-            {summary.kasbonCount} kasbon menunggu pertanggungjawaban
-          </div>
-        </button>
+          {!isCollapsed('kop-kpi-kasbon') && (
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 tabular-nums">
+              {summary.kasbonCount} kasbon menunggu pertanggungjawaban
+            </div>
+          )}
+        </div>
 
-        <button
-          type="button"
-          onClick={() =>
-            setFilterStatus((prev) =>
-              prev === 'Selesai / Dipertanggungjawabkan'
-                ? ''
-                : 'Selesai / Dipertanggungjawabkan'
-            )
-          }
-          className={`text-left rounded-xl p-4 border transition-all cursor-pointer ${
+        <div
+          className={`rounded-xl p-4 border transition-all ${
             filterStatus === 'Selesai / Dipertanggungjawabkan'
               ? 'bg-emerald-50/70 dark:bg-emerald-500/10 border-emerald-400 dark:border-emerald-500/50 shadow-sm'
               : 'bg-white dark:bg-[#131926] border-slate-200 dark:border-white/[0.08] hover:border-emerald-300'
           }`}
         >
-          <div className="flex items-center justify-between text-xs font-medium text-emerald-700 dark:text-emerald-300">
-            <span>Sudah Dibayar & Selesai</span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          <div className="flex items-start justify-between gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setFilterStatus((prev) =>
+                  prev === 'Selesai / Dipertanggungjawabkan'
+                    ? ''
+                    : 'Selesai / Dipertanggungjawabkan'
+                )
+              }
+              className="text-left min-w-0 flex-1 cursor-pointer"
+            >
+              <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span className="truncate">Sudah Dibayar & Selesai</span>
+              </div>
+              <div className={`${isCollapsed('kop-kpi-settled') ? 'text-base' : 'text-xl'} font-bold text-slate-900 dark:text-white mt-1.5 tabular-nums`}>
+                {formatRupiahOps(summary.totalSudahDibayarNominal + summary.totalSelesaiNominal)}
+              </div>
+            </button>
+            <CardWindowToggleButton cardId="kop-kpi-settled" label="Sudah Dibayar dan Selesai" compact />
           </div>
-          <div className="text-xl font-bold text-slate-900 dark:text-white mt-1.5 tabular-nums">
-            {formatRupiahOps(summary.totalSudahDibayarNominal + summary.totalSelesaiNominal)}
-          </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 tabular-nums">
-            {summary.selesaiCount} selesai · {summary.sudahDibayarCount} sudah dibayar
-          </div>
-        </button>
+          {!isCollapsed('kop-kpi-settled') && (
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 tabular-nums">
+              {summary.selesaiCount} selesai · {summary.sudahDibayarCount} sudah dibayar
+            </div>
+          )}
+        </div>
 
-        <button
-          type="button"
-          onClick={() =>
-            setBuktiFilter((prev) => (prev === 'missing-bukti' ? 'all' : 'missing-bukti'))
-          }
-          className={`text-left rounded-xl p-4 border transition-all cursor-pointer ${
+        <div
+          className={`rounded-xl p-4 border transition-all ${
             buktiFilter === 'missing-bukti'
               ? 'bg-rose-50/70 dark:bg-rose-500/10 border-rose-400 dark:border-rose-500/50 shadow-sm'
               : 'bg-white dark:bg-[#131926] border-slate-200 dark:border-white/[0.08] hover:border-rose-300'
           }`}
         >
-          <div className="flex items-center justify-between text-xs font-medium text-slate-600 dark:text-slate-300">
-            <span>Kelengkapan Bukti / Nota</span>
-            <Paperclip className="w-4 h-4 text-rose-500 dark:text-rose-400" />
+          <div className="flex items-start justify-between gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setBuktiFilter((prev) => (prev === 'missing-bukti' ? 'all' : 'missing-bukti'))
+              }
+              className="text-left min-w-0 flex-1 cursor-pointer"
+            >
+              <div className="flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
+                <Paperclip className="w-4 h-4 text-rose-500 dark:text-rose-400 shrink-0" />
+                <span className="truncate">Kelengkapan Bukti / Nota</span>
+              </div>
+              <div className={`${isCollapsed('kop-kpi-bukti') ? 'text-base' : 'text-xl'} font-bold text-slate-900 dark:text-white mt-1.5 tabular-nums`}>
+                {summary.denganBuktiCount} / {summary.totalTransaksi} Bukti
+              </div>
+            </button>
+            <CardWindowToggleButton cardId="kop-kpi-bukti" label="Kelengkapan Bukti" compact />
           </div>
-          <div className="text-xl font-bold text-slate-900 dark:text-white mt-1.5 tabular-nums">
-            {summary.denganBuktiCount} / {summary.totalTransaksi} Bukti
-          </div>
-          <div className="text-[11px] text-rose-600 dark:text-rose-300 mt-1 tabular-nums">
-            {summary.belumAdaBuktiCount} transaksi belum ada lampiran bukti
-          </div>
-        </button>
+          {!isCollapsed('kop-kpi-bukti') && (
+            <div className="text-[11px] text-rose-600 dark:text-rose-300 mt-1 tabular-nums">
+              {summary.belumAdaBuktiCount} transaksi belum ada lampiran bukti
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Filter Bar & Sub-tabs */}
       <div className="rounded-xl bg-white dark:bg-[#131926] border border-slate-200 dark:border-white/[0.08] p-4 space-y-3.5 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-white/[0.08] pb-3">
+        <div className={`flex flex-wrap items-center justify-between gap-2 ${!isCollapsed('kop-filter-bar') ? 'border-b border-slate-200 dark:border-white/[0.08] pb-3' : ''}`}>
           <div role="tablist" aria-label="Tampilan Keuangan Operasional" className="flex flex-wrap gap-1.5">
             <button
               type="button"
@@ -569,19 +633,24 @@ export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
             </button>
           </div>
 
-          {hasActiveFilters && (
-            <button
-              type="button"
-              onClick={resetFilters}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-rose-600 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-500/10 cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Reset Filter</span>
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-rose-600 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-500/10 cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Reset Filter</span>
+              </button>
+            )}
+            <CardWindowToggleButton cardId="kop-filter-bar" label="Filter Keuangan Ops" compact />
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5">
+        {!isCollapsed('kop-filter-bar') && (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5">
           <div className="sm:col-span-2 lg:col-span-4 relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
@@ -707,12 +776,20 @@ export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
             </select>
           </div>
         )}
+          </>
+        )}
       </div>
 
       {/* Sub-tab 1: Daftar Pengeluaran */}
       {subTab === 'list' && (
         <div className="rounded-xl bg-white dark:bg-[#131926] border border-slate-200 dark:border-white/[0.08] overflow-hidden shadow-sm">
-          {filteredItems.length === 0 ? (
+          <div className="px-4 py-3 border-b border-slate-200 dark:border-white/[0.08] flex items-center justify-between gap-2 bg-slate-50/70 dark:bg-[#182032]/70">
+            <div className="text-xs font-bold text-slate-900 dark:text-white">
+              Daftar Pengeluaran Operasional ({filteredItems.length} transaksi)
+            </div>
+            <CardWindowToggleButton cardId="kop-list-card" label="Daftar Pengeluaran" />
+          </div>
+          {!isCollapsed('kop-list-card') && (filteredItems.length === 0 ? (
             <div className="p-10 text-center space-y-3">
               <Wallet className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto" />
               <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">
@@ -914,14 +991,20 @@ export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
                 </tbody>
               </table>
             </div>
-          )}
+          ))}
         </div>
       )}
 
       {/* Sub-tab 2: Rekap per Dokumen OS */}
       {subTab === 'by-dokumen' && (
         <div className="rounded-xl bg-white dark:bg-[#131926] border border-slate-200 dark:border-white/[0.08] overflow-hidden shadow-sm">
-          {summary.byDokumen.length === 0 ? (
+          <div className="px-4 py-3 border-b border-slate-200 dark:border-white/[0.08] flex items-center justify-between gap-2 bg-slate-50/70 dark:bg-[#182032]/70">
+            <div className="text-xs font-bold text-slate-900 dark:text-white">
+              Rekap Biaya per Dokumen OS ({summary.byDokumen.length})
+            </div>
+            <CardWindowToggleButton cardId="kop-bydoc-card" label="Rekap per Dokumen OS" />
+          </div>
+          {!isCollapsed('kop-bydoc-card') && (summary.byDokumen.length === 0 ? (
             <div className="p-8 text-center text-xs text-slate-500 dark:text-slate-400">
               Belum ada rekap pengeluaran per dokumen OS.
             </div>
@@ -1023,88 +1106,99 @@ export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
                 </tbody>
               </table>
             </div>
-          )}
+          ))}
         </div>
       )}
 
       {/* Sub-tab 3: Rekap Petugas Ops */}
       {subTab === 'by-petugas' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
           {summary.byPetugas.length === 0 ? (
             <div className="col-span-full rounded-xl bg-white dark:bg-[#131926] border border-slate-200 dark:border-white/[0.08] p-8 text-center text-xs text-slate-500 dark:text-slate-400">
               Belum ada rekap tanda terima per petugas operasional.
             </div>
           ) : (
-            summary.byPetugas.map((p) => (
-              <div
-                key={p.petugasOps}
-                className="rounded-xl bg-white dark:bg-[#131926] border border-slate-200 dark:border-white/[0.08] p-4 space-y-3 shadow-sm"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-lg bg-[#0B2545]/10 dark:bg-violet-500/20 flex items-center justify-center shrink-0">
-                      <Users className="w-4 h-4 text-[#0B2545] dark:text-violet-300" />
+            summary.byPetugas.map((p) => {
+              const petugasCardId = `kop-petugas-${p.petugasOps}`;
+              const petugasCollapsed = isCollapsed(petugasCardId);
+              return (
+                <div
+                  key={p.petugasOps}
+                  className="rounded-xl bg-white dark:bg-[#131926] border border-slate-200 dark:border-white/[0.08] p-4 space-y-3 shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-9 h-9 rounded-lg bg-[#0B2545]/10 dark:bg-violet-500/20 flex items-center justify-center shrink-0">
+                        <Users className="w-4 h-4 text-[#0B2545] dark:text-violet-300" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                          {p.petugasOps}
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                          {p.jumlahTransaksi} Tanda Terima · {p.dokumenCount} Dokumen OS
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <div className="text-sm font-bold text-slate-900 dark:text-white">
-                        {p.petugasOps}
-                      </div>
-                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                        {p.jumlahTransaksi} Tanda Terima · {p.dokumenCount} Dokumen OS
-                      </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {!petugasCollapsed && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFilterPetugas(p.petugasOps);
+                            setSubTab('list');
+                          }}
+                          className="text-[11px] font-semibold text-[#F28C28] dark:text-violet-300 hover:underline cursor-pointer"
+                        >
+                          Rincian
+                        </button>
+                      )}
+                      <CardWindowToggleButton cardId={petugasCardId} label={`Petugas ${p.petugasOps}`} compact />
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFilterPetugas(p.petugasOps);
-                      setSubTab('list');
-                    }}
-                    className="text-[11px] font-semibold text-[#F28C28] dark:text-violet-300 hover:underline cursor-pointer"
-                  >
-                    Lihat Rincian
-                  </button>
-                </div>
 
-                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200 dark:border-white/[0.06] text-xs">
-                  <div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Total Dana Diterima
+                  {!petugasCollapsed && (
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200 dark:border-white/[0.06] text-xs">
+                      <div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Total Dana Diterima
+                        </div>
+                        <div className="font-bold text-slate-900 dark:text-white tabular-nums mt-0.5">
+                          {formatRupiahOps(p.totalDiterima)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Kasbon Aktif
+                        </div>
+                        <div className="font-bold text-amber-600 dark:text-amber-300 tabular-nums mt-0.5">
+                          {formatRupiahOps(p.kasbonAktifNominal)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Sudah Selesai/Bayar
+                        </div>
+                        <div className="font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums mt-0.5">
+                          {formatRupiahOps(p.sudahDipertanggungjawabkanNominal)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Kelengkapan Bukti
+                        </div>
+                        <div className="font-semibold text-slate-800 dark:text-slate-200 tabular-nums mt-0.5">
+                          {p.transaksiDenganBukti} ada ·{' '}
+                          <span className={p.transaksiTanpaBukti > 0 ? 'text-rose-500' : ''}>
+                            {p.transaksiTanpaBukti} kurang
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="font-bold text-slate-900 dark:text-white tabular-nums mt-0.5">
-                      {formatRupiahOps(p.totalDiterima)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Kasbon Aktif
-                    </div>
-                    <div className="font-bold text-amber-600 dark:text-amber-300 tabular-nums mt-0.5">
-                      {formatRupiahOps(p.kasbonAktifNominal)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Sudah Selesai/Bayar
-                    </div>
-                    <div className="font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums mt-0.5">
-                      {formatRupiahOps(p.sudahDipertanggungjawabkanNominal)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Kelengkapan Bukti
-                    </div>
-                    <div className="font-semibold text-slate-800 dark:text-slate-200 tabular-nums mt-0.5">
-                      {p.transaksiDenganBukti} ada ·{' '}
-                      <span className={p.transaksiTanpaBukti > 0 ? 'text-rose-500' : ''}>
-                        {p.transaksiTanpaBukti} kurang
-                      </span>
-                    </div>
-                  </div>
+                  )}
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       )}

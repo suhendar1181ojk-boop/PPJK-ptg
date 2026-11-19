@@ -73,6 +73,8 @@ import {
   StatusTruckingBadge,
 } from './Badges';
 import { SuratJalanModal } from './SuratJalanModal';
+import { useCardCollapse } from '../contexts/CardCollapseContext';
+import { CardWindowToggleButton, ModuleCardBatchToggle } from './CardWindowControls';
 
 interface DoPelayaranViewProps {
   shipments: Shipment[];
@@ -198,6 +200,23 @@ export function DoPelayaranView({
   const canEditPhase1 = canUserEditPhase({ role: userRole, phasePermissions }, 1);
   const canEditPhase2 = canUserEditPhase({ role: userRole, phasePermissions }, 2);
   const canCreateFromDo = Boolean(canCreateShipment && onCreateShipmentFromDo);
+  const { isCollapsed } = useCardCollapse();
+
+  const doModuleCardIds = useMemo(
+    () => [
+      'do-kpi-total',
+      'do-kpi-dok',
+      'do-kpi-sedia',
+      'do-kpi-belum',
+      'do-kpi-ext',
+      'do-kpi-gatepass',
+      'do-kpi-trucking',
+      'do-kpi-gateout',
+      'do-filter-toolbar',
+      'do-table-card',
+    ],
+    []
+  );
 
   const summary = useMemo(() => computeDoReadinessSummary(shipments), [shipments]);
 
@@ -483,6 +502,7 @@ export function DoPelayaranView({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <ModuleCardBatchToggle cardIds={doModuleCardIds} moduleName="kesiapan-do" />
           <button
             type="button"
             onClick={() =>
@@ -515,295 +535,358 @@ export function DoPelayaranView({
       </div>
 
       {/* 8 KPI Summary Cards (4x2 on xl) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5 items-start">
+        {/* 1. Total Semua Dokumen */}
         <div className="relative overflow-hidden bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-sky-500/35 p-4">
           <div
             aria-hidden="true"
             className="hidden dark:block pointer-events-none absolute -top-8 -left-8 w-24 h-24 rounded-full bg-sky-500/15 blur-2xl"
           />
-          <div className="relative flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-sky-500/15 border border-sky-500/30 flex items-center justify-center shrink-0">
-              <Ship className="w-4.5 h-4.5 text-sky-600 dark:text-sky-400" />
-            </div>
-            <div>
-              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                Total Semua Dokumen
+          <div className="relative flex items-start justify-between gap-2">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-full bg-sky-500/15 border border-sky-500/30 flex items-center justify-center shrink-0">
+                <Ship className="w-4 h-4 text-sky-600 dark:text-sky-400" />
               </div>
-              <div className="text-2xl font-bold text-slate-900 dark:text-white tabular-nums">
-                {summary.total}
+              <div className="min-w-0">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate">
+                  Total Semua Dokumen
+                </div>
+                <div className={`${isCollapsed('do-kpi-total') ? 'text-base' : 'text-2xl'} font-bold text-slate-900 dark:text-white tabular-nums`}>
+                  {summary.total}
+                </div>
               </div>
             </div>
+            <CardWindowToggleButton cardId="do-kpi-total" label="Total Semua Dokumen" compact />
           </div>
-          <div className="relative mt-2 text-[11px] font-medium text-sky-600 dark:text-sky-400">
-            {summary.siapKeluarCount} SPPB + D/O Sedia · {summary.fullReadyGateOutCount} siap keluar penuh
-          </div>
+          {!isCollapsed('do-kpi-total') && (
+            <div className="relative mt-2 text-[11px] font-medium text-sky-600 dark:text-sky-400">
+              {summary.siapKeluarCount} SPPB + D/O Sedia · {summary.fullReadyGateOutCount} siap keluar penuh
+            </div>
+          )}
         </div>
 
-        <button
-          type="button"
-          onClick={() =>
-            setFilterStatusDokumen((v) =>
-              v === 'Draft' ? 'Ready' : v === 'Ready' ? '' : 'Draft'
-            )
-          }
-          className="relative overflow-hidden text-left bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-yellow-500/35 hover:border-yellow-400 dark:hover:border-yellow-400/60 p-4 cursor-pointer transition-colors"
-        >
+        {/* 2. Dokumen Draft / Ready */}
+        <div className="relative overflow-hidden bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-yellow-500/35 hover:border-yellow-400 dark:hover:border-yellow-400/60 p-4 transition-colors">
           <div
             aria-hidden="true"
             className="hidden dark:block pointer-events-none absolute -top-8 -left-8 w-24 h-24 rounded-full bg-yellow-500/15 blur-2xl"
           />
-          <div className="relative flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-yellow-500/15 border border-yellow-500/30 flex items-center justify-center shrink-0">
-              <FileCheck2 className="w-4.5 h-4.5 text-yellow-600 dark:text-yellow-400" />
-            </div>
-            <div>
-              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                Dokumen Draft / Ready
+          <div className="relative flex items-start justify-between gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setFilterStatusDokumen((v) =>
+                  v === 'Draft' ? 'Ready' : v === 'Ready' ? '' : 'Draft'
+                )
+              }
+              className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer"
+            >
+              <div className="w-9 h-9 rounded-full bg-yellow-500/15 border border-yellow-500/30 flex items-center justify-center shrink-0">
+                <FileCheck2 className="w-4 h-4 text-yellow-600 dark:text-yellow-400" />
               </div>
-              <div className="text-xl font-bold text-slate-900 dark:text-white tabular-nums">
-                <span className="text-yellow-600 dark:text-yellow-400">{summary.draftDokCount}</span>
-                <span className="text-xs font-semibold text-slate-400 mx-1">Draft ·</span>
-                <span className="text-emerald-600 dark:text-emerald-400">{summary.readyDokCount}</span>
-                <span className="text-xs font-semibold text-slate-400 ml-1">Ready</span>
+              <div className="min-w-0">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate">
+                  Dokumen Draft / Ready
+                </div>
+                <div className={`${isCollapsed('do-kpi-dok') ? 'text-sm' : 'text-xl'} font-bold text-slate-900 dark:text-white tabular-nums`}>
+                  <span className="text-yellow-600 dark:text-yellow-400">{summary.draftDokCount}</span>
+                  <span className="text-xs font-semibold text-slate-400 mx-1">Draft ·</span>
+                  <span className="text-emerald-600 dark:text-emerald-400">{summary.readyDokCount}</span>
+                  <span className="text-xs font-semibold text-slate-400 ml-1">Ready</span>
+                </div>
               </div>
+            </button>
+            <CardWindowToggleButton cardId="do-kpi-dok" label="Dokumen Draft atau Ready" compact />
+          </div>
+          {!isCollapsed('do-kpi-dok') && (
+            <div className="relative mt-2 text-[11px] font-medium text-yellow-700 dark:text-yellow-300">
+              Klik untuk filter Draft / Ready
             </div>
-          </div>
-          <div className="relative mt-2 text-[11px] font-medium text-yellow-700 dark:text-yellow-300">
-            Klik untuk filter Draft / Ready
-          </div>
-        </button>
+          )}
+        </div>
 
-        <button
-          type="button"
-          onClick={() => setFilterDoStatus((v) => (v === 'Sedia' ? '' : 'Sedia'))}
-          className="relative overflow-hidden text-left bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-emerald-500/35 hover:border-emerald-400 dark:hover:border-emerald-400/60 p-4 cursor-pointer transition-colors"
-        >
+        {/* 3. D/O Sedia */}
+        <div className="relative overflow-hidden bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-emerald-500/35 hover:border-emerald-400 dark:hover:border-emerald-400/60 p-4 transition-colors">
           <div
             aria-hidden="true"
             className="hidden dark:block pointer-events-none absolute -top-8 -left-8 w-24 h-24 rounded-full bg-emerald-500/15 blur-2xl"
           />
-          <div className="relative flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
-              <CheckCircle2 className="w-4.5 h-4.5 text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <div>
-              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                D/O Sedia (Pelayaran)
+          <div className="relative flex items-start justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setFilterDoStatus((v) => (v === 'Sedia' ? '' : 'Sedia'))}
+              className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer"
+            >
+              <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               </div>
-              <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
-                {summary.sediaCount}
+              <div className="min-w-0">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate">
+                  D/O Sedia (Pelayaran)
+                </div>
+                <div className={`${isCollapsed('do-kpi-sedia') ? 'text-base' : 'text-2xl'} font-bold text-emerald-700 dark:text-emerald-400 tabular-nums`}>
+                  {summary.sediaCount}
+                </div>
               </div>
+            </button>
+            <CardWindowToggleButton cardId="do-kpi-sedia" label="D/O Sedia" compact />
+          </div>
+          {!isCollapsed('do-kpi-sedia') && (
+            <div className="relative mt-2 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+              Klik untuk filter D/O Sedia
             </div>
-          </div>
-          <div className="relative mt-2 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-            Klik untuk filter D/O Sedia
-          </div>
-        </button>
+          )}
+        </div>
 
-        <button
-          type="button"
-          onClick={() => setFilterDoStatus((v) => (v === 'Belum' ? '' : 'Belum'))}
-          className="relative overflow-hidden text-left bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-amber-500/35 hover:border-amber-400 dark:hover:border-amber-400/60 p-4 cursor-pointer transition-colors"
-        >
+        {/* 4. D/O Belum Sedia */}
+        <div className="relative overflow-hidden bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-amber-500/35 hover:border-amber-400 dark:hover:border-amber-400/60 p-4 transition-colors">
           <div
             aria-hidden="true"
             className="hidden dark:block pointer-events-none absolute -top-8 -left-8 w-24 h-24 rounded-full bg-amber-500/15 blur-2xl"
           />
-          <div className="relative flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
-              <Clock className="w-4.5 h-4.5 text-amber-600 dark:text-amber-400" />
-            </div>
-            <div>
-              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                D/O Belum Sedia
+          <div className="relative flex items-start justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setFilterDoStatus((v) => (v === 'Belum' ? '' : 'Belum'))}
+              className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer"
+            >
+              <div className="w-9 h-9 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
+                <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
               </div>
-              <div className="text-2xl font-bold text-amber-700 dark:text-amber-400 tabular-nums">
-                {summary.belumCount}
+              <div className="min-w-0">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate">
+                  D/O Belum Sedia
+                </div>
+                <div className={`${isCollapsed('do-kpi-belum') ? 'text-base' : 'text-2xl'} font-bold text-amber-700 dark:text-amber-400 tabular-nums`}>
+                  {summary.belumCount}
+                </div>
               </div>
+            </button>
+            <CardWindowToggleButton cardId="do-kpi-belum" label="D/O Belum Sedia" compact />
+          </div>
+          {!isCollapsed('do-kpi-belum') && (
+            <div className="relative mt-2 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+              {summary.sppbMenungguDoCount} sudah SPPB menunggu D/O
             </div>
-          </div>
-          <div className="relative mt-2 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-            {summary.sppbMenungguDoCount} sudah SPPB menunggu D/O
-          </div>
-        </button>
+          )}
+        </div>
 
-        <button
-          type="button"
-          onClick={() =>
-            setFilterCondition((v) =>
-              v === 'perlu_perpanjangan' ? 'all' : 'perlu_perpanjangan'
-            )
-          }
-          className="relative overflow-hidden text-left bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-red-500/35 hover:border-red-400 dark:hover:border-red-400/60 p-4 cursor-pointer transition-colors"
-        >
+        {/* 5. Perlu Perpanjangan D/O */}
+        <div className="relative overflow-hidden bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-red-500/35 hover:border-red-400 dark:hover:border-red-400/60 p-4 transition-colors">
           <div
             aria-hidden="true"
             className="hidden dark:block pointer-events-none absolute -top-8 -left-8 w-24 h-24 rounded-full bg-red-500/15 blur-2xl"
           />
-          <div className="relative flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-red-500/15 border border-red-500/30 flex items-center justify-center shrink-0">
-              <CalendarClock className="w-4.5 h-4.5 text-red-600 dark:text-red-400" />
-            </div>
-            <div>
-              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                Perlu Perpanjangan D/O
+          <div className="relative flex items-start justify-between gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setFilterCondition((v) =>
+                  v === 'perlu_perpanjangan' ? 'all' : 'perlu_perpanjangan'
+                )
+              }
+              className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer"
+            >
+              <div className="w-9 h-9 rounded-full bg-red-500/15 border border-red-500/30 flex items-center justify-center shrink-0">
+                <CalendarClock className="w-4 h-4 text-red-600 dark:text-red-400" />
               </div>
-              <div className="text-2xl font-bold text-red-600 dark:text-red-400 tabular-nums">
-                {summary.perluPerpanjanganCount}
+              <div className="min-w-0">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate">
+                  Perlu Perpanjangan D/O
+                </div>
+                <div className={`${isCollapsed('do-kpi-ext') ? 'text-base' : 'text-2xl'} font-bold text-red-600 dark:text-red-400 tabular-nums`}>
+                  {summary.perluPerpanjanganCount}
+                </div>
               </div>
+            </button>
+            <CardWindowToggleButton cardId="do-kpi-ext" label="Perlu Perpanjangan D/O" compact />
+          </div>
+          {!isCollapsed('do-kpi-ext') && (
+            <div className="relative mt-2 text-[11px] font-medium text-red-600 dark:text-red-400">
+              Berlaku &le; 2 hari atau kedaluwarsa
             </div>
-          </div>
-          <div className="relative mt-2 text-[11px] font-medium text-red-600 dark:text-red-400">
-            Berlaku &le; 2 hari atau kedaluwarsa
-          </div>
-        </button>
+          )}
+        </div>
 
-        <button
-          type="button"
-          onClick={() =>
-            setFilterCondition((v) =>
-              v === 'gatepass_belum' ? 'all' : 'gatepass_belum'
-            )
-          }
-          className="relative overflow-hidden text-left bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-violet-500/35 hover:border-violet-400 dark:hover:border-violet-400/60 p-4 cursor-pointer transition-colors"
-        >
+        {/* 6. Eslah / TILA */}
+        <div className="relative overflow-hidden bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-violet-500/35 hover:border-violet-400 dark:hover:border-violet-400/60 p-4 transition-colors">
           <div
             aria-hidden="true"
             className="hidden dark:block pointer-events-none absolute -top-8 -left-8 w-24 h-24 rounded-full bg-violet-500/15 blur-2xl"
           />
-          <div className="relative flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-violet-500/15 border border-violet-500/30 flex items-center justify-center shrink-0">
-              <IdCard className="w-4.5 h-4.5 text-violet-600 dark:text-violet-400" />
-            </div>
-            <div>
-              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                Eslah / TILA (Kartu Gate)
+          <div className="relative flex items-start justify-between gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setFilterCondition((v) =>
+                  v === 'gatepass_belum' ? 'all' : 'gatepass_belum'
+                )
+              }
+              className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer"
+            >
+              <div className="w-9 h-9 rounded-full bg-violet-500/15 border border-violet-500/30 flex items-center justify-center shrink-0">
+                <IdCard className="w-4 h-4 text-violet-600 dark:text-violet-400" />
               </div>
-              <div className="text-2xl font-bold text-violet-700 dark:text-violet-300 tabular-nums">
-                {summary.gatePassSediaCount}
-                <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 ml-1">
-                  / {summary.total} Sedia
-                </span>
+              <div className="min-w-0">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate">
+                  Eslah / TILA (Kartu Gate)
+                </div>
+                <div className={`${isCollapsed('do-kpi-gatepass') ? 'text-base' : 'text-2xl'} font-bold text-violet-700 dark:text-violet-300 tabular-nums`}>
+                  {summary.gatePassSediaCount}
+                  <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 ml-1">
+                    / {summary.total} Sedia
+                  </span>
+                </div>
               </div>
+            </button>
+            <CardWindowToggleButton cardId="do-kpi-gatepass" label="Eslah atau TILA" compact />
+          </div>
+          {!isCollapsed('do-kpi-gatepass') && (
+            <div className="relative mt-2 text-[11px] font-medium text-violet-600 dark:text-violet-300">
+              {summary.gatePassProsesCount} proses · {summary.gatePassBelumCount} belum diurus
             </div>
-          </div>
-          <div className="relative mt-2 text-[11px] font-medium text-violet-600 dark:text-violet-300">
-            {summary.gatePassProsesCount} proses · {summary.gatePassBelumCount} belum diurus
-          </div>
-        </button>
+          )}
+        </div>
 
-        <button
-          type="button"
-          onClick={() =>
-            setFilterCondition((v) =>
-              v === 'trucking_belum' ? 'all' : 'trucking_belum'
-            )
-          }
-          className="relative overflow-hidden text-left bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-teal-500/35 hover:border-teal-400 dark:hover:border-teal-400/60 p-4 cursor-pointer transition-colors"
-        >
+        {/* 7. Kesediaan Trucking */}
+        <div className="relative overflow-hidden bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-teal-500/35 hover:border-teal-400 dark:hover:border-teal-400/60 p-4 transition-colors">
           <div
             aria-hidden="true"
             className="hidden dark:block pointer-events-none absolute -top-8 -left-8 w-24 h-24 rounded-full bg-teal-500/15 blur-2xl"
           />
-          <div className="relative flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-teal-500/15 border border-teal-500/30 flex items-center justify-center shrink-0">
-              <Truck className="w-4.5 h-4.5 text-teal-600 dark:text-teal-400" />
-            </div>
-            <div>
-              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                Kesediaan Trucking
+          <div className="relative flex items-start justify-between gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setFilterCondition((v) =>
+                  v === 'trucking_belum' ? 'all' : 'trucking_belum'
+                )
+              }
+              className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer"
+            >
+              <div className="w-9 h-9 rounded-full bg-teal-500/15 border border-teal-500/30 flex items-center justify-center shrink-0">
+                <Truck className="w-4 h-4 text-teal-600 dark:text-teal-400" />
               </div>
-              <div className="text-2xl font-bold text-teal-700 dark:text-teal-300 tabular-nums">
-                {summary.truckingSediaCount}
-                <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 ml-1">
-                  / {summary.total} Sedia
-                </span>
+              <div className="min-w-0">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate">
+                  Kesediaan Trucking
+                </div>
+                <div className={`${isCollapsed('do-kpi-trucking') ? 'text-base' : 'text-2xl'} font-bold text-teal-700 dark:text-teal-300 tabular-nums`}>
+                  {summary.truckingSediaCount}
+                  <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 ml-1">
+                    / {summary.total} Sedia
+                  </span>
+                </div>
               </div>
+            </button>
+            <CardWindowToggleButton cardId="do-kpi-trucking" label="Kesediaan Trucking" compact />
+          </div>
+          {!isCollapsed('do-kpi-trucking') && (
+            <div className="relative mt-2 text-[11px] font-medium text-teal-600 dark:text-teal-300">
+              {summary.truckingBelumCount} armada &amp; supir belum dijadwalkan
             </div>
-          </div>
-          <div className="relative mt-2 text-[11px] font-medium text-teal-600 dark:text-teal-300">
-            {summary.truckingBelumCount} armada &amp; supir belum dijadwalkan
-          </div>
-        </button>
+          )}
+        </div>
 
-        <button
-          type="button"
-          onClick={() =>
-            setFilterGateOutStatus((v) => (v === 'Sudah' ? '' : 'Sudah'))
-          }
-          className="relative overflow-hidden text-left bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-emerald-500/40 hover:border-emerald-400 dark:hover:border-emerald-400/70 p-4 cursor-pointer transition-colors"
-        >
+        {/* 8. Gate-Out & Ikatan Selesai */}
+        <div className="relative overflow-hidden bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-emerald-500/40 hover:border-emerald-400 dark:hover:border-emerald-400/70 p-4 transition-colors">
           <div
             aria-hidden="true"
             className="hidden dark:block pointer-events-none absolute -top-8 -left-8 w-24 h-24 rounded-full bg-emerald-500/20 blur-2xl"
           />
-          <div className="relative flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
-              <LogOut className="w-4.5 h-4.5 text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <div>
-              <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                Gate-Out &amp; Ikatan Selesai
+          <div className="relative flex items-start justify-between gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setFilterGateOutStatus((v) => (v === 'Sudah' ? '' : 'Sudah'))
+              }
+              className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer"
+            >
+              <div className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                <LogOut className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               </div>
-              <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-300 tabular-nums">
-                {summary.gateOutSudahCount}
-                <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 ml-1">
-                  / {summary.total} Keluar
-                </span>
+              <div className="min-w-0">
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate">
+                  Gate-Out &amp; Ikatan Selesai
+                </div>
+                <div className={`${isCollapsed('do-kpi-gateout') ? 'text-base' : 'text-2xl'} font-bold text-emerald-700 dark:text-emerald-300 tabular-nums`}>
+                  {summary.gateOutSudahCount}
+                  <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 ml-1">
+                    / {summary.total} Keluar
+                  </span>
+                </div>
               </div>
+            </button>
+            <CardWindowToggleButton cardId="do-kpi-gateout" label="Gate-Out dan Ikatan Selesai" compact />
+          </div>
+          {!isCollapsed('do-kpi-gateout') && (
+            <div className="relative mt-2 text-[11px] font-medium text-emerald-600 dark:text-emerald-300">
+              {summary.dokumenSelesaiCount} terikat Dokumen Selesai · {summary.gateOutBelumCount} belum
             </div>
-          </div>
-          <div className="relative mt-2 text-[11px] font-medium text-emerald-600 dark:text-emerald-300">
-            {summary.dokumenSelesaiCount} terikat Dokumen Selesai · {summary.gateOutBelumCount} belum
-          </div>
-        </button>
+          )}
+        </div>
       </div>
 
       {/* Filter & Export Toolbar */}
       <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-4 space-y-3 no-print">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="relative flex-1 min-w-[230px]">
-            <Search className="w-4 h-4 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="text"
-              aria-label="Cari kesiapan D/O, Eslah/TILA, Trucking, dan Gate-Out"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Cari Kode OS, Draft/Ready, Kontainer, BL, Customer, Eslah/TILA, Supir, Plat Truk..."
-              className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 dark:border-white/10 text-xs bg-white dark:bg-[#182032] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#F28C28]/40 dark:focus:ring-violet-500/40"
-            />
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
+              Pencarian, Filter &amp; Ekspor Kesiapan D/O
+            </span>
+            {isCollapsed('do-filter-toolbar') && (
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums truncate">
+                · {filtered.length} dokumen tampil
+              </span>
+            )}
           </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => exportDoReadinessToExcel(filtered)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#182032] hover:bg-slate-50 dark:hover:bg-[#1F2940] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>Excel</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => exportDoReadinessToCSV(filtered)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#182032] hover:bg-slate-50 dark:hover:bg-[#1F2940] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
-              <span>CSV</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-200 dark:bg-white/10 hover:bg-slate-300 dark:hover:bg-white/15 text-xs font-semibold text-slate-800 dark:text-white cursor-pointer"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Cetak</span>
-            </button>
-          </div>
+          <CardWindowToggleButton cardId="do-filter-toolbar" label="Filter Kesiapan D/O" compact />
         </div>
+        {!isCollapsed('do-filter-toolbar') && (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="relative flex-1 min-w-[230px]">
+                <Search className="w-4 h-4 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  aria-label="Cari kesiapan D/O, Eslah/TILA, Trucking, dan Gate-Out"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Cari Kode OS, Draft/Ready, Kontainer, BL, Customer, Eslah/TILA, Supir, Plat Truk..."
+                  className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 dark:border-white/10 text-xs bg-white dark:bg-[#182032] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#F28C28]/40 dark:focus:ring-violet-500/40"
+                />
+              </div>
 
-        {/* 2 clean 4-column rows so dropdown labels never clip */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => exportDoReadinessToExcel(filtered)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#182032] hover:bg-slate-50 dark:hover:bg-[#1F2940] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>Excel</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => exportDoReadinessToCSV(filtered)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#182032] hover:bg-slate-50 dark:hover:bg-[#1F2940] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
+                  <span>CSV</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-200 dark:bg-white/10 hover:bg-slate-300 dark:hover:bg-white/15 text-xs font-semibold text-slate-800 dark:text-white cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Cetak</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 2 clean 4-column rows so dropdown labels never clip */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
           <select
             aria-label="Filter status dokumen Draft atau Ready"
             value={filterStatusDokumen}
@@ -932,6 +1015,8 @@ export function DoPelayaranView({
             </span>
           </div>
         </div>
+          </>
+        )}
       </div>
 
       {/* Empty State */}
@@ -951,11 +1036,19 @@ export function DoPelayaranView({
       ) : (
         <>
           {/* Desktop / Tablet Table */}
-          <div className="hidden md:block bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] overflow-x-auto">
-            <table
-              className="w-full text-left border-collapse text-xs"
-              data-testid="do-readiness-table"
-            >
+          <div className="hidden md:block bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-200 dark:border-white/[0.08] flex items-center justify-between gap-2 bg-slate-50/70 dark:bg-[#182032]/70 no-print">
+              <div className="text-xs font-bold text-slate-900 dark:text-white">
+                Tabel Kesiapan D/O, Eslah / TILA &amp; Trucking ({filtered.length} dokumen)
+              </div>
+              <CardWindowToggleButton cardId="do-table-card" label="Tabel Kesiapan D/O" />
+            </div>
+            {!isCollapsed('do-table-card') && (
+              <div className="overflow-x-auto">
+                <table
+                  className="w-full text-left border-collapse text-xs"
+                  data-testid="do-readiness-table"
+                >
               <thead>
                 <tr className="bg-slate-50 dark:bg-[#182032] border-b border-slate-200 dark:border-white/[0.08] text-slate-700 dark:text-slate-300 text-[11px]">
                   <th className="py-3 px-2.5 font-semibold whitespace-nowrap">Kode OS &amp; Dok</th>
@@ -1227,8 +1320,10 @@ export function DoPelayaranView({
                     </tr>
                   );
                 })}
-              </tbody>
-            </table>
+                </tbody>
+              </table>
+              </div>
+            )}
           </div>
 
           {/* Mobile Card List (< 768px) */}
@@ -1241,6 +1336,8 @@ export function DoPelayaranView({
               const gatePassNomor = s.doGatePassNomor || s.eslah || '';
               const truckingStatus = normalizeStatusTrucking(s.truckingStatus);
               const gateOutStatus = normalizeStatusGateOut(s.gateOutStatus, s.status);
+              const mobCardId = `do-mobile-${s.kodeOs}`;
+              const mobCollapsed = isCollapsed(mobCardId);
               return (
                 <div
                   key={s.kodeOs}
@@ -1248,7 +1345,7 @@ export function DoPelayaranView({
                   className="bg-white dark:bg-[#131926] rounded-xl border border-slate-200 dark:border-white/[0.08] p-4 space-y-2.5 cursor-pointer"
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-mono-code text-xs font-bold text-[#0B2545] dark:text-violet-300">
                           {s.kodeOs}
@@ -1271,7 +1368,7 @@ export function DoPelayaranView({
                         BL: {s.noBl} · {s.ship || '-'}
                       </div>
                     </div>
-                    <div onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                       <StatusDoBadge
                         statusDo={doStatus}
                         onToggle={
@@ -1283,12 +1380,15 @@ export function DoPelayaranView({
                             : undefined
                         }
                       />
+                      <CardWindowToggleButton cardId={mobCardId} label={`D/O ${s.kodeOs}`} compact />
                     </div>
                   </div>
 
-                  <div className="text-[11px] font-mono-code text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-[#182032] px-2.5 py-1.5 rounded-lg">
-                    Cont: {s.noCont || '-'}
-                  </div>
+                  {!mobCollapsed && (
+                    <>
+                      <div className="text-[11px] font-mono-code text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-[#182032] px-2.5 py-1.5 rounded-lg">
+                        Cont: {s.noCont || '-'}
+                      </div>
 
                   <div className="flex flex-wrap items-center gap-1.5">
                     <StatusBadge status={s.status} />
@@ -1462,6 +1562,8 @@ export function DoPelayaranView({
                         Atur D/O, TILA &amp; Gate-Out
                       </button>
                     </div>
+                  )}
+                    </>
                   )}
                 </div>
               );

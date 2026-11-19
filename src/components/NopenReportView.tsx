@@ -35,6 +35,8 @@ import {
   exportNopenRecapToPDF,
 } from '../utils/exportUtils';
 import { JalurBadge, StatusBadge } from './Badges';
+import { useCardCollapse } from '../contexts/CardCollapseContext';
+import { CardWindowToggleButton, ModuleCardBatchToggle } from './CardWindowControls';
 
 interface NopenReportViewProps {
   shipments: Shipment[];
@@ -65,6 +67,7 @@ export function NopenReportView({
   const [filterStatus, setFilterStatus] = useState('');
   const [filterImportir, setFilterImportir] = useState('');
   const [includeWithoutNopen, setIncludeWithoutNopen] = useState(false);
+  const { isCollapsed } = useCardCollapse();
 
   const importirNameMap = useMemo(() => {
     const m = new Map<string, string>();
@@ -169,6 +172,21 @@ export function NopenReportView({
     Boolean(filterImportir) ||
     includeWithoutNopen;
 
+  const nopenModuleCardIds = useMemo(
+    () => [
+      'nopen-filter-panel',
+      'nopen-kpi-total',
+      'nopen-kpi-sppb',
+      'nopen-kpi-gateout',
+      'nopen-kpi-sptnp',
+      'nopen-kpi-bmpdri',
+      'nopen-daily-card',
+      'nopen-importir-card',
+      'nopen-table-card',
+    ],
+    []
+  );
+
   return (
     <div className="space-y-4">
       {/* Header & Toolbar Export */}
@@ -186,6 +204,7 @@ export function NopenReportView({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <ModuleCardBatchToggle cardIds={nopenModuleCardIds} moduleName="report-nopen" />
           <button
             type="button"
             onClick={() => exportNopenRecapToExcel(matchedRows, summary, importirs)}
@@ -245,6 +264,21 @@ export function NopenReportView({
         className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-4 space-y-3.5 no-print"
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
+              Filter Periode &amp; Kriteria NOPEN
+            </span>
+            {isCollapsed('nopen-filter-panel') && (
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                · {summary.periodLabel} · {matchedRows.length} dok
+              </span>
+            )}
+          </div>
+          <CardWindowToggleButton cardId="nopen-filter-panel" label="Filter Report NOPEN" compact />
+        </div>
+        {!isCollapsed('nopen-filter-panel') && (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3">
           {/* Mode Switch: 1 Bulan vs Tanggal ke Tanggal */}
           <div className="inline-flex p-1 rounded-xl bg-slate-100 dark:bg-[#0D111C] border border-slate-200 dark:border-white/[0.07]">
             <button
@@ -502,97 +536,134 @@ export function NopenReportView({
             </button>
           )}
         </div>
+          </>
+        )}
       </section>
 
       {/* 5 KPI Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-start">
         <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-violet-500/30 p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Dokumen NOPEN
-            </span>
-            <FileText className="w-4 h-4 text-violet-600 dark:text-violet-400" />
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400 shrink-0" />
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
+                  Dokumen NOPEN
+                </span>
+              </div>
+              <div
+                data-testid="nopen-kpi-total"
+                className={`${isCollapsed('nopen-kpi-total') ? 'text-lg' : 'text-2xl'} font-bold text-slate-900 dark:text-white mt-1 tabular-nums`}
+              >
+                {summary.totalMatched}
+              </div>
+            </div>
+            <CardWindowToggleButton cardId="nopen-kpi-total" label="Dokumen NOPEN" compact />
           </div>
-          <div
-            data-testid="nopen-kpi-total"
-            className="text-2xl font-bold text-slate-900 dark:text-white mt-1 tabular-nums"
-          >
-            {summary.totalMatched}
-          </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-            {summary.totalWithNopen} terbit NOPEN
-            {summary.totalWithoutNopen > 0 ? ` · ${summary.totalWithoutNopen} belum NOPEN` : ''}
-          </div>
+          {!isCollapsed('nopen-kpi-total') && (
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              {summary.totalWithNopen} terbit NOPEN
+              {summary.totalWithoutNopen > 0 ? ` · ${summary.totalWithoutNopen} belum NOPEN` : ''}
+            </div>
+          )}
         </div>
 
         <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-emerald-500/30 p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Terbit SPPB
-            </span>
-            <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
+                  Terbit SPPB
+                </span>
+              </div>
+              <div className={`${isCollapsed('nopen-kpi-sppb') ? 'text-lg' : 'text-2xl'} font-bold text-emerald-700 dark:text-emerald-300 mt-1 tabular-nums`}>
+                {summary.totalSppb}
+              </div>
+            </div>
+            <CardWindowToggleButton cardId="nopen-kpi-sppb" label="Terbit SPPB" compact />
           </div>
-          <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-300 mt-1 tabular-nums">
-            {summary.totalSppb}
-          </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-            {summary.totalMatched > 0
-              ? `${Math.round((summary.totalSppb / summary.totalMatched) * 100)}% sudah SPPB`
-              : 'Belum ada data'}
-          </div>
+          {!isCollapsed('nopen-kpi-sppb') && (
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              {summary.totalMatched > 0
+                ? `${Math.round((summary.totalSppb / summary.totalMatched) * 100)}% sudah SPPB`
+                : 'Belum ada data'}
+            </div>
+          )}
         </div>
 
         <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-sky-500/30 p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Gate-Out / Selesai
-            </span>
-            <Truck className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <Truck className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 shrink-0" />
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
+                  Gate-Out / Selesai
+                </span>
+              </div>
+              <div className={`${isCollapsed('nopen-kpi-gateout') ? 'text-lg' : 'text-2xl'} font-bold text-sky-700 dark:text-sky-300 mt-1 tabular-nums`}>
+                {summary.totalGateOut}
+              </div>
+            </div>
+            <CardWindowToggleButton cardId="nopen-kpi-gateout" label="Gate-Out atau Selesai" compact />
           </div>
-          <div className="text-2xl font-bold text-sky-700 dark:text-sky-300 mt-1 tabular-nums">
-            {summary.totalGateOut}
-          </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-            {summary.totalSelesai} selesai · {summary.totalOutstanding} masih OS
-          </div>
+          {!isCollapsed('nopen-kpi-gateout') && (
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              {summary.totalSelesai} selesai · {summary.totalOutstanding} masih OS
+            </div>
+          )}
         </div>
 
         <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-amber-500/30 p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Ada SPTNP / Verif
-            </span>
-            <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
+                  Ada SPTNP / Verif
+                </span>
+              </div>
+              <div className={`${isCollapsed('nopen-kpi-sptnp') ? 'text-lg' : 'text-2xl'} font-bold text-amber-700 dark:text-amber-300 mt-1 tabular-nums`}>
+                {summary.totalSptnp}
+              </div>
+            </div>
+            <CardWindowToggleButton cardId="nopen-kpi-sptnp" label="Ada SPTNP" compact />
           </div>
-          <div className="text-2xl font-bold text-amber-700 dark:text-amber-300 mt-1 tabular-nums">
-            {summary.totalSptnp}
-          </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-            Jalur Merah: {summary.byJalur.Merah || 0} · MITA: {summary.byJalur.MITA || 0}
-          </div>
+          {!isCollapsed('nopen-kpi-sptnp') && (
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              Jalur Merah: {summary.byJalur.Merah || 0} · MITA: {summary.byJalur.MITA || 0}
+            </div>
+          )}
         </div>
 
         <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-              Nilai BM/PDRI
-            </span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">
+                  Nilai BM/PDRI
+                </span>
+              </div>
+              <div
+                data-testid="nopen-kpi-bmpdri"
+                className="text-sm sm:text-base font-bold text-slate-900 dark:text-white mt-1.5 tabular-nums leading-snug"
+              >
+                {summary.totalBmPdri > 0 ? formatRupiah(summary.totalBmPdri) : '-'}
+              </div>
+            </div>
+            <CardWindowToggleButton cardId="nopen-kpi-bmpdri" label="Nilai BM dan PDRI" compact />
           </div>
-          <div
-            data-testid="nopen-kpi-bmpdri"
-            className="text-sm sm:text-base font-bold text-slate-900 dark:text-white mt-2 tabular-nums leading-snug"
-          >
-            {summary.totalBmPdri > 0 ? formatRupiah(summary.totalBmPdri) : '-'}
-          </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-            Akumulasi BM/PDRI periode terpilih
-          </div>
+          {!isCollapsed('nopen-kpi-bmpdri') && (
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              Akumulasi BM/PDRI periode terpilih
+            </div>
+          )}
         </div>
       </div>
 
       {/* Dual Summary Panels: Rekap Harian per Tgl. NOPEN + Rekap Importir & Jalur */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
         {/* Left: Rekap Harian per Tgl. NOPEN */}
         <section
           aria-label="Rekap harian tanggal NOPEN"
@@ -604,16 +675,21 @@ export function NopenReportView({
               <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
                 Rekap Harian per Tgl. NOPEN
               </h3>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Jumlah pendaftaran PIB per tanggal pada periode aktif
-              </p>
+              {!isCollapsed('nopen-daily-card') && (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Jumlah pendaftaran PIB per tanggal pada periode aktif
+                </p>
+              )}
             </div>
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 tabular-nums">
-              {summary.byDay.length} Tanggal Aktif
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 tabular-nums">
+                {summary.byDay.length} Tanggal Aktif
+              </span>
+              <CardWindowToggleButton cardId="nopen-daily-card" label="Rekap Harian NOPEN" compact />
+            </div>
           </div>
 
-          {summary.byDay.length === 0 ? (
+          {!isCollapsed('nopen-daily-card') && (summary.byDay.length === 0 ? (
             <div className="p-6 text-center text-xs text-slate-500 dark:text-slate-400">
               Tidak ada dokumen pada periode ini.
             </div>
@@ -667,7 +743,7 @@ export function NopenReportView({
                 </tbody>
               </table>
             </div>
-          )}
+          ))}
         </section>
 
         {/* Right: Rekap per Kode Importir + Distribusi Jalur */}
@@ -682,9 +758,11 @@ export function NopenReportView({
                 <Building2 className="w-4 h-4 text-violet-600 dark:text-violet-400" />
                 <span>Rekap Kode Importir Periode Ini</span>
               </h3>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Klik baris importir untuk menyaring tabel NOPEN di bawah
-              </p>
+              {!isCollapsed('nopen-importir-card') && (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Klik baris importir untuk menyaring tabel NOPEN di bawah
+                </p>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-1.5 text-[10.5px] font-semibold">
               <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-300">
@@ -699,10 +777,11 @@ export function NopenReportView({
               <span className="px-2 py-0.5 rounded bg-sky-100 dark:bg-sky-500/15 text-sky-800 dark:text-sky-300">
                 MITA: {summary.byJalur.MITA || 0}
               </span>
+              <CardWindowToggleButton cardId="nopen-importir-card" label="Rekap Kode Importir" compact />
             </div>
           </div>
 
-          {summary.byImportir.length === 0 ? (
+          {!isCollapsed('nopen-importir-card') && (summary.byImportir.length === 0 ? (
             <div className="p-6 text-center text-xs text-slate-500 dark:text-slate-400">
               Belum ada rekap importir pada periode ini.
             </div>
@@ -764,7 +843,7 @@ export function NopenReportView({
                 </tbody>
               </table>
             </div>
-          )}
+          ))}
         </section>
       </div>
 
@@ -778,22 +857,27 @@ export function NopenReportView({
             <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
               Daftar Dokumen PIB Berdasarkan No. NOPEN ({matchedRows.length})
             </h3>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Urutan berdasarkan Tgl. NOPEN terbaru &amp; No. Pendaftaran PIB ({summary.periodLabel})
-            </p>
+            {!isCollapsed('nopen-table-card') && (
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Urutan berdasarkan Tgl. NOPEN terbaru &amp; No. Pendaftaran PIB ({summary.periodLabel})
+              </p>
+            )}
           </div>
-          {filterImportir && (
-            <button
-              type="button"
-              onClick={() => setFilterImportir('')}
-              className="px-2.5 py-1 rounded-lg bg-violet-100 dark:bg-violet-500/20 text-violet-800 dark:text-violet-200 text-[11px] font-semibold cursor-pointer"
-            >
-              Filter Importir: {filterImportir} ×
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {filterImportir && (
+              <button
+                type="button"
+                onClick={() => setFilterImportir('')}
+                className="px-2.5 py-1 rounded-lg bg-violet-100 dark:bg-violet-500/20 text-violet-800 dark:text-violet-200 text-[11px] font-semibold cursor-pointer"
+              >
+                Filter Importir: {filterImportir} ×
+              </button>
+            )}
+            <CardWindowToggleButton cardId="nopen-table-card" label="Tabel Dokumen NOPEN" />
+          </div>
         </div>
 
-        {matchedRows.length === 0 ? (
+        {!isCollapsed('nopen-table-card') && (matchedRows.length === 0 ? (
           <div className="p-8 text-center text-xs text-slate-500 dark:text-slate-400 space-y-2">
             <p className="font-semibold text-slate-700 dark:text-slate-200">
               Tidak ada dokumen NOPEN yang sesuai dengan periode dan filter saat ini.
@@ -982,10 +1066,13 @@ export function NopenReportView({
               data-testid="mobile-nopen-report-cards"
               className="md:hidden divide-y divide-slate-100 dark:divide-white/[0.06]"
             >
-              {matchedRows.map((s) => (
+              {matchedRows.map((s) => {
+                const mobId = `nopen-mobile-${s.kodeOs}`;
+                const mobCollapsed = isCollapsed(mobId);
+                return (
                 <div key={s.kodeOs} className="p-4 space-y-2.5">
                   <div className="flex items-start justify-between gap-2">
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono-code text-sm font-bold text-[#0B2545] dark:text-violet-300">
                           {s.nopen ? `NOPEN ${s.nopen}` : 'Belum Ada NOPEN'}
@@ -994,63 +1081,71 @@ export function NopenReportView({
                           {s.tglNopen || '-'}
                         </span>
                       </div>
-                      <div className="text-xs font-semibold text-slate-900 dark:text-white mt-0.5">
+                      <div className="text-xs font-semibold text-slate-900 dark:text-white mt-0.5 truncate">
                         {s.namaCustomer}
                       </div>
                       <div className="text-[11px] text-slate-500 dark:text-slate-400">
                         {s.kodeOs} · Importir: {s.kodeImportir || '-'}
                       </div>
                     </div>
-                    <JalurBadge jalur={s.jalur} />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 text-[11px] bg-slate-50 dark:bg-[#0D111C] rounded-xl p-2.5 border border-slate-100 dark:border-white/[0.06]">
-                    <div>
-                      <div className="text-slate-400">No. AJU</div>
-                      <div className="font-mono-code font-medium text-slate-700 dark:text-slate-200 truncate">
-                        {s.noAju || '-'}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-slate-400">Nilai Invoice</div>
-                      <div className="font-semibold text-slate-800 dark:text-slate-200 tabular-nums">
-                        {s.invoice !== ''
-                          ? `${s.currency || 'USD'} ${new Intl.NumberFormat('en-US', {
-                              maximumFractionDigits: 2,
-                            }).format(Number(s.invoice))}`
-                          : '-'}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-slate-400">No. SPPB</div>
-                      <div className="font-mono-code text-emerald-700 dark:text-emerald-300 truncate">
-                        {s.noSppb || '-'}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-slate-400">BM / PDRI</div>
-                      <div className="text-slate-700 dark:text-slate-200 truncate">
-                        {s.bmPdri || '-'}
-                      </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <JalurBadge jalur={s.jalur} />
+                      <CardWindowToggleButton cardId={mobId} label={`NOPEN ${s.kodeOs}`} compact />
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between gap-2 pt-1">
-                    <StatusBadge status={s.status} />
-                    <button
-                      type="button"
-                      onClick={() => onOpenDetail(s.kodeOs)}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#0B2545] dark:bg-violet-600 text-white text-xs font-semibold cursor-pointer"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Detail</span>
-                    </button>
-                  </div>
+                  {!mobCollapsed && (
+                    <>
+                      <div className="grid grid-cols-2 gap-2 text-[11px] bg-slate-50 dark:bg-[#0D111C] rounded-xl p-2.5 border border-slate-100 dark:border-white/[0.06]">
+                        <div>
+                          <div className="text-slate-400">No. AJU</div>
+                          <div className="font-mono-code font-medium text-slate-700 dark:text-slate-200 truncate">
+                            {s.noAju || '-'}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-slate-400">Nilai Invoice</div>
+                          <div className="font-semibold text-slate-800 dark:text-slate-200 tabular-nums">
+                            {s.invoice !== ''
+                              ? `${s.currency || 'USD'} ${new Intl.NumberFormat('en-US', {
+                                  maximumFractionDigits: 2,
+                                }).format(Number(s.invoice))}`
+                              : '-'}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-slate-400">No. SPPB</div>
+                          <div className="font-mono-code text-emerald-700 dark:text-emerald-300 truncate">
+                            {s.noSppb || '-'}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-slate-400">BM / PDRI</div>
+                          <div className="text-slate-700 dark:text-slate-200 truncate">
+                            {s.bmPdri || '-'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 pt-1">
+                        <StatusBadge status={s.status} />
+                        <button
+                          type="button"
+                          onClick={() => onOpenDetail(s.kodeOs)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#0B2545] dark:bg-violet-600 text-white text-xs font-semibold cursor-pointer"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Detail</span>
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
-              ))}
+              );
+              })}
             </div>
           </>
-        )}
+        ))}
       </section>
     </div>
   );

@@ -28,6 +28,8 @@ import {
 } from '../services/backupService';
 import { formatBytesReadable, estimateDatabaseByteSize } from '../utils/offlineDbLogic';
 import { describeRegisteredDriveDestination } from '../utils/googleDriveFolderLogic';
+import { CardWindowToggleButton, ModuleCardBatchToggle } from './CardWindowControls';
+import { useCardCollapse } from '../contexts/CardCollapseContext';
 
 interface DatabaseBackupViewProps {
   db: DatabaseState;
@@ -95,6 +97,19 @@ export const DatabaseBackupView: React.FC<DatabaseBackupViewProps> = ({
   const driveDest = useMemo(
     () => describeRegisteredDriveDestination(db.pengaturan, driveUserEmail),
     [db.pengaturan, driveUserEmail]
+  );
+  const { isCollapsed } = useCardCollapse();
+  const backupModuleCardIds = useMemo(
+    () => [
+      'backup-kpi-total',
+      'backup-kpi-master',
+      'backup-kpi-ops',
+      'backup-kpi-local',
+      'backup-create-card',
+      'backup-restore-card',
+      'backup-history-card',
+    ],
+    []
   );
 
   const showSuccess = (msg: string) => {
@@ -234,8 +249,11 @@ export const DatabaseBackupView: React.FC<DatabaseBackupViewProps> = ({
             Ekspor seluruh data operasional ke file JSON atau Excel 12-tab, simpan snapshot lokal di browser, atau cadangkan langsung ke Google Drive terdaftar.
           </p>
         </div>
-        <div className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-          Total {totalRecords} entri · {formatBytesReadable(approxBytes)}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+            Total {totalRecords} entri · {formatBytesReadable(approxBytes)}
+          </span>
+          <ModuleCardBatchToggle cardIds={backupModuleCardIds} moduleName="Backup Database" />
         </div>
       </div>
 
@@ -262,71 +280,121 @@ export const DatabaseBackupView: React.FC<DatabaseBackupViewProps> = ({
       )}
 
       {/* 4 Summary Metrics */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 items-start">
         <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08]">
-          <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-            Shipment &amp; Kontainer
+          <div className="flex items-start justify-between gap-2">
+            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              Shipment &amp; Kontainer
+            </div>
+            <CardWindowToggleButton
+              cardId="backup-kpi-total"
+              label="KPI Shipment & Kontainer"
+              compact
+            />
           </div>
-          <div className="text-lg font-bold text-[#0B2545] dark:text-white mt-1 tabular-nums">
-            {counts.shipments} <span className="text-xs font-normal text-slate-500 dark:text-slate-400">dok · {counts.kontainers} cont</span>
-          </div>
+          {!isCollapsed('backup-kpi-total') && (
+            <div className="text-lg font-bold text-[#0B2545] dark:text-white mt-1 tabular-nums">
+              {counts.shipments}{' '}
+              <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                dok · {counts.kontainers} cont
+              </span>
+            </div>
+          )}
         </div>
         <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08]">
-          <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-            Data Master &amp; Akun
+          <div className="flex items-start justify-between gap-2">
+            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              Data Master &amp; Akun
+            </div>
+            <CardWindowToggleButton
+              cardId="backup-kpi-master"
+              label="KPI Data Master & Akun"
+              compact
+            />
           </div>
-          <div className="text-lg font-bold text-[#0B2545] dark:text-white mt-1 tabular-nums">
-            {counts.customers + counts.importirs + counts.shippers}{' '}
-            <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
-              master · {counts.users} user
-            </span>
-          </div>
+          {!isCollapsed('backup-kpi-master') && (
+            <div className="text-lg font-bold text-[#0B2545] dark:text-white mt-1 tabular-nums">
+              {counts.customers + counts.importirs + counts.shippers}{' '}
+              <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                master · {counts.users} user
+              </span>
+            </div>
+          )}
         </div>
         <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08]">
-          <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-            Dokumen, Ops &amp; Log
+          <div className="flex items-start justify-between gap-2">
+            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              Dokumen, Ops &amp; Log
+            </div>
+            <CardWindowToggleButton
+              cardId="backup-kpi-ops"
+              label="KPI Dokumen, Ops & Log"
+              compact
+            />
           </div>
-          <div className="text-lg font-bold text-[#0B2545] dark:text-white mt-1 tabular-nums">
-            {counts.dokumen + counts.pengeluaranOps}{' '}
-            <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
-              berkas/ops · {counts.logs} log
-            </span>
-          </div>
+          {!isCollapsed('backup-kpi-ops') && (
+            <div className="text-lg font-bold text-[#0B2545] dark:text-white mt-1 tabular-nums">
+              {counts.dokumen + counts.pengeluaranOps}{' '}
+              <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                berkas/ops · {counts.logs} log
+              </span>
+            </div>
+          )}
         </div>
         <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08]">
-          <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-            Snapshot Lokal Tersimpan
+          <div className="flex items-start justify-between gap-2">
+            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              Snapshot Lokal Tersimpan
+            </div>
+            <CardWindowToggleButton
+              cardId="backup-kpi-local"
+              label="KPI Snapshot Lokal Tersimpan"
+              compact
+            />
           </div>
-          <div className="text-lg font-bold text-[#0B2545] dark:text-white mt-1 tabular-nums">
-            {localBackups.length}{' '}
-            <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
-              / 10 slot · {formatBytesReadable(approxBytes)}
-            </span>
-          </div>
+          {!isCollapsed('backup-kpi-local') && (
+            <div className="text-lg font-bold text-[#0B2545] dark:text-white mt-1 tabular-nums">
+              {localBackups.length}{' '}
+              <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                / 10 slot · {formatBytesReadable(approxBytes)}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Section 1: Buat & Ekspor Backup */}
       <div className="p-4 sm:p-5 rounded-xl bg-white dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08] space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+          <div className="min-w-0 flex-1">
             <h4 className="text-sm font-bold text-[#0B2545] dark:text-white flex items-center gap-2">
-              <Database className="w-4 h-4 text-[#F28C28] dark:text-violet-400" />
+              <Database className="w-4 h-4 text-[#F28C28] dark:text-violet-400 shrink-0" />
               <span>Buat &amp; Unduh Backup Database</span>
             </h4>
-            <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-              File <code className="font-mono-code">.json</code> menyimpan seluruh struktur objek secara utuh (lossless), sedangkan file <code className="font-mono-code">.xlsx</code> mengekspor seluruh 12 tab Spreadsheet.
-            </p>
+            {!isCollapsed('backup-create-card') && (
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                File <code className="font-mono-code">.json</code> menyimpan seluruh struktur objek secara utuh (lossless), sedangkan file <code className="font-mono-code">.xlsx</code> mengekspor seluruh 12 tab Spreadsheet.
+              </p>
+            )}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-            <HardDrive className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-            <span>
-              Drive: <strong className="text-slate-700 dark:text-slate-200">{driveDest.registeredGmail || 'Endpoint GAS Default'}</strong>
-              {' · '}
-              <span className="font-mono-code">{driveDest.folderLabel}</span>
-            </span>
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+              <HardDrive className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span>
+                Drive: <strong className="text-slate-700 dark:text-slate-200">{driveDest.registeredGmail || 'Endpoint GAS Default'}</strong>
+                {' · '}
+                <span className="font-mono-code">{driveDest.folderLabel}</span>
+              </span>
+            </div>
+            <CardWindowToggleButton
+              cardId="backup-create-card"
+              label="Buat & Unduh Backup Database"
+            />
           </div>
         </div>
+
+        {!isCollapsed('backup-create-card') && (
+          <>
 
         <div className="flex flex-col sm:flex-row gap-2.5">
           <input
@@ -413,6 +481,8 @@ export const DatabaseBackupView: React.FC<DatabaseBackupViewProps> = ({
             )}
           </div>
         )}
+          </>
+        )}
       </div>
 
       {/* Section 2: Restore dari File Backup */}
@@ -423,11 +493,20 @@ export const DatabaseBackupView: React.FC<DatabaseBackupViewProps> = ({
               <Upload className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               <span>Pulihkan (Restore) Database dari File Backup</span>
             </h4>
-            <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-              Unggah file backup <code className="font-mono-code">.json</code> atau workbook Excel <code className="font-mono-code">.xlsx</code> (12 tab) untuk mempratinjau isi data sebelum memulihkan.
-            </p>
+            {!isCollapsed('backup-restore-card') && (
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                Unggah file backup <code className="font-mono-code">.json</code> atau workbook Excel <code className="font-mono-code">.xlsx</code> (12 tab) untuk mempratinjau isi data sebelum memulihkan.
+              </p>
+            )}
           </div>
+          <CardWindowToggleButton
+            cardId="backup-restore-card"
+            label="Pulihkan Database dari File Backup"
+          />
         </div>
+
+        {!isCollapsed('backup-restore-card') && (
+          <>
 
         <div className="flex flex-wrap items-center gap-3">
           <input
@@ -526,6 +605,8 @@ export const DatabaseBackupView: React.FC<DatabaseBackupViewProps> = ({
             </div>
           </div>
         )}
+          </>
+        )}
       </div>
 
       {/* Section 3: Riwayat Snapshot Lokal */}
@@ -537,10 +618,19 @@ export const DatabaseBackupView: React.FC<DatabaseBackupViewProps> = ({
               Riwayat Snapshot Backup Lokal (Vault Browser)
             </h4>
           </div>
-          <span className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
-            Menyimpan hingga 10 snapshot terbaru di IndexedDB
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+              {localBackups.length} / 10 snapshot di IndexedDB
+            </span>
+            <CardWindowToggleButton
+              cardId="backup-history-card"
+              label="Riwayat Snapshot Backup Lokal"
+            />
+          </div>
         </div>
+
+        {!isCollapsed('backup-history-card') && (
+          <>
 
         {localBackups.length === 0 ? (
           <div
@@ -608,6 +698,8 @@ export const DatabaseBackupView: React.FC<DatabaseBackupViewProps> = ({
               </div>
             ))}
           </div>
+        )}
+          </>
         )}
       </div>
     </div>

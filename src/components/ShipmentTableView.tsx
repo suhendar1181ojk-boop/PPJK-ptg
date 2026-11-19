@@ -62,6 +62,8 @@ import {
   StatusSuratJalanBadge,
   StatusTruckingBadge,
 } from './Badges';
+import { useCardCollapse } from '../contexts/CardCollapseContext';
+import { CardWindowToggleButton, ModuleCardBatchToggle } from './CardWindowControls';
 
 interface ShipmentTableViewProps {
   mode: 'all' | 'outstanding';
@@ -174,6 +176,7 @@ export function ShipmentTableView({
     value: string;
   } | null>(null);
   const [savingManualOs, setSavingManualOs] = useState(false);
+  const { isCollapsed } = useCardCollapse();
 
   useEffect(() => {
     setFilterChecker(initialCheckerFilter);
@@ -465,6 +468,20 @@ export function ShipmentTableView({
     'Belum Ada': importirSummary.items.reduce((acc, i) => acc + (i.byJalur['Belum Ada'] || 0), 0),
   };
 
+  const shipModuleCardIds = useMemo(() => {
+    const ids = [`ship-toolbar-${mode}`, `ship-table-${mode}`];
+    if (mode === 'all' && importirSummary.items.length > 0) {
+      ids.push('ship-importir-summary');
+    }
+    return ids;
+  }, [mode, importirSummary.items.length]);
+
+  const toolbarCardId = `ship-toolbar-${mode}`;
+  const tableCardId = `ship-table-${mode}`;
+  const toolbarCollapsed = isCollapsed(toolbarCardId);
+  const importirCollapsed = isCollapsed('ship-importir-summary');
+  const tableCollapsed = isCollapsed(tableCardId);
+
   return (
     <div className="space-y-4">
       {/* Print Header */}
@@ -481,7 +498,28 @@ export function ShipmentTableView({
 
       {/* Filter & Export Toolbar */}
       <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-4 space-y-3 no-print">
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-xs font-bold text-slate-800 dark:text-slate-100">
+              {mode === 'outstanding'
+                ? 'Pencarian, Filter & Ekspor Outstanding'
+                : 'Pencarian, Filter & Ekspor Seluruh Shipment'}
+            </span>
+            {toolbarCollapsed && (
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums truncate">
+                · {filtered.length} baris tampil
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <ModuleCardBatchToggle cardIds={shipModuleCardIds} moduleName={`shipment-${mode}`} />
+            <CardWindowToggleButton cardId={toolbarCardId} label="Toolbar Filter Shipment" compact />
+          </div>
+        </div>
+
+        {!toolbarCollapsed && (
+          <>
+            <div className="flex flex-wrap items-center gap-3">
           <div className="relative basis-full sm:basis-auto sm:flex-1 min-w-0 sm:min-w-[240px]">
             <Search className="w-4 h-4 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
@@ -748,6 +786,8 @@ export function ShipmentTableView({
             </span>
           )}
         </div>
+          </>
+        )}
       </div>
 
       {/* Summary Kode Importir (Selalu tampil tanpa hidden di modul Semua Shipment) */}
@@ -765,9 +805,11 @@ export function ShipmentTableView({
                 <h3 className="text-sm font-bold text-[#0B2545] dark:text-white">
                   Summary Kode Importir
                 </h3>
-                <p className="text-xs text-slate-600 dark:text-slate-400">
-                  Rekap lengkap per Kode Importir tanpa kolom tersembunyi — klik baris untuk filter tabel barisan shipment di bawah.
-                </p>
+                {!importirCollapsed && (
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    Rekap lengkap per Kode Importir tanpa kolom tersembunyi — klik baris untuk filter tabel barisan shipment di bawah.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -788,10 +830,13 @@ export function ShipmentTableView({
                   <X className="w-3 h-3" />
                 </button>
               )}
+              <CardWindowToggleButton cardId="ship-importir-summary" label="Summary Kode Importir" />
             </div>
           </div>
 
-          {/* Desktop / Tablet Summary Table (semua kolom visible, tersusun rapih tanpa terpotong) */}
+          {!importirCollapsed && (
+            <>
+              {/* Desktop / Tablet Summary Table (semua kolom visible, tersusun rapih tanpa terpotong) */}
           <div className="hidden md:block overflow-x-auto">
             <table
               data-testid="importir-summary-table"
@@ -950,76 +995,95 @@ export function ShipmentTableView({
           >
             {importirSummary.items.map((item) => {
               const isActive = filterImportir === item.kodeImportir;
+              const mobImpCardId = `ship-mob-imp-${item.kodeImportir}`;
+              const mobImpCollapsed = isCollapsed(mobImpCardId);
               return (
-                <button
+                <div
                   key={item.kodeImportir}
-                  type="button"
-                  onClick={() => handleToggleImportirFilter(item.kodeImportir)}
-                  className={`w-full text-left rounded-xl border p-3 space-y-2 transition-colors cursor-pointer ${
+                  className={`rounded-xl border p-3 space-y-2 transition-colors ${
                     isActive
                       ? 'bg-orange-50 dark:bg-violet-500/15 border-[#F28C28] dark:border-violet-400'
                       : 'bg-slate-50/70 dark:bg-[#182032] border-slate-200 dark:border-white/10'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleImportirFilter(item.kodeImportir)}
+                      className="min-w-0 flex-1 text-left cursor-pointer"
+                    >
                       <span className="inline-block font-mono-code text-xs font-bold text-[#0B2545] dark:text-violet-300">
                         {item.kodeImportir}
                       </span>
-                      <div className="text-xs font-semibold text-slate-900 dark:text-white mt-0.5">
+                      <div className="text-xs font-semibold text-slate-900 dark:text-white mt-0.5 truncate">
                         {item.namaImportir}
                       </div>
-                    </div>
-                    <span className="px-2 py-0.5 rounded-md bg-white dark:bg-[#131926] border border-slate-200 dark:border-white/10 text-xs font-bold tabular-nums text-slate-900 dark:text-white shrink-0">
-                      {item.total} Dok
-                    </span>
-                  </div>
-
-                  <div className="text-[11px] text-slate-600 dark:text-slate-300">
-                    Customer:{' '}
-                    <span className="font-medium text-slate-800 dark:text-slate-100">
-                      {item.customerNames.length > 0 ? item.customerNames.join(', ') : '-'}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-1.5 text-[11px] tabular-nums">
-                    <div className="px-2 py-1 rounded bg-white dark:bg-[#131926] border border-slate-200/80 dark:border-white/10">
-                      Draft: <span className="font-bold text-amber-700 dark:text-amber-300">{item.draftCount}</span>
-                    </div>
-                    <div className="px-2 py-1 rounded bg-white dark:bg-[#131926] border border-slate-200/80 dark:border-white/10">
-                      Ready: <span className="font-bold text-emerald-700 dark:text-emerald-300">{item.readyCount}</span>
-                    </div>
-                    <div className="px-2 py-1 rounded bg-white dark:bg-[#131926] border border-slate-200/80 dark:border-white/10">
-                      OS: <span className="font-bold text-orange-700 dark:text-orange-300">{item.outstanding}</span>
-                    </div>
-                    <div className="px-2 py-1 rounded bg-white dark:bg-[#131926] border border-slate-200/80 dark:border-white/10">
-                      Selesai: <span className="font-bold text-sky-700 dark:text-sky-300">{item.completed}</span>
-                    </div>
-                    <div className="px-2 py-1 rounded bg-white dark:bg-[#131926] border border-slate-200/80 dark:border-white/10">
-                      SPPB: <span className="font-bold text-indigo-700 dark:text-indigo-300">{item.sppbCount}</span>
-                    </div>
-                    <div className="px-2 py-1 rounded bg-white dark:bg-[#131926] border border-slate-200/80 dark:border-white/10">
-                      Gate-Out: <span className="font-bold text-teal-700 dark:text-teal-300">{item.gateOutCount}</span>
+                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="px-2 py-0.5 rounded-md bg-white dark:bg-[#131926] border border-slate-200 dark:border-white/10 text-xs font-bold tabular-nums text-slate-900 dark:text-white">
+                        {item.total} Dok
+                      </span>
+                      <CardWindowToggleButton
+                        cardId={mobImpCardId}
+                        label={`Ringkasan ${item.kodeImportir}`}
+                        compact
+                      />
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap gap-1 text-[10px] font-semibold tabular-nums">
-                    <span>Jalur:</span>
-                    <span>H:{item.byJalur.Hijau || 0}</span>
-                    <span>·</span>
-                    <span>K:{item.byJalur.Kuning || 0}</span>
-                    <span>·</span>
-                    <span>M:{item.byJalur.Merah || 0}</span>
-                    <span>·</span>
-                    <span>MITA:{item.byJalur.MITA || 0}</span>
-                    <span>·</span>
-                    <span>Belum:{item.byJalur['Belum Ada'] || 0}</span>
-                  </div>
+                  {!mobImpCollapsed && (
+                    <button
+                      type="button"
+                      onClick={() => handleToggleImportirFilter(item.kodeImportir)}
+                      className="w-full text-left space-y-2 cursor-pointer"
+                    >
+                      <div className="text-[11px] text-slate-600 dark:text-slate-300">
+                        Customer:{' '}
+                        <span className="font-medium text-slate-800 dark:text-slate-100">
+                          {item.customerNames.length > 0 ? item.customerNames.join(', ') : '-'}
+                        </span>
+                      </div>
 
-                  <div className="text-[11px] font-mono-code font-semibold text-slate-800 dark:text-slate-100">
-                    Nilai BM/PDRI: {item.bmPdriTotal > 0 ? formatRupiah(item.bmPdriTotal) : '-'}
-                  </div>
-                </button>
+                      <div className="grid grid-cols-3 gap-1.5 text-[11px] tabular-nums">
+                        <div className="px-2 py-1 rounded bg-white dark:bg-[#131926] border border-slate-200/80 dark:border-white/10">
+                          Draft: <span className="font-bold text-amber-700 dark:text-amber-300">{item.draftCount}</span>
+                        </div>
+                        <div className="px-2 py-1 rounded bg-white dark:bg-[#131926] border border-slate-200/80 dark:border-white/10">
+                          Ready: <span className="font-bold text-emerald-700 dark:text-emerald-300">{item.readyCount}</span>
+                        </div>
+                        <div className="px-2 py-1 rounded bg-white dark:bg-[#131926] border border-slate-200/80 dark:border-white/10">
+                          OS: <span className="font-bold text-orange-700 dark:text-orange-300">{item.outstanding}</span>
+                        </div>
+                        <div className="px-2 py-1 rounded bg-white dark:bg-[#131926] border border-slate-200/80 dark:border-white/10">
+                          Selesai: <span className="font-bold text-sky-700 dark:text-sky-300">{item.completed}</span>
+                        </div>
+                        <div className="px-2 py-1 rounded bg-white dark:bg-[#131926] border border-slate-200/80 dark:border-white/10">
+                          SPPB: <span className="font-bold text-indigo-700 dark:text-indigo-300">{item.sppbCount}</span>
+                        </div>
+                        <div className="px-2 py-1 rounded bg-white dark:bg-[#131926] border border-slate-200/80 dark:border-white/10">
+                          Gate-Out: <span className="font-bold text-teal-700 dark:text-teal-300">{item.gateOutCount}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1 text-[10px] font-semibold tabular-nums">
+                        <span>Jalur:</span>
+                        <span>H:{item.byJalur.Hijau || 0}</span>
+                        <span>·</span>
+                        <span>K:{item.byJalur.Kuning || 0}</span>
+                        <span>·</span>
+                        <span>M:{item.byJalur.Merah || 0}</span>
+                        <span>·</span>
+                        <span>MITA:{item.byJalur.MITA || 0}</span>
+                        <span>·</span>
+                        <span>Belum:{item.byJalur['Belum Ada'] || 0}</span>
+                      </div>
+
+                      <div className="text-[11px] font-mono-code font-semibold text-slate-800 dark:text-slate-100">
+                        Nilai BM/PDRI: {item.bmPdriTotal > 0 ? formatRupiah(item.bmPdriTotal) : '-'}
+                      </div>
+                    </button>
+                  )}
+                </div>
               );
             })}
 
@@ -1042,6 +1106,8 @@ export function ShipmentTableView({
               </div>
             </div>
           </div>
+            </>
+          )}
         </section>
       )}
 
@@ -1104,12 +1170,18 @@ export function ShipmentTableView({
                     Menampilkan {filtered.length} dari {shipments.length} baris · Seluruh kolom operasional &amp; dokumen tersusun rapih tanpa kolom tersembunyi.
                   </p>
                 </div>
-                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                  Geser horizontal untuk melihat seluruh barisan kolom (Kode OS &amp; Aksi tetap menempel)
-                </span>
+                <div className="flex items-center gap-2">
+                  {!tableCollapsed && (
+                    <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                      Geser horizontal untuk melihat seluruh barisan kolom (Kode OS &amp; Aksi tetap menempel)
+                    </span>
+                  )}
+                  <CardWindowToggleButton cardId={tableCardId} label="Tabel Semua Shipment" />
+                </div>
               </div>
 
-              <div className="overflow-x-auto">
+              {!tableCollapsed && (
+                <div className="overflow-x-auto">
                 <table
                   data-testid="all-shipments-full-table"
                   className="w-max min-w-full text-left border-collapse text-[11px]"
@@ -1627,15 +1699,24 @@ export function ShipmentTableView({
                     })}
                   </tbody>
                 </table>
-              </div>
+                </div>
+              )}
             </div>
           ) : (
             /* MODE OUTSTANDING: Compact Operational Data Table */
-            <div className="hidden md:block bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] overflow-x-auto">
-              <table
-                data-testid="outstanding-shipments-table"
-                className="w-full text-left border-collapse text-[10.5px]"
-              >
+            <div className="hidden md:block bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-200 dark:border-white/[0.08] flex items-center justify-between gap-2 bg-slate-50/60 dark:bg-[#182032]/60 no-print">
+                <div className="text-xs font-bold text-[#0B2545] dark:text-white">
+                  Tabel Dokumen Outstanding ({filtered.length} baris)
+                </div>
+                <CardWindowToggleButton cardId={tableCardId} label="Tabel Outstanding" />
+              </div>
+              {!tableCollapsed && (
+                <div className="overflow-x-auto">
+                  <table
+                    data-testid="outstanding-shipments-table"
+                    className="w-full text-left border-collapse text-[10.5px]"
+                  >
                 <thead>
                   <tr className="bg-slate-50 dark:bg-[#182032] border-b border-slate-200 dark:border-white/[0.08] text-slate-700 dark:text-slate-300">
                     {outstandingColumns.map((col) => (
@@ -1782,6 +1863,8 @@ export function ShipmentTableView({
                   })}
                 </tbody>
               </table>
+                </div>
+              )}
             </div>
           )}
 
@@ -1794,6 +1877,8 @@ export function ShipmentTableView({
               const terimaProgress = formatChecklistProgress(s.terimaDok, checklistItems);
               const osProgress = formatChecklistProgress(s.dokumenOs, checklistItems);
               const osOutstanding = isShipmentOutstanding(s, checklistItems);
+              const mobCardId = `ship-mob-${mode}-${s.kodeOs}`;
+              const mobCollapsed = isCollapsed(mobCardId);
 
               return (
                 <div
@@ -1805,7 +1890,7 @@ export function ShipmentTableView({
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="font-mono-code text-xs font-bold text-[#0B2545] dark:text-violet-300">
                           {mode === 'all' ? `#${idx + 1} · ${s.kodeOs}` : s.kodeOs}
@@ -1816,18 +1901,23 @@ export function ShipmentTableView({
                           </span>
                         )}
                       </div>
-                      <div className="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
+                      <div className="text-sm font-semibold text-slate-900 dark:text-white mt-0.5 truncate">
                         {s.namaCustomer}
                       </div>
                     </div>
-                    <CountdownBadge days={s.countDownEta} />
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <CountdownBadge days={s.countDownEta} />
+                      <CardWindowToggleButton cardId={mobCardId} label={`Shipment ${s.kodeOs}`} compact />
+                    </div>
                   </div>
 
-                  {processSignal.active && (
-                    <div>
-                      <ProcessSignalBadge shipment={s} />
-                    </div>
-                  )}
+                  {!mobCollapsed && (
+                    <>
+                      {processSignal.active && (
+                        <div>
+                          <ProcessSignalBadge shipment={s} />
+                        </div>
+                      )}
 
                   {mode === 'all' ? (
                     <div className="text-xs text-slate-600 dark:text-slate-400 space-y-1.5">
@@ -1985,6 +2075,8 @@ export function ShipmentTableView({
                       </button>
                     )}
                   </div>
+                    </>
+                  )}
                 </div>
               );
             })}

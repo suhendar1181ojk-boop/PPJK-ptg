@@ -19,6 +19,8 @@ import {
   validateGasPinFormat,
   verifyGasDeployPin,
 } from '../utils/ppjkLogic';
+import { CardWindowToggleButton, ModuleCardBatchToggle } from './CardWindowControls';
+import { useCardCollapse } from '../contexts/CardCollapseContext';
 
 interface GasDeployViewProps {
   pengaturan: Pengaturan;
@@ -47,6 +49,8 @@ export function GasDeployView({ pengaturan, onSavePengaturan }: GasDeployViewPro
 
   const [activeFile, setActiveFile] = useState<'code' | 'index'>('code');
   const [copied, setCopied] = useState(false);
+  const { isCollapsed } = useCardCollapse();
+  const gasModuleCardIds = ['gas-unlocked-banner', 'gas-code-card', 'gas-guide-card'] as const;
 
   useEffect(() => {
     if (cooldownLeft <= 0) return;
@@ -184,24 +188,31 @@ export function GasDeployView({ pengaturan, onSavePengaturan }: GasDeployViewPro
         className="py-6 sm:py-10 flex items-center justify-center"
       >
         <div className="w-full max-w-md rounded-2xl border border-slate-200 dark:border-white/[0.08] bg-slate-50/70 dark:bg-[#161D2F] p-6 sm:p-7 space-y-5">
-          <div className="flex items-start gap-3">
-            <div className="w-11 h-11 rounded-xl bg-[#0B2545] dark:bg-gradient-to-br dark:from-[#7C3AED] dark:to-[#6366F1] text-white flex items-center justify-center shrink-0 shadow-md">
-              <Lock className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="text-[11px] font-bold uppercase tracking-wider text-[#F28C28] dark:text-violet-400">
-                Akses Terbatas Khusus Admin
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="w-11 h-11 rounded-xl bg-[#0B2545] dark:bg-gradient-to-br dark:from-[#7C3AED] dark:to-[#6366F1] text-white flex items-center justify-center shrink-0 shadow-md">
+                <Lock className="w-5 h-5" />
               </div>
-              <h3 className="text-base font-bold text-[#0B2545] dark:text-white mt-0.5">
-                PIN Khusus Kode GAS (Deploy)
-              </h3>
-              <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
-                Kode Google Apps Script (<span className="font-mono-code">Code.gs</span> &amp;{' '}
-                <span className="font-mono-code">Index.html</span>) dikunci agar tidak dapat dibuka sembarangan. Masukkan PIN khusus untuk membuka akses.
-              </p>
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-wider text-[#F28C28] dark:text-violet-400">
+                  Akses Terbatas Khusus Admin
+                </div>
+                <h3 className="text-base font-bold text-[#0B2545] dark:text-white mt-0.5">
+                  PIN Khusus Kode GAS (Deploy)
+                </h3>
+                {!isCollapsed('gas-pin-lock-card') && (
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
+                    Kode Google Apps Script (<span className="font-mono-code">Code.gs</span> &amp;{' '}
+                    <span className="font-mono-code">Index.html</span>) dikunci agar tidak dapat dibuka sembarangan. Masukkan PIN khusus untuk membuka akses.
+                  </p>
+                )}
+              </div>
             </div>
+            <CardWindowToggleButton cardId="gas-pin-lock-card" label="PIN Khusus Kode GAS" compact />
           </div>
 
+          {!isCollapsed('gas-pin-lock-card') && (
+            <>
           <form onSubmit={handleUnlockSubmit} className="space-y-4">
             <div>
               <label
@@ -279,6 +290,8 @@ export function GasDeployView({ pengaturan, onSavePengaturan }: GasDeployViewPro
               {hasCustomPin ? 'PIN Kustom' : 'PIN Standar'}
             </span>
           </div>
+            </>
+          )}
         </div>
       </div>
     );
@@ -286,6 +299,10 @@ export function GasDeployView({ pengaturan, onSavePengaturan }: GasDeployViewPro
 
   return (
     <div className="space-y-5" data-testid="gas-deploy-unlocked-panel">
+      <div className="flex items-center justify-end">
+        <ModuleCardBatchToggle cardIds={gasModuleCardIds} moduleName="Kode GAS" />
+      </div>
+
       {/* Security Control Header */}
       <div
         data-testid="gas-unlocked-banner"
@@ -300,9 +317,11 @@ export function GasDeployView({ pengaturan, onSavePengaturan }: GasDeployViewPro
               <div className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
                 Akses Kode GAS (Deploy) Terbuka
               </div>
-              <div className="text-[11px] text-emerald-800/85 dark:text-emerald-300/80">
-                Status keamanan: {hasCustomPin ? 'Menggunakan PIN Khusus Kustom' : 'Menggunakan PIN Standar Awal'} · Klik Kunci Kembali setelah selesai.
-              </div>
+              {!isCollapsed('gas-unlocked-banner') && (
+                <div className="text-[11px] text-emerald-800/85 dark:text-emerald-300/80">
+                  Status keamanan: {hasCustomPin ? 'Menggunakan PIN Khusus Kustom' : 'Menggunakan PIN Standar Awal'} · Klik Kunci Kembali setelah selesai.
+                </div>
+              )}
             </div>
           </div>
 
@@ -328,9 +347,12 @@ export function GasDeployView({ pengaturan, onSavePengaturan }: GasDeployViewPro
               <Lock className="w-3.5 h-3.5" />
               <span>Kunci Kembali</span>
             </button>
+            <CardWindowToggleButton cardId="gas-unlocked-banner" label="Kontrol Keamanan GAS" compact />
           </div>
         </div>
 
+        {!isCollapsed('gas-unlocked-banner') && (
+          <>
         {changePinSuccess && (
           <div
             data-testid="gas-pin-change-success"
@@ -418,6 +440,8 @@ export function GasDeployView({ pengaturan, onSavePengaturan }: GasDeployViewPro
             )}
           </form>
         )}
+          </>
+        )}
       </div>
 
       <div className="bg-slate-50/60 dark:bg-[#161D2F] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-5 space-y-4">
@@ -426,12 +450,14 @@ export function GasDeployView({ pengaturan, onSavePengaturan }: GasDeployViewPro
             <h2 className="text-base font-bold text-[#0B2545] dark:text-white">
               Kode Google Apps Script Siap Deploy (2 File)
             </h2>
-            <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-              Salin atau unduh langsung <span className="font-mono-code font-semibold text-slate-900 dark:text-violet-300">Code.gs</span> dan{' '}
-              <span className="font-mono-code font-semibold text-slate-900 dark:text-violet-300">Index.html</span> ke project Google Apps Script Anda.
-            </p>
+            {!isCollapsed('gas-code-card') && (
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                Salin atau unduh langsung <span className="font-mono-code font-semibold text-slate-900 dark:text-violet-300">Code.gs</span> dan{' '}
+                <span className="font-mono-code font-semibold text-slate-900 dark:text-violet-300">Index.html</span> ke project Google Apps Script Anda.
+              </p>
+            )}
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => handleDownload('Code.gs', codeGsRaw)}
@@ -448,9 +474,12 @@ export function GasDeployView({ pengaturan, onSavePengaturan }: GasDeployViewPro
               <Download className="w-3.5 h-3.5 text-[#F28C28] dark:text-emerald-400" />
               <span>Unduh Index.html</span>
             </button>
+            <CardWindowToggleButton cardId="gas-code-card" label="Kode Google Apps Script" />
           </div>
         </div>
 
+        {!isCollapsed('gas-code-card') && (
+          <>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-white/[0.08] pb-3">
           <div className="flex gap-2">
             <button
@@ -492,30 +521,37 @@ export function GasDeployView({ pengaturan, onSavePengaturan }: GasDeployViewPro
         <pre className="p-4 rounded-xl bg-[#0B2545] dark:bg-[#090C15] border border-transparent dark:border-white/[0.08] text-slate-100 text-xs font-mono-code overflow-x-auto max-h-[460px] leading-relaxed">
           <code>{currentContent}</code>
         </pre>
+          </>
+        )}
       </div>
 
       {/* Panduan Deploy GAS */}
       <div className="bg-slate-50/60 dark:bg-[#161D2F] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-5 space-y-3">
-        <h3 className="text-sm font-bold text-[#0B2545] dark:text-white">
-          Panduan Setup &amp; Deploy Google Apps Script
-        </h3>
-        <ol className="list-decimal list-inside space-y-2 text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-          <li>
-            Buat Google Spreadsheet baru, buka menu <strong>Extensions &gt; Apps Script</strong>.
-          </li>
-          <li>
-            Tempel isi <strong>Code.gs</strong> ke file <span className="font-mono-code">Code.gs</span>, lalu buat file HTML baru bernama <span className="font-mono-code">Index</span> (<span className="font-mono-code">Index.html</span>) dan tempel seluruh kodenya.
-          </li>
-          <li>
-            Pilih fungsi <strong>setup</strong> di toolbar editor Apps Script lalu klik <strong>Run</strong>. Berikan izin akses (<em>Review permissions &gt; Advanced &gt; Go to project</em>) untuk Google Sheets, Drive, dan MailApp. Fungsi ini otomatis membuat 10 sheet, folder Drive induk, dan user awal <span className="font-mono-code">admin / Admin123!</span>.
-          </li>
-          <li>
-            Jalankan fungsi <strong>installNotificationTrigger</strong> satu kali agar trigger email harian (pukul 07:30) aktif otomatis.
-          </li>
-          <li>
-            Klik <strong>Deploy &gt; New deployment &gt; Web app</strong>, atur <em>Execute as: Me</em> dan <em>Who has access: Anyone</em> (atau sesuai organisasi Google Workspace Anda), lalu klik <strong>Deploy</strong>.
-          </li>
-        </ol>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-bold text-[#0B2545] dark:text-white">
+            Panduan Setup &amp; Deploy Google Apps Script
+          </h3>
+          <CardWindowToggleButton cardId="gas-guide-card" label="Panduan Setup & Deploy GAS" />
+        </div>
+        {!isCollapsed('gas-guide-card') && (
+          <ol className="list-decimal list-inside space-y-2 text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+            <li>
+              Buat Google Spreadsheet baru, buka menu <strong>Extensions &gt; Apps Script</strong>.
+            </li>
+            <li>
+              Tempel isi <strong>Code.gs</strong> ke file <span className="font-mono-code">Code.gs</span>, lalu buat file HTML baru bernama <span className="font-mono-code">Index</span> (<span className="font-mono-code">Index.html</span>) dan tempel seluruh kodenya.
+            </li>
+            <li>
+              Pilih fungsi <strong>setup</strong> di toolbar editor Apps Script lalu klik <strong>Run</strong>. Berikan izin akses (<em>Review permissions &gt; Advanced &gt; Go to project</em>) untuk Google Sheets, Drive, dan MailApp. Fungsi ini otomatis membuat 10 sheet, folder Drive induk, dan user awal <span className="font-mono-code">admin / Admin123!</span>.
+            </li>
+            <li>
+              Jalankan fungsi <strong>installNotificationTrigger</strong> satu kali agar trigger email harian (pukul 07:30) aktif otomatis.
+            </li>
+            <li>
+              Klik <strong>Deploy &gt; New deployment &gt; Web app</strong>, atur <em>Execute as: Me</em> dan <em>Who has access: Anyone</em> (atau sesuai organisasi Google Workspace Anda), lalu klik <strong>Deploy</strong>.
+            </li>
+          </ol>
+        )}
       </div>
     </div>
   );

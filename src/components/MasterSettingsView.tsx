@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Swal from 'sweetalert2';
 import {
   CheckCircle2,
@@ -20,6 +20,8 @@ import { GasDeployView } from './GasDeployView';
 import { SpreadsheetDatabaseView } from './SpreadsheetDatabaseView';
 import { DatabaseBackupView } from './DatabaseBackupView';
 import { OfflineStorageSettingsCard } from './PWAStatusControls';
+import { CardWindowToggleButton, ModuleCardBatchToggle } from './CardWindowControls';
+import { useCardCollapse } from '../contexts/CardCollapseContext';
 import type { SpreadsheetDriveEntry } from '../services/googleSheetsService';
 import type { IndexedDbStatusSummary } from '../services/indexedDbService';
 import type { OfflineSyncTask } from '../utils/offlineDbLogic';
@@ -239,6 +241,41 @@ export function MasterSettingsView({
       setTab(initialTab);
     }
   }, [initialTab]);
+
+  const { isCollapsed } = useCardCollapse();
+  const masterTabCardIds = useMemo(() => {
+    switch (tab) {
+      case 'customer':
+        return ['master-customer-form', 'master-customer-list'];
+      case 'importir':
+        return ['master-importir-form', 'master-importir-list'];
+      case 'shipper':
+        return ['master-shipper-form', 'master-shipper-list'];
+      case 'users':
+        return [
+          'master-user-form',
+          'master-user-list',
+          ...users.map((u) => `master-user-item-${u.username}`),
+          'master-user-matrix',
+          'master-role-Owner',
+          'master-role-Admin',
+          'master-role-Checker',
+          'master-role-Drafter',
+          'master-role-Operasional',
+          'master-role-Manajer',
+        ];
+      case 'settings':
+        return [
+          'master-settings-drive',
+          'master-settings-notif',
+          'master-settings-billing',
+          'master-settings-offline',
+          'master-settings-reset',
+        ];
+      default:
+        return [];
+    }
+  }, [tab, users]);
 
   // Form states
   const [custForm, setCustForm] = useState<Customer>({
@@ -609,56 +646,64 @@ export function MasterSettingsView({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={() => setTab('customer')} className={tabBtnCls(tab === 'customer')}>
-          Master Customer ({customers.length})
-        </button>
-        <button type="button" onClick={() => setTab('importir')} className={tabBtnCls(tab === 'importir')}>
-          Master Importir ({importirs.length})
-        </button>
-        <button type="button" onClick={() => setTab('shipper')} className={tabBtnCls(tab === 'shipper')}>
-          Master Shipper ({shippers.length})
-        </button>
-        {isAdmin && (
-          <>
-            <button type="button" onClick={() => setTab('users')} className={tabBtnCls(tab === 'users')}>
-              Manajemen User ({users.length})
-            </button>
-            <button type="button" onClick={() => setTab('settings')} className={tabBtnCls(tab === 'settings')}>
-              Pengaturan Sistem
-            </button>
-          </>
-        )}
-        <button
-          type="button"
-          data-testid="tab-master-spreadsheet"
-          onClick={() => setTab('spreadsheet')}
-          className={`inline-flex items-center gap-1.5 ${tabBtnCls(tab === 'spreadsheet')}`}
-        >
-          <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
-          <span>Database Spreadsheet</span>
-        </button>
-        {isAdmin && (
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setTab('customer')} className={tabBtnCls(tab === 'customer')}>
+            Master Customer ({customers.length})
+          </button>
+          <button type="button" onClick={() => setTab('importir')} className={tabBtnCls(tab === 'importir')}>
+            Master Importir ({importirs.length})
+          </button>
+          <button type="button" onClick={() => setTab('shipper')} className={tabBtnCls(tab === 'shipper')}>
+            Master Shipper ({shippers.length})
+          </button>
+          {isAdmin && (
+            <>
+              <button type="button" onClick={() => setTab('users')} className={tabBtnCls(tab === 'users')}>
+                Manajemen User ({users.length})
+              </button>
+              <button type="button" onClick={() => setTab('settings')} className={tabBtnCls(tab === 'settings')}>
+                Pengaturan Sistem
+              </button>
+            </>
+          )}
           <button
             type="button"
-            data-testid="tab-master-backup"
-            onClick={() => setTab('backup')}
-            className={`inline-flex items-center gap-1.5 ${tabBtnCls(tab === 'backup')}`}
+            data-testid="tab-master-spreadsheet"
+            onClick={() => setTab('spreadsheet')}
+            className={`inline-flex items-center gap-1.5 ${tabBtnCls(tab === 'spreadsheet')}`}
           >
-            <Database className="w-3.5 h-3.5 text-[#F28C28] dark:text-violet-400" />
-            <span>Backup Database{localBackups.length > 0 ? ` (${localBackups.length})` : ''}</span>
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
+            <span>Database Spreadsheet</span>
           </button>
-        )}
-        {canViewGas && (
-          <button
-            type="button"
-            data-testid="tab-master-gas"
-            onClick={() => setTab('gas')}
-            className={`inline-flex items-center gap-1.5 ${tabBtnCls(tab === 'gas')}`}
-          >
-            <Lock className="w-3.5 h-3.5" />
-            <span>Kode GAS (Deploy)</span>
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              data-testid="tab-master-backup"
+              onClick={() => setTab('backup')}
+              className={`inline-flex items-center gap-1.5 ${tabBtnCls(tab === 'backup')}`}
+            >
+              <Database className="w-3.5 h-3.5 text-[#F28C28] dark:text-violet-400" />
+              <span>Backup Database{localBackups.length > 0 ? ` (${localBackups.length})` : ''}</span>
+            </button>
+          )}
+          {canViewGas && (
+            <button
+              type="button"
+              data-testid="tab-master-gas"
+              onClick={() => setTab('gas')}
+              className={`inline-flex items-center gap-1.5 ${tabBtnCls(tab === 'gas')}`}
+            >
+              <Lock className="w-3.5 h-3.5" />
+              <span>Kode GAS (Deploy)</span>
+            </button>
+          )}
+        </div>
+        {masterTabCardIds.length > 0 && (
+          <ModuleCardBatchToggle
+            cardIds={masterTabCardIds}
+            moduleName={`Master ${tab}`}
+          />
         )}
       </div>
 
@@ -671,153 +716,213 @@ export function MasterSettingsView({
       <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-5">
         {tab === 'customer' && (
           <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-[#0B2545] dark:text-white">Master Customer</h3>
-            <form onSubmit={handleCustSubmit} className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
-              <input
-                type="text"
-                placeholder="Kode (CUST-005)"
-                value={custForm.kodeCustomer}
-                onChange={(e) => setCustForm({ ...custForm, kodeCustomer: e.target.value })}
-                className={inputCls}
-                required
-              />
-              <input
-                type="text"
-                placeholder="Nama Customer"
-                value={custForm.namaCustomer}
-                onChange={(e) => setCustForm({ ...custForm, namaCustomer: e.target.value })}
-                className={`${inputCls} sm:col-span-2`}
-                required
-              />
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Kontak"
-                  value={custForm.kontak}
-                  onChange={(e) => setCustForm({ ...custForm, kontak: e.target.value })}
-                  className={`flex-1 ${inputCls}`}
-                />
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-lg bg-[#F28C28] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] text-white text-xs font-semibold cursor-pointer"
-                >
-                  Simpan
-                </button>
+            <div className="p-4 rounded-xl bg-slate-50/70 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08] space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-[#0B2545] dark:text-white">
+                  Tambah / Ubah Master Customer
+                </h3>
+                <CardWindowToggleButton cardId="master-customer-form" label="Form Master Customer" />
               </div>
-            </form>
-            <div className="divide-y divide-slate-100 dark:divide-white/[0.06]">
-              {customers.map((c) => (
-                <div key={c.kodeCustomer} className="py-2.5 flex items-center justify-between text-xs">
-                  <div>
-                    <span className="font-mono-code font-semibold text-[#0B2545] dark:text-violet-300">{c.kodeCustomer}</span>{' '}
-                    — <span className="font-medium text-slate-900 dark:text-white">{c.namaCustomer}</span>{' '}
-                    <span className="text-slate-500 dark:text-slate-400">({c.kontak || '-'})</span>
+              {!isCollapsed('master-customer-form') && (
+                <form onSubmit={handleCustSubmit} className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+                  <input
+                    type="text"
+                    placeholder="Kode (CUST-005)"
+                    value={custForm.kodeCustomer}
+                    onChange={(e) => setCustForm({ ...custForm, kodeCustomer: e.target.value })}
+                    className={inputCls}
+                    required
+                  />
+                  <input
+                    type="text"
+                    placeholder="Nama Customer"
+                    value={custForm.namaCustomer}
+                    onChange={(e) => setCustForm({ ...custForm, namaCustomer: e.target.value })}
+                    className={`${inputCls} sm:col-span-2`}
+                    required
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Kontak"
+                      value={custForm.kontak}
+                      onChange={(e) => setCustForm({ ...custForm, kontak: e.target.value })}
+                      className={`flex-1 ${inputCls}`}
+                    />
+                    <button
+                      type="submit"
+                      className="px-4 py-2 rounded-lg bg-[#F28C28] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] text-white text-xs font-semibold cursor-pointer"
+                    >
+                      Simpan
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => onDeleteCustomer(c.kodeCustomer)}
-                    aria-label={`Hapus customer ${c.kodeCustomer}`}
-                    className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15 rounded cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                </form>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-slate-200 dark:border-white/[0.08] overflow-hidden">
+              <div className="px-4 py-3 bg-slate-50/80 dark:bg-[#161D2F] border-b border-slate-200 dark:border-white/[0.08] flex items-center justify-between gap-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[#0B2545] dark:text-violet-300">
+                  Daftar Master Customer ({customers.length})
+                </h3>
+                <CardWindowToggleButton cardId="master-customer-list" label="Daftar Master Customer" />
+              </div>
+              {!isCollapsed('master-customer-list') && (
+                <div className="divide-y divide-slate-100 dark:divide-white/[0.06] px-4">
+                  {customers.map((c) => (
+                    <div key={c.kodeCustomer} className="py-2.5 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="font-mono-code font-semibold text-[#0B2545] dark:text-violet-300">{c.kodeCustomer}</span>{' '}
+                        — <span className="font-medium text-slate-900 dark:text-white">{c.namaCustomer}</span>{' '}
+                        <span className="text-slate-500 dark:text-slate-400">({c.kontak || '-'})</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteCustomer(c.kodeCustomer)}
+                        aria-label={`Hapus customer ${c.kodeCustomer}`}
+                        className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15 rounded cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
           </div>
         )}
 
         {tab === 'importir' && (
           <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-[#0B2545] dark:text-white">Master Importir</h3>
-            <form onSubmit={handleImpSubmit} className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              <input
-                type="text"
-                placeholder="Kode Importir"
-                value={impForm.kodeImportir}
-                onChange={(e) => setImpForm({ ...impForm, kodeImportir: e.target.value })}
-                className={inputCls}
-                required
-              />
-              <input
-                type="text"
-                placeholder="Nama Importir"
-                value={impForm.namaImportir}
-                onChange={(e) => setImpForm({ ...impForm, namaImportir: e.target.value })}
-                className={inputCls}
-                required
-              />
-              <button
-                type="submit"
-                className="px-4 py-2 rounded-lg bg-[#F28C28] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] text-white text-xs font-semibold cursor-pointer"
-              >
-                Simpan Importir
-              </button>
-            </form>
-            <div className="divide-y divide-slate-100 dark:divide-white/[0.06]">
-              {importirs.map((i) => (
-                <div key={i.kodeImportir} className="py-2.5 flex items-center justify-between text-xs">
-                  <div>
-                    <span className="font-mono-code font-semibold text-[#0B2545] dark:text-violet-300">{i.kodeImportir}</span>{' '}
-                    — <span className="text-slate-900 dark:text-white">{i.namaImportir}</span>
-                  </div>
+            <div className="p-4 rounded-xl bg-slate-50/70 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08] space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-[#0B2545] dark:text-white">
+                  Tambah / Ubah Master Importir
+                </h3>
+                <CardWindowToggleButton cardId="master-importir-form" label="Form Master Importir" />
+              </div>
+              {!isCollapsed('master-importir-form') && (
+                <form onSubmit={handleImpSubmit} className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <input
+                    type="text"
+                    placeholder="Kode Importir"
+                    value={impForm.kodeImportir}
+                    onChange={(e) => setImpForm({ ...impForm, kodeImportir: e.target.value })}
+                    className={inputCls}
+                    required
+                  />
+                  <input
+                    type="text"
+                    placeholder="Nama Importir"
+                    value={impForm.namaImportir}
+                    onChange={(e) => setImpForm({ ...impForm, namaImportir: e.target.value })}
+                    className={inputCls}
+                    required
+                  />
                   <button
-                    type="button"
-                    onClick={() => onDeleteImportir(i.kodeImportir)}
-                    aria-label={`Hapus importir ${i.kodeImportir}`}
-                    className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15 rounded cursor-pointer"
+                    type="submit"
+                    className="px-4 py-2 rounded-lg bg-[#F28C28] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] text-white text-xs font-semibold cursor-pointer"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    Simpan Importir
                   </button>
+                </form>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-slate-200 dark:border-white/[0.08] overflow-hidden">
+              <div className="px-4 py-3 bg-slate-50/80 dark:bg-[#161D2F] border-b border-slate-200 dark:border-white/[0.08] flex items-center justify-between gap-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[#0B2545] dark:text-violet-300">
+                  Daftar Master Importir ({importirs.length})
+                </h3>
+                <CardWindowToggleButton cardId="master-importir-list" label="Daftar Master Importir" />
+              </div>
+              {!isCollapsed('master-importir-list') && (
+                <div className="divide-y divide-slate-100 dark:divide-white/[0.06] px-4">
+                  {importirs.map((i) => (
+                    <div key={i.kodeImportir} className="py-2.5 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="font-mono-code font-semibold text-[#0B2545] dark:text-violet-300">{i.kodeImportir}</span>{' '}
+                        — <span className="text-slate-900 dark:text-white">{i.namaImportir}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteImportir(i.kodeImportir)}
+                        aria-label={`Hapus importir ${i.kodeImportir}`}
+                        className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15 rounded cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
           </div>
         )}
 
         {tab === 'shipper' && (
           <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-[#0B2545] dark:text-white">Master Shipper</h3>
-            <form onSubmit={handleShipSubmit} className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              <input
-                type="text"
-                placeholder="Nama Shipper"
-                value={shipForm.namaShipper}
-                onChange={(e) => setShipForm({ ...shipForm, namaShipper: e.target.value })}
-                className={inputCls}
-                required
-              />
-              <input
-                type="text"
-                placeholder="Negara"
-                value={shipForm.negara}
-                onChange={(e) => setShipForm({ ...shipForm, negara: e.target.value })}
-                className={inputCls}
-              />
-              <button
-                type="submit"
-                className="px-4 py-2 rounded-lg bg-[#F28C28] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] text-white text-xs font-semibold cursor-pointer"
-              >
-                Simpan Shipper
-              </button>
-            </form>
-            <div className="divide-y divide-slate-100 dark:divide-white/[0.06]">
-              {shippers.map((sh) => (
-                <div key={sh.namaShipper} className="py-2.5 flex items-center justify-between text-xs">
-                  <div>
-                    <span className="font-semibold text-slate-900 dark:text-white">{sh.namaShipper}</span>{' '}
-                    <span className="text-slate-500 dark:text-slate-400">({sh.negara || '-'})</span>
-                  </div>
+            <div className="p-4 rounded-xl bg-slate-50/70 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08] space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-[#0B2545] dark:text-white">
+                  Tambah / Ubah Master Shipper
+                </h3>
+                <CardWindowToggleButton cardId="master-shipper-form" label="Form Master Shipper" />
+              </div>
+              {!isCollapsed('master-shipper-form') && (
+                <form onSubmit={handleShipSubmit} className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <input
+                    type="text"
+                    placeholder="Nama Shipper"
+                    value={shipForm.namaShipper}
+                    onChange={(e) => setShipForm({ ...shipForm, namaShipper: e.target.value })}
+                    className={inputCls}
+                    required
+                  />
+                  <input
+                    type="text"
+                    placeholder="Negara"
+                    value={shipForm.negara}
+                    onChange={(e) => setShipForm({ ...shipForm, negara: e.target.value })}
+                    className={inputCls}
+                  />
                   <button
-                    type="button"
-                    onClick={() => onDeleteShipper(sh.namaShipper)}
-                    aria-label={`Hapus shipper ${sh.namaShipper}`}
-                    className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15 rounded cursor-pointer"
+                    type="submit"
+                    className="px-4 py-2 rounded-lg bg-[#F28C28] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] text-white text-xs font-semibold cursor-pointer"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    Simpan Shipper
                   </button>
+                </form>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-slate-200 dark:border-white/[0.08] overflow-hidden">
+              <div className="px-4 py-3 bg-slate-50/80 dark:bg-[#161D2F] border-b border-slate-200 dark:border-white/[0.08] flex items-center justify-between gap-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[#0B2545] dark:text-violet-300">
+                  Daftar Master Shipper ({shippers.length})
+                </h3>
+                <CardWindowToggleButton cardId="master-shipper-list" label="Daftar Master Shipper" />
+              </div>
+              {!isCollapsed('master-shipper-list') && (
+                <div className="divide-y divide-slate-100 dark:divide-white/[0.06] px-4">
+                  {shippers.map((sh) => (
+                    <div key={sh.namaShipper} className="py-2.5 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="font-semibold text-slate-900 dark:text-white">{sh.namaShipper}</span>{' '}
+                        <span className="text-slate-500 dark:text-slate-400">({sh.negara || '-'})</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteShipper(sh.namaShipper)}
+                        aria-label={`Hapus shipper ${sh.namaShipper}`}
+                        className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15 rounded cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
           </div>
         )}
@@ -857,6 +962,14 @@ export function MasterSettingsView({
             </div>
 
             <form onSubmit={handleUserSubmit} className="space-y-3 p-4 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08]">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-[#0B2545] dark:text-white">
+                  {editingUsername ? `Edit Akun User (${editingUsername})` : 'Form Tambah User Baru'}
+                </span>
+                <CardWindowToggleButton cardId="master-user-form" label="Form Tambah/Edit User" />
+              </div>
+              {!isCollapsed('master-user-form') && (
+                <>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
                 <input
                   type="text"
@@ -1008,10 +1121,20 @@ export function MasterSettingsView({
                   {userError}
                 </div>
               )}
+                </>
+              )}
             </form>
 
             {/* Daftar User + Toggle Manual Fase Edit per User */}
-            <div className="divide-y divide-slate-200 dark:divide-white/[0.08] border border-slate-200 dark:border-white/[0.08] rounded-xl overflow-hidden">
+            <div className="border border-slate-200 dark:border-white/[0.08] rounded-xl overflow-hidden">
+              <div className="px-4 py-3 bg-slate-50/80 dark:bg-[#161D2F] border-b border-slate-200 dark:border-white/[0.08] flex items-center justify-between gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-[#0B2545] dark:text-violet-300">
+                  Daftar Akun User ({users.length})
+                </span>
+                <CardWindowToggleButton cardId="master-user-list" label="Daftar Akun User" />
+              </div>
+              {!isCollapsed('master-user-list') && (
+                <div className="divide-y divide-slate-200 dark:divide-white/[0.08]">
               {users.map((u) => {
                 const isSelf = u.username.toLowerCase() === currentUsername.toLowerCase();
                 const isProtectedOwner = u.role === 'Owner' && !isOwner;
@@ -1099,10 +1222,16 @@ export function MasterSettingsView({
                             </button>
                           </>
                         )}
+                        <CardWindowToggleButton
+                          cardId={`master-user-item-${u.username}`}
+                          label={`Kartu User ${u.username}`}
+                          compact
+                        />
                       </div>
                     </div>
 
                     {/* Panel Toggle Fase Edit Manual per User */}
+                    {!isCollapsed(`master-user-item-${u.username}`) && (
                     <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-[#161D2F] border border-slate-200/80 dark:border-white/[0.06] space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
@@ -1172,34 +1301,51 @@ export function MasterSettingsView({
                         })}
                       </div>
                     </div>
+                    )}
                   </div>
                 );
               })}
+                </div>
+              )}
             </div>
 
             {/* Ringkasan Batasan Peran Aplikasi */}
-            <div className="space-y-2.5">
-              <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#0B2545] dark:text-violet-300">
-                <ShieldCheck className="w-4 h-4 text-[#F28C28] dark:text-violet-400" />
-                <span>Matriks Batasan Pengguna Aplikasi</span>
+            <div className="p-4 rounded-xl border border-slate-200 dark:border-white/[0.08] bg-slate-50/40 dark:bg-[#161D2F]/60 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#0B2545] dark:text-violet-300">
+                  <ShieldCheck className="w-4 h-4 text-[#F28C28] dark:text-violet-400" />
+                  <span>Matriks Batasan Pengguna Aplikasi</span>
+                </div>
+                <CardWindowToggleButton cardId="master-user-matrix" label="Matriks Batasan Pengguna" />
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {(['Owner', 'Admin', 'Checker', 'Drafter', 'Operasional', 'Manajer'] as const).map((roleKey) => {
-                  const info = ROLE_LIMITS_INFO[roleKey];
-                  return (
-                    <div
-                      key={roleKey}
-                      className="p-3.5 rounded-xl border border-slate-200 dark:border-white/[0.07] bg-slate-50/70 dark:bg-[#161D2F] space-y-1.5"
-                    >
-                      <div className="text-xs font-bold text-[#0B2545] dark:text-white">{info.title}</div>
-                      <p className="text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed">{info.summary}</p>
-                      <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
-                        <strong>Batasan:</strong> {info.restrictions}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
+              {!isCollapsed('master-user-matrix') && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
+                  {(['Owner', 'Admin', 'Checker', 'Drafter', 'Operasional', 'Manajer'] as const).map((roleKey) => {
+                    const info = ROLE_LIMITS_INFO[roleKey];
+                    const roleCardId = `master-role-${roleKey}`;
+                    const roleCollapsed = isCollapsed(roleCardId);
+                    return (
+                      <div
+                        key={roleKey}
+                        className="p-3.5 rounded-xl border border-slate-200 dark:border-white/[0.07] bg-slate-50/70 dark:bg-[#161D2F] space-y-1.5"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-xs font-bold text-[#0B2545] dark:text-white">{info.title}</div>
+                          <CardWindowToggleButton cardId={roleCardId} label={`Peran ${roleKey}`} compact />
+                        </div>
+                        {!roleCollapsed && (
+                          <>
+                            <p className="text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed">{info.summary}</p>
+                            <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
+                              <strong>Batasan:</strong> {info.restrictions}
+                            </p>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1234,24 +1380,31 @@ export function MasterSettingsView({
                             Tujuan Upload Google Drive &amp; Akun Gmail Terdaftar
                           </h4>
                         </div>
-                        <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
-                          Seluruh file scan shipment dan bukti pengeluaran operasional akan disimpan otomatis ke dalam folder Google Drive akun Gmail di bawah ini (mendukung Login Google OAuth maupun otomatis via Endpoint GAS Web App).
-                        </p>
+                        {!isCollapsed('master-settings-drive') && (
+                          <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                            Seluruh file scan shipment dan bukti pengeluaran operasional akan disimpan otomatis ke dalam folder Google Drive akun Gmail di bawah ini (mendukung Login Google OAuth maupun otomatis via Endpoint GAS Web App).
+                          </p>
+                        )}
                       </div>
-                      {previewFolderUrl && (
-                        <a
-                          href={previewFolderUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          data-testid="link-open-drive-folder"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-[#182032] border border-emerald-300 dark:border-emerald-500/40 text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 shrink-0"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                          <span>Buka Folder Google Drive</span>
-                        </a>
-                      )}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {previewFolderUrl && (
+                          <a
+                            href={previewFolderUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            data-testid="link-open-drive-folder"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-[#182032] border border-emerald-300 dark:border-emerald-500/40 text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 shrink-0"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>Buka Folder Google Drive</span>
+                          </a>
+                        )}
+                        <CardWindowToggleButton cardId="master-settings-drive" label="Tujuan Upload Google Drive" />
+                      </div>
                     </div>
 
+                    {!isCollapsed('master-settings-drive') && (
+                      <>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                       <div>
                         <label
@@ -1370,56 +1523,75 @@ export function MasterSettingsView({
                         {driveActionErr}
                       </div>
                     )}
+                      </>
+                    )}
                   </div>
                 );
               })()}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Email Penerima Notifikasi Harian (pisahkan koma)
-                  </label>
-                  <input
-                    type="text"
-                    value={emailsText}
-                    onChange={(e) => setEmailsText(e.target.value)}
-                    className={`w-full ${inputCls}`}
-                  />
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08] space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-xs font-bold text-[#0B2545] dark:text-violet-300 uppercase tracking-wide">
+                    Notifikasi Harian, Daftar Status &amp; Checklist Dokumen
+                  </h4>
+                  <CardWindowToggleButton cardId="master-settings-notif" label="Notifikasi & Status Dokumen" />
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Daftar Status Shipment (pisahkan koma)
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={statusText}
-                    onChange={(e) => setStatusText(e.target.value)}
-                    className={`w-full ${inputCls}`}
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Item Checklist Dokumen (pisahkan koma)
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={checklistText}
-                    onChange={(e) => setChecklistText(e.target.value)}
-                    className={`w-full ${inputCls}`}
-                  />
-                </div>
+                {!isCollapsed('master-settings-notif') && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        Email Penerima Notifikasi Harian (pisahkan koma)
+                      </label>
+                      <input
+                        type="text"
+                        value={emailsText}
+                        onChange={(e) => setEmailsText(e.target.value)}
+                        className={`w-full ${inputCls}`}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        Daftar Status Shipment (pisahkan koma)
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={statusText}
+                        onChange={(e) => setStatusText(e.target.value)}
+                        className={`w-full ${inputCls}`}
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        Item Checklist Dokumen (pisahkan koma)
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={checklistText}
+                        onChange={(e) => setChecklistText(e.target.value)}
+                        className={`w-full ${inputCls}`}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08] space-y-3">
-                <div>
-                  <h4 className="text-xs font-bold text-[#0B2545] dark:text-violet-300 uppercase tracking-wide">
-                    Kontak Owner, Admin &amp; Rekening Penagihan Customer
-                  </h4>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                    Digunakan sebagai tujuan otomatis pesan WhatsApp / Email Owner saat dokumen berstatus SPPB Terbit atau Gate-Out, serta penandatangan Surat Penagihan Admin.
-                  </p>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h4 className="text-xs font-bold text-[#0B2545] dark:text-violet-300 uppercase tracking-wide">
+                      Kontak Owner, Admin &amp; Rekening Penagihan Customer
+                    </h4>
+                    {!isCollapsed('master-settings-billing') && (
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        Digunakan sebagai tujuan otomatis pesan WhatsApp / Email Owner saat dokumen berstatus SPPB Terbit atau Gate-Out, serta penandatangan Surat Penagihan Admin.
+                      </p>
+                    )}
+                  </div>
+                  <CardWindowToggleButton cardId="master-settings-billing" label="Kontak & Rekening Penagihan" />
                 </div>
 
+                {!isCollapsed('master-settings-billing') && (
+                  <>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
                     <label
@@ -1531,6 +1703,8 @@ export function MasterSettingsView({
                     className={`w-full ${inputCls}`}
                   />
                 </div>
+                  </>
+                )}
               </div>
 
               <button
@@ -1552,31 +1726,38 @@ export function MasterSettingsView({
               onClearOfflineQueue={onClearOfflineQueue}
             />
 
-            <div className="pt-4 border-t border-slate-200 dark:border-white/[0.08] flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="text-xs font-semibold text-slate-800 dark:text-white">
-                  Reset Data Simulasi Lokal
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08] space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold text-slate-800 dark:text-white">
+                    Reset Data Simulasi Lokal
+                  </div>
+                  {!isCollapsed('master-settings-reset') && (
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Mulai dari nol tanpa data contoh atau muat ulang data simulasi PTG.
+                    </div>
+                  )}
                 </div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Mulai dari nol tanpa data contoh atau muat ulang data simulasi PTG.
+                <CardWindowToggleButton cardId="master-settings-reset" label="Reset Data Simulasi Lokal" />
+              </div>
+              {!isCollapsed('master-settings-reset') && (
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onResetDatabase('empty')}
+                    className="px-3.5 py-2 rounded-lg border border-red-200 dark:border-red-500/35 bg-red-50 dark:bg-red-500/15 hover:bg-red-100 dark:hover:bg-red-500/25 text-xs font-semibold text-red-700 dark:text-red-300 cursor-pointer"
+                  >
+                    Kosongkan Data (Mulai dari Nol)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onResetDatabase('seed')}
+                    className="px-3.5 py-2 rounded-lg bg-slate-200 dark:bg-white/10 hover:bg-slate-300 dark:hover:bg-white/15 text-xs font-semibold text-slate-800 dark:text-white cursor-pointer"
+                  >
+                    Muat Data Contoh
+                  </button>
                 </div>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => onResetDatabase('empty')}
-                  className="px-3.5 py-2 rounded-lg border border-red-200 dark:border-red-500/35 bg-red-50 dark:bg-red-500/15 hover:bg-red-100 dark:hover:bg-red-500/25 text-xs font-semibold text-red-700 dark:text-red-300 cursor-pointer"
-                >
-                  Kosongkan Data (Mulai dari Nol)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onResetDatabase('seed')}
-                  className="px-3.5 py-2 rounded-lg bg-slate-200 dark:bg-white/10 hover:bg-slate-300 dark:hover:bg-white/15 text-xs font-semibold text-slate-800 dark:text-white cursor-pointer"
-                >
-                  Muat Data Contoh
-                </button>
-              </div>
+              )}
             </div>
           </div>
         )}

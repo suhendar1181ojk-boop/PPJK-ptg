@@ -45,6 +45,8 @@ import {
   prepareBrandingImageDataUrl,
   resolveUserPhasePermissions,
 } from '../utils/ppjkLogic';
+import { CardWindowToggleButton, ModuleCardBatchToggle } from './CardWindowControls';
+import { useCardCollapse } from '../contexts/CardCollapseContext';
 
 interface SetupAppViewProps {
   pengaturan: Pengaturan;
@@ -162,6 +164,20 @@ export function SetupAppView({
 
   const totalActiveUsers = users.filter((u) => u.aktif).length;
   const totalCustomModuleUsers = monitoringRows.filter((r) => r.hasCustomModuleOverrides).length;
+  const { isCollapsed } = useCardCollapse();
+  const setupModuleCardIds = useMemo(() => {
+    const ids = ['setup-role-banner'];
+    if (tab === 'identity') {
+      ids.push('setup-identity-card', 'setup-logo-card', 'setup-kop-card', 'setup-preview-card');
+    } else {
+      ids.push(
+        'setup-role-matrix-card',
+        'setup-user-monitor-card',
+        ...filteredMonitoringRows.map((row) => `setup-monitor-user-${row.user.username}`)
+      );
+    }
+    return ids;
+  }, [tab, filteredMonitoringRows]);
 
   const handleSaveIdentity = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -461,15 +477,17 @@ export function SetupAppView({
                 {userRole}
               </span>
             </div>
-            <p
-              className={`text-xs mt-1 ${
-                isOwner ? 'text-white/80' : 'text-amber-800/90 dark:text-amber-200/80'
-              }`}
-            >
-              {isOwner
-                ? 'Anda memiliki kendali penuh untuk mengatur identitas aplikasi PPJK, mengaktifkan/menonaktifkan setiap modul terhadap peran atau user individual, serta memantau aktivitas pengguna.'
-                : 'Hanya akun dengan peran Owner (Super Admin) yang dapat mengubah toggle kontrol modul aplikasi atau memodifikasi batasan pengguna.'}
-            </p>
+            {!isCollapsed('setup-role-banner') && (
+              <p
+                className={`text-xs mt-1 ${
+                  isOwner ? 'text-white/80' : 'text-amber-800/90 dark:text-amber-200/80'
+                }`}
+              >
+                {isOwner
+                  ? 'Anda memiliki kendali penuh untuk mengatur identitas aplikasi PPJK, mengaktifkan/menonaktifkan setiap modul terhadap peran atau user individual, serta memantau aktivitas pengguna.'
+                  : 'Hanya akun dengan peran Owner (Super Admin) yang dapat mengubah toggle kontrol modul aplikasi atau memodifikasi batasan pengguna.'}
+              </p>
+            )}
           </div>
         </div>
 
@@ -492,29 +510,42 @@ export function SetupAppView({
           >
             {APP_MODULE_META.length} Modul Terkontrol
           </span>
+          <CardWindowToggleButton
+            cardId="setup-role-banner"
+            label="Status Super Admin"
+            compact
+            className={
+              isOwner
+                ? '!bg-white/15 !border-white/25 !text-white hover:!bg-white/25'
+                : ''
+            }
+          />
         </div>
       </div>
 
       {/* Section Tabs */}
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          data-testid="setup-tab-control"
-          onClick={() => setTab('control')}
-          className={tabBtnCls(tab === 'control')}
-        >
-          <SlidersHorizontal className="w-4 h-4" />
-          <span>Kontrol Modul &amp; Pantau User</span>
-        </button>
-        <button
-          type="button"
-          data-testid="setup-tab-identity"
-          onClick={() => setTab('identity')}
-          className={tabBtnCls(tab === 'identity')}
-        >
-          <Building2 className="w-4 h-4" />
-          <span>Setup Identitas PPJK</span>
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            data-testid="setup-tab-control"
+            onClick={() => setTab('control')}
+            className={tabBtnCls(tab === 'control')}
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+            <span>Kontrol Modul &amp; Pantau User</span>
+          </button>
+          <button
+            type="button"
+            data-testid="setup-tab-identity"
+            onClick={() => setTab('identity')}
+            className={tabBtnCls(tab === 'identity')}
+          >
+            <Building2 className="w-4 h-4" />
+            <span>Setup Identitas PPJK</span>
+          </button>
+        </div>
+        <ModuleCardBatchToggle cardIds={setupModuleCardIds} moduleName="Setup & Kontrol" />
       </div>
 
       {feedback && (
@@ -547,20 +578,30 @@ export function SetupAppView({
                 <h3 className="text-sm font-bold text-[#0B2545] dark:text-white">
                   Identitas Aplikasi &amp; Profil Perusahaan PPJK
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Nama PPJK, badan hukum, NPWP/izin, dan kontak akan tampil otomatis di Sidebar, Header, Halaman Login, pesan WA/Email, Surat Jalan, dan PDF Penagihan.
-                </p>
+                {!isCollapsed('setup-identity-card') && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Nama PPJK, badan hukum, NPWP/izin, dan kontak akan tampil otomatis di Sidebar, Header, Halaman Login, pesan WA/Email, Surat Jalan, dan PDF Penagihan.
+                  </p>
+                )}
               </div>
-              <button
-                type="button"
-                onClick={handleResetIdentity}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.05] cursor-pointer shrink-0"
-              >
-                <RotateCcw className="w-3.5 h-3.5 shrink-0" />
-                <span>Default</span>
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleResetIdentity}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.05] cursor-pointer shrink-0"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                  <span>Default</span>
+                </button>
+                <CardWindowToggleButton
+                  cardId="setup-identity-card"
+                  label="Identitas Aplikasi PPJK"
+                />
+              </div>
             </div>
 
+            {!isCollapsed('setup-identity-card') && (
+              <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label
@@ -729,7 +770,7 @@ export function SetupAppView({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 items-start">
                   {/* Card 1: Upload Logo PT */}
                   <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08] space-y-3">
                     <div className="flex items-start justify-between gap-2">
@@ -741,22 +782,26 @@ export function SetupAppView({
                           Tampil di Sidebar, Login &amp; ikon kop PDF
                         </div>
                       </div>
-                      {ppjkLogoDataUrl && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPpjkLogoDataUrl('');
-                            setPpjkLogoFileName('');
-                          }}
-                          aria-label="Hapus Logo PT"
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15 cursor-pointer"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          <span>Hapus</span>
-                        </button>
-                      )}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {ppjkLogoDataUrl && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPpjkLogoDataUrl('');
+                              setPpjkLogoFileName('');
+                            }}
+                            aria-label="Hapus Logo PT"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15 cursor-pointer"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Hapus</span>
+                          </button>
+                        )}
+                        <CardWindowToggleButton cardId="setup-logo-card" label="Logo PT PPJK" compact />
+                      </div>
                     </div>
 
+                    {!isCollapsed('setup-logo-card') && (
                     <div className="flex items-center gap-3">
                       <div className="w-16 h-16 rounded-xl bg-white dark:bg-[#0D111C] border border-dashed border-slate-300 dark:border-white/15 flex items-center justify-center overflow-hidden shrink-0 p-1.5">
                         {ppjkLogoDataUrl ? (
@@ -797,6 +842,7 @@ export function SetupAppView({
                         </div>
                       </div>
                     </div>
+                    )}
                   </div>
 
                   {/* Card 2: Upload Kop Surat PPJK */}
@@ -810,22 +856,26 @@ export function SetupAppView({
                           Dipakai di cetak KDI, Surat Jalan, Penagihan &amp; Tanda Terima
                         </div>
                       </div>
-                      {ppjkKopSuratDataUrl && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPpjkKopSuratDataUrl('');
-                            setPpjkKopSuratFileName('');
-                          }}
-                          aria-label="Hapus Kop Surat PPJK"
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15 cursor-pointer"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          <span>Hapus</span>
-                        </button>
-                      )}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {ppjkKopSuratDataUrl && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPpjkKopSuratDataUrl('');
+                              setPpjkKopSuratFileName('');
+                            }}
+                            aria-label="Hapus Kop Surat PPJK"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15 cursor-pointer"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Hapus</span>
+                          </button>
+                        )}
+                        <CardWindowToggleButton cardId="setup-kop-card" label="Kop Surat PPJK" compact />
+                      </div>
                     </div>
 
+                    {!isCollapsed('setup-kop-card') && (
                     <div className="space-y-2">
                       <div className="w-full h-16 rounded-xl bg-white dark:bg-[#0D111C] border border-dashed border-slate-300 dark:border-white/15 flex items-center justify-center overflow-hidden p-1.5">
                         {ppjkKopSuratDataUrl ? (
@@ -869,6 +919,7 @@ export function SetupAppView({
                         </div>
                       </div>
                     </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -885,14 +936,25 @@ export function SetupAppView({
                 <span>{savingIdentity ? 'Menyimpan...' : 'Simpan Identitas PPJK'}</span>
               </button>
             </div>
+              </>
+            )}
           </form>
 
           {/* Live Kop & Branding Preview */}
           <div className="xl:col-span-5 space-y-4">
             <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-5 space-y-4">
-              <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                Pratinjau Langsung Kop &amp; Branding Aplikasi
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Pratinjau Langsung Kop &amp; Branding Aplikasi
+                </div>
+                <CardWindowToggleButton
+                  cardId="setup-preview-card"
+                  label="Pratinjau Kop & Branding"
+                />
               </div>
+
+              {!isCollapsed('setup-preview-card') && (
+                <>
 
               <div className="rounded-2xl bg-[#0B2545] dark:bg-[#0D111C] text-white p-5 border border-white/10 space-y-3">
                 <div className="flex items-start justify-between gap-3">
@@ -1016,6 +1078,8 @@ export function SetupAppView({
                   &ldquo;{ppjkFooterNote || '-'}&rdquo;
                 </p>
               </div>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -1035,24 +1099,33 @@ export function SetupAppView({
                   <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5 sm:mt-0 text-[#F28C28] dark:text-violet-400" />
                   <span>Kontrol Toggle Aktif / Tidak Modul Aplikasi PPJK (Per Peran)</span>
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Owner mengaktifkan atau menonaktifkan akses setiap modul bagi Admin, Checker, Drafter, Operasional, dan Manajer. Akun Owner kebal terhadap pembatasan.
-                </p>
+                {!isCollapsed('setup-role-matrix-card') && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Owner mengaktifkan atau menonaktifkan akses setiap modul bagi Admin, Checker, Drafter, Operasional, dan Manajer. Akun Owner kebal terhadap pembatasan.
+                  </p>
+                )}
               </div>
 
-              {isOwner && (
-                <button
-                  type="button"
-                  onClick={handleResetAllRoleModules}
-                  disabled={busyKey === 'role:reset'}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/[0.06] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Reset Default Semua Peran</span>
-                </button>
-              )}
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {isOwner && (
+                  <button
+                    type="button"
+                    onClick={handleResetAllRoleModules}
+                    disabled={busyKey === 'role:reset'}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/[0.06] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Reset Default Semua Peran</span>
+                  </button>
+                )}
+                <CardWindowToggleButton
+                  cardId="setup-role-matrix-card"
+                  label="Matriks Kontrol Modul Per Peran"
+                />
+              </div>
             </div>
 
+            {!isCollapsed('setup-role-matrix-card') && (
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs" data-testid="role-module-matrix-table">
                 <thead>
@@ -1129,6 +1202,7 @@ export function SetupAppView({
                 </tbody>
               </table>
             </div>
+            )}
           </section>
 
           {/* 2. Pemantauan User & Kontrol Toggle Khusus Per User */}
@@ -1142,9 +1216,11 @@ export function SetupAppView({
                   <Users className="w-4 h-4 text-[#F28C28] dark:text-violet-400" />
                   <span>Pemantauan User, Log Aktivitas &amp; Toggle Batasan Per User</span>
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Pantau status akun, jumlah aktivitas perubahan data, serta atur pengecualian toggle modul &amp; fase edit untuk tiap akun pengguna.
-                </p>
+                {!isCollapsed('setup-user-monitor-card') && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Pantau status akun, jumlah aktivitas perubahan data, serta atur pengecualian toggle modul &amp; fase edit untuk tiap akun pengguna.
+                  </p>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -1157,9 +1233,15 @@ export function SetupAppView({
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-violet-50 dark:bg-violet-500/15 border border-violet-200 dark:border-violet-500/30 text-violet-700 dark:text-violet-300 font-semibold tabular-nums">
                   Total Log: {logs.length}
                 </span>
+                <CardWindowToggleButton
+                  cardId="setup-user-monitor-card"
+                  label="Pemantauan User & Log Aktivitas"
+                />
               </div>
             </div>
 
+            {!isCollapsed('setup-user-monitor-card') && (
+              <>
             {/* Filter & Search Bar */}
             <div className="flex flex-wrap items-center gap-2.5">
               <div className="relative flex-1 min-w-[200px]">
@@ -1238,7 +1320,8 @@ export function SetupAppView({
                             )}
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                          {!isCollapsed(`setup-monitor-user-${u.username}`) && (
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
                             <span className="inline-flex items-center gap-1 tabular-nums">
                               <SlidersHorizontal className="w-3 h-3 text-emerald-500" />
                               <span>
@@ -1280,6 +1363,7 @@ export function SetupAppView({
                               </span>
                             </span>
                           </div>
+                          )}
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">
@@ -1327,11 +1411,16 @@ export function SetupAppView({
                               )}
                             </button>
                           )}
+                          <CardWindowToggleButton
+                            cardId={`setup-monitor-user-${u.username}`}
+                            label={`Kartu User ${u.username}`}
+                            compact
+                          />
                         </div>
                       </div>
 
                       {/* Expanded Individual User Controls */}
-                      {isExpanded && !isRowOwner && (
+                      {!isCollapsed(`setup-monitor-user-${u.username}`) && isExpanded && !isRowOwner && (
                         <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200/80 dark:border-white/[0.06] space-y-4">
                           {/* Module Overrides */}
                           <div className="space-y-2">
@@ -1447,6 +1536,8 @@ export function SetupAppView({
                 })
               )}
             </div>
+              </>
+            )}
           </section>
         </div>
       )}

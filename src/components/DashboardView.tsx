@@ -42,6 +42,8 @@ import {
   isShipmentOutstanding,
   isUrgentMissingAju,
 } from '../utils/ppjkLogic';
+import { useCardCollapse } from '../contexts/CardCollapseContext';
+import { CardWindowToggleButton, ModuleCardBatchToggle } from './CardWindowControls';
 import {
   CountdownBadge,
   JalurBadge,
@@ -103,6 +105,11 @@ export function DashboardView({
   );
   const doSummary = useMemo(() => computeDoReadinessSummary(shipments), [shipments]);
   const billingSummary = useMemo(() => computeBillingSummary(shipments), [shipments]);
+  const { isCollapsed } = useCardCollapse();
+  const monthChartCollapsed = isCollapsed('dash-chart-month');
+  const jalurChartCollapsed = isCollapsed('dash-chart-jalur');
+  const customerChartCollapsed = isCollapsed('dash-chart-customer');
+
   const monthCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const customerCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const jalurCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -343,7 +350,16 @@ export function DashboardView({
     return () => {
       instances.forEach((c) => c.destroy());
     };
-  }, [shipments, stats.byCustomer, stats.byJalur, monthlySeries, darkMode]);
+  }, [
+    shipments,
+    stats.byCustomer,
+    stats.byJalur,
+    monthlySeries,
+    darkMode,
+    monthChartCollapsed,
+    jalurChartCollapsed,
+    customerChartCollapsed,
+  ]);
 
   const processSignalShipments = shipments.filter(
     (s) => getShipmentProcessSignal(s).active
@@ -470,6 +486,26 @@ export function DashboardView({
     year: 'numeric',
   }).format(new Date());
 
+  const dashboardCardIds = useMemo(() => {
+    const ids = [
+      'dash-kpi-total',
+      'dash-kpi-outstanding',
+      'dash-kpi-eta7',
+      'dash-kpi-missing-aju',
+      'dash-chart-month',
+      'dash-chart-jalur',
+      'dash-checker-table',
+      'dash-menu-modul',
+      'dash-status-dist',
+      'dash-chart-customer',
+      'dash-recent-logs',
+      'dash-alerts',
+    ];
+    if (processSignalShipments.length > 0) ids.unshift('dash-banner-signal');
+    if (billingSummary.siapInfoOwnerCount > 0) ids.unshift('dash-banner-billing');
+    return ids;
+  }, [processSignalShipments.length, billingSummary.siapInfoOwnerCount]);
+
   return (
     <div className="space-y-5">
       {/* Welcome Hero Header matching reference mockup */}
@@ -483,9 +519,12 @@ export function DashboardView({
           </p>
         </div>
 
-        <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white dark:bg-[#131926] border border-slate-200 dark:border-white/[0.08] text-xs font-medium text-slate-700 dark:text-slate-200 shadow-xs">
-          <Calendar className="w-3.5 h-3.5 text-[#F28C28] dark:text-violet-400" />
-          <span className="capitalize">{currentPeriodLabel}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <ModuleCardBatchToggle cardIds={dashboardCardIds} moduleName="dashboard" />
+          <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white dark:bg-[#131926] border border-slate-200 dark:border-white/[0.08] text-xs font-medium text-slate-700 dark:text-slate-200 shadow-xs">
+            <Calendar className="w-3.5 h-3.5 text-[#F28C28] dark:text-violet-400" />
+            <span className="capitalize">{currentPeriodLabel}</span>
+          </div>
         </div>
       </div>
 
@@ -497,53 +536,64 @@ export function DashboardView({
           className="rounded-xl border border-red-300 dark:border-red-500/40 bg-red-50/90 dark:bg-red-950/35 p-4 space-y-2.5"
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
               <span className="relative flex h-3 w-3 shrink-0">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600 dark:bg-red-500" />
               </span>
-              <div>
+              <div className="min-w-0">
                 <h3 className="text-sm font-bold text-red-900 dark:text-red-200">
                   Sinyal Segera Proses: {processSignalShipments.length} Dokumen ETA Tiba / BC 1.1 Manifes Terbit
                 </h3>
-                <p className="text-xs text-red-700 dark:text-red-300/85">
-                  Kapal telah tiba (ETA &le; 0 hari) atau BC 1.1 manifes telah terbit dan belum terbit SPPB. Segera lakukan pengajuan/proses kepabeanan.
-                </p>
+                {!isCollapsed('dash-banner-signal') && (
+                  <p className="text-xs text-red-700 dark:text-red-300/85">
+                    Kapal telah tiba (ETA &le; 0 hari) atau BC 1.1 manifes telah terbit dan belum terbit SPPB. Segera lakukan pengajuan/proses kepabeanan.
+                  </p>
+                )}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={onGoToOutstanding}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold cursor-pointer shadow-sm"
-            >
-              <span>Pantau Outstanding</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={onGoToOutstanding}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-semibold cursor-pointer shadow-sm"
+              >
+                <span>Pantau Outstanding</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+              <CardWindowToggleButton
+                cardId="dash-banner-signal"
+                label="Sinyal Segera Proses"
+                compact
+              />
+            </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {processSignalShipments.map((s) => {
-              const sig = getShipmentProcessSignal(s);
-              return (
-                <button
-                  key={s.kodeOs}
-                  type="button"
-                  onClick={() => onOpenDetail(s.kodeOs)}
-                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white dark:bg-[#131926] border border-red-200 dark:border-red-500/35 hover:border-red-400 dark:hover:border-red-400 text-xs text-left cursor-pointer transition-colors"
-                >
-                  <span className="font-mono-code font-bold text-[#0B2545] dark:text-violet-300">
-                    {s.kodeOs}
-                  </span>
-                  <span className="text-slate-700 dark:text-slate-200 font-medium truncate max-w-[180px]">
-                    {s.namaCustomer}
-                  </span>
-                  <span className="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-500/20 text-red-800 dark:text-red-200 text-[10.5px] font-bold">
-                    {sig.shortLabel}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          {!isCollapsed('dash-banner-signal') && (
+            <div className="flex flex-wrap gap-2">
+              {processSignalShipments.map((s) => {
+                const sig = getShipmentProcessSignal(s);
+                return (
+                  <button
+                    key={s.kodeOs}
+                    type="button"
+                    onClick={() => onOpenDetail(s.kodeOs)}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white dark:bg-[#131926] border border-red-200 dark:border-red-500/35 hover:border-red-400 dark:hover:border-red-400 text-xs text-left cursor-pointer transition-colors"
+                  >
+                    <span className="font-mono-code font-bold text-[#0B2545] dark:text-violet-300">
+                      {s.kodeOs}
+                    </span>
+                    <span className="text-slate-700 dark:text-slate-200 font-medium truncate max-w-[180px]">
+                      {s.namaCustomer}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-500/20 text-red-800 dark:text-red-200 text-[10.5px] font-bold">
+                      {sig.shortLabel}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </section>
       )}
 
@@ -554,7 +604,7 @@ export function DashboardView({
           data-testid="dashboard-billing-banner"
           className="rounded-xl border border-amber-300 dark:border-amber-500/40 bg-amber-50/90 dark:bg-amber-950/30 p-4 flex flex-wrap items-center justify-between gap-3"
         >
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/35 flex items-center justify-center shrink-0">
               <Receipt className="w-4.5 h-4.5 text-amber-700 dark:text-amber-300" />
             </div>
@@ -562,230 +612,373 @@ export function DashboardView({
               <h3 className="text-sm font-bold text-amber-950 dark:text-amber-200">
                 {billingSummary.siapInfoOwnerCount} Dokumen SPPB / Gate-Out Siap Info Owner (WA / Email)
               </h3>
-              <p className="text-xs text-amber-800 dark:text-amber-300/85">
-                Segera kirim notifikasi WhatsApp atau Email ke Owner agar Admin menerbitkan Surat Penagihan resmi untuk customer.
-              </p>
+              {!isCollapsed('dash-banner-billing') && (
+                <p className="text-xs text-amber-800 dark:text-amber-300/85">
+                  Segera kirim notifikasi WhatsApp atau Email ke Owner agar Admin menerbitkan Surat Penagihan resmi untuk customer.
+                </p>
+              )}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => onNavigateView && onNavigateView('penagihan')}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#F28C28] hover:bg-[#D97719] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] text-white text-xs font-semibold cursor-pointer shadow-sm shrink-0"
-          >
-            <span>Buka Penagihan &amp; Info Owner</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {!isCollapsed('dash-banner-billing') && (
+              <button
+                type="button"
+                onClick={() => onNavigateView && onNavigateView('penagihan')}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#F28C28] hover:bg-[#D97719] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] text-white text-xs font-semibold cursor-pointer shadow-sm shrink-0"
+              >
+                <span>Buka Penagihan &amp; Info Owner</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <CardWindowToggleButton
+              cardId="dash-banner-billing"
+              label="Notifikasi Siap Info Owner"
+              compact
+            />
+          </div>
         </section>
       )}
 
       {/* 4 Top KPI Summary Cards with colored corner ambient glow & decorative sparklines */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {/* KPI 1: Total Shipment (Emerald Glow) */}
-        <div className="relative overflow-hidden bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-emerald-500/35 p-5 shadow-xs">
+        <div
+          className={`relative overflow-hidden bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-emerald-500/35 shadow-xs transition-all ${
+            isCollapsed('dash-kpi-total') ? 'px-4 py-3' : 'p-5'
+          }`}
+        >
           <div
             aria-hidden="true"
             className="hidden dark:block pointer-events-none absolute -top-8 -left-8 w-28 h-28 rounded-full bg-emerald-500/15 blur-2xl"
           />
-          <div className="relative flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-11 h-11 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
-                <PackageCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate">
-                  Total Shipment
-                </div>
-                <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white mt-0.5 tabular-nums">
+          {isCollapsed('dash-kpi-total') ? (
+            <div className="relative flex items-center justify-between gap-2">
+              <div className="min-w-0 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                <span className="text-xs font-medium text-slate-600 dark:text-slate-300 truncate">
+                  Total Shipment:
+                </span>
+                <span className="text-sm font-bold text-slate-900 dark:text-white tabular-nums">
                   {stats.total}
-                </div>
+                </span>
               </div>
+              <CardWindowToggleButton cardId="dash-kpi-total" label="Total Shipment" compact />
             </div>
-          </div>
-          <div className="relative mt-3 flex items-end justify-between gap-2">
-            <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium truncate">
-              {stats.readyCount} Ready · {stats.draftCount} Draft
-            </div>
-            <svg width="64" height="22" viewBox="0 0 64 22" fill="none" aria-hidden="true" className="shrink-0">
-              <path
-                d="M2 18 C 12 16, 18 11, 28 13 C 38 15, 46 6, 62 3"
-                stroke="#34D399"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-              />
-            </svg>
-          </div>
+          ) : (
+            <>
+              <div className="relative flex items-start justify-between gap-2">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-11 h-11 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                    <PackageCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400 leading-snug">
+                      Total Shipment
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                      {stats.total}
+                    </div>
+                  </div>
+                </div>
+                <CardWindowToggleButton cardId="dash-kpi-total" label="Total Shipment" compact />
+              </div>
+              <div className="relative mt-3 flex items-end justify-between gap-2">
+                <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium truncate">
+                  {stats.readyCount} Ready · {stats.draftCount} Draft
+                </div>
+                <svg width="64" height="22" viewBox="0 0 64 22" fill="none" aria-hidden="true" className="shrink-0">
+                  <path
+                    d="M2 18 C 12 16, 18 11, 28 13 C 38 15, 46 6, 62 3"
+                    stroke="#34D399"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </div>
+            </>
+          )}
         </div>
 
         {/* KPI 2: Dokumen Outstanding (Sky/Blue Glow) */}
-        <div className="relative overflow-hidden bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-sky-500/35 p-5 shadow-xs">
+        <div
+          className={`relative overflow-hidden bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-sky-500/35 shadow-xs transition-all ${
+            isCollapsed('dash-kpi-outstanding') ? 'px-4 py-3' : 'p-5'
+          }`}
+        >
           <div
             aria-hidden="true"
             className="hidden dark:block pointer-events-none absolute -top-8 -left-8 w-28 h-28 rounded-full bg-sky-500/15 blur-2xl"
           />
-          <div className="relative flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-11 h-11 rounded-full bg-sky-500/15 border border-sky-500/30 flex items-center justify-center shrink-0">
-                <FileCheck2 className="w-5 h-5 text-sky-600 dark:text-sky-400" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate">
-                  Dokumen Outstanding
-                </div>
-                <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white mt-0.5 tabular-nums">
+          {isCollapsed('dash-kpi-outstanding') ? (
+            <div className="relative flex items-center justify-between gap-2">
+              <div className="min-w-0 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-sky-500 shrink-0" />
+                <span className="text-xs font-medium text-slate-600 dark:text-slate-300 truncate">
+                  Outstanding:
+                </span>
+                <span className="text-sm font-bold text-slate-900 dark:text-white tabular-nums">
                   {stats.outstanding}
-                </div>
+                </span>
               </div>
-            </div>
-          </div>
-          <div className="relative mt-3 flex items-end justify-between gap-2">
-            <div className="text-[11px] text-sky-600 dark:text-sky-400 font-medium truncate">
-              Belum SPPB / Dok OS
-            </div>
-            <svg width="64" height="22" viewBox="0 0 64 22" fill="none" aria-hidden="true" className="shrink-0">
-              <path
-                d="M2 16 C 14 18, 22 10, 32 12 C 42 14, 50 7, 62 5"
-                stroke="#38BDF8"
-                strokeWidth="2.2"
-                strokeLinecap="round"
+              <CardWindowToggleButton
+                cardId="dash-kpi-outstanding"
+                label="Dokumen Outstanding"
+                compact
               />
-            </svg>
-          </div>
+            </div>
+          ) : (
+            <>
+              <div className="relative flex items-start justify-between gap-2">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-11 h-11 rounded-full bg-sky-500/15 border border-sky-500/30 flex items-center justify-center shrink-0">
+                    <FileCheck2 className="w-5 h-5 text-sky-600 dark:text-sky-400" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400 leading-snug">
+                      Dokumen Outstanding
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                      {stats.outstanding}
+                    </div>
+                  </div>
+                </div>
+                <CardWindowToggleButton
+                  cardId="dash-kpi-outstanding"
+                  label="Dokumen Outstanding"
+                  compact
+                />
+              </div>
+              <div className="relative mt-3 flex items-end justify-between gap-2">
+                <div className="text-[11px] text-sky-600 dark:text-sky-400 font-medium truncate">
+                  Belum SPPB / Dok OS
+                </div>
+                <svg width="64" height="22" viewBox="0 0 64 22" fill="none" aria-hidden="true" className="shrink-0">
+                  <path
+                    d="M2 16 C 14 18, 22 10, 32 12 C 42 14, 50 7, 62 5"
+                    stroke="#38BDF8"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </div>
+            </>
+          )}
         </div>
 
         {/* KPI 3: ETA 7 Hari ke Depan (Amber Glow) */}
-        <div className="relative overflow-hidden bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-amber-500/35 p-5 shadow-xs">
+        <div
+          className={`relative overflow-hidden bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-amber-500/35 shadow-xs transition-all ${
+            isCollapsed('dash-kpi-eta7') ? 'px-4 py-3' : 'p-5'
+          }`}
+        >
           <div
             aria-hidden="true"
             className="hidden dark:block pointer-events-none absolute -top-8 -left-8 w-28 h-28 rounded-full bg-amber-500/15 blur-2xl"
           />
-          <div className="relative flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-11 h-11 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
-                <Clock className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate">
-                  ETA 7 Hari ke Depan
-                </div>
-                <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white mt-0.5 tabular-nums">
+          {isCollapsed('dash-kpi-eta7') ? (
+            <div className="relative flex items-center justify-between gap-2">
+              <div className="min-w-0 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                <span className="text-xs font-medium text-slate-600 dark:text-slate-300 truncate">
+                  ETA 7 Hari:
+                </span>
+                <span className="text-sm font-bold text-slate-900 dark:text-white tabular-nums">
                   {stats.etaNext7Days}
-                </div>
+                </span>
               </div>
-            </div>
-          </div>
-          <div className="relative mt-3 flex items-end justify-between gap-2">
-            <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium truncate">
-              Kapal tiba dalam 0–7 hari
-            </div>
-            <svg width="64" height="22" viewBox="0 0 64 22" fill="none" aria-hidden="true" className="shrink-0">
-              <path
-                d="M2 17 C 14 14, 24 15, 34 10 C 44 6, 52 8, 62 4"
-                stroke="#FBBF24"
-                strokeWidth="2.2"
-                strokeLinecap="round"
+              <CardWindowToggleButton
+                cardId="dash-kpi-eta7"
+                label="ETA 7 Hari ke Depan"
+                compact
               />
-            </svg>
-          </div>
+            </div>
+          ) : (
+            <>
+              <div className="relative flex items-start justify-between gap-2">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-11 h-11 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
+                    <Clock className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400 leading-snug">
+                      ETA 7 Hari ke Depan
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white mt-0.5 tabular-nums">
+                      {stats.etaNext7Days}
+                    </div>
+                  </div>
+                </div>
+                <CardWindowToggleButton
+                  cardId="dash-kpi-eta7"
+                  label="ETA 7 Hari ke Depan"
+                  compact
+                />
+              </div>
+              <div className="relative mt-3 flex items-end justify-between gap-2">
+                <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium truncate">
+                  Kapal tiba dalam 0–7 hari
+                </div>
+                <svg width="64" height="22" viewBox="0 0 64 22" fill="none" aria-hidden="true" className="shrink-0">
+                  <path
+                    d="M2 17 C 14 14, 24 15, 34 10 C 44 6, 52 8, 62 4"
+                    stroke="#FBBF24"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </div>
+            </>
+          )}
         </div>
 
         {/* KPI 4: ETA < 3 Hari Tanpa AJU (Violet Glow) */}
-        <div className="relative overflow-hidden bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-violet-500/35 p-5 shadow-xs">
+        <div
+          className={`relative overflow-hidden bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-violet-500/35 shadow-xs transition-all ${
+            isCollapsed('dash-kpi-missing-aju') ? 'px-4 py-3' : 'p-5'
+          }`}
+        >
           <div
             aria-hidden="true"
             className="hidden dark:block pointer-events-none absolute -top-8 -left-8 w-28 h-28 rounded-full bg-violet-500/20 blur-2xl"
           />
-          <div className="relative flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-11 h-11 rounded-full bg-violet-500/15 border border-violet-500/30 flex items-center justify-center shrink-0">
-                <AlertCircle className="w-5 h-5 text-red-600 dark:text-violet-400" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate">
-                  ETA &lt; 3 Hari Tanpa AJU
-                </div>
-                <div className="text-2xl sm:text-3xl font-bold text-[#D64545] dark:text-red-400 mt-0.5 tabular-nums">
+          {isCollapsed('dash-kpi-missing-aju') ? (
+            <div className="relative flex items-center justify-between gap-2">
+              <div className="min-w-0 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+                <span className="text-xs font-medium text-slate-600 dark:text-slate-300 truncate">
+                  Tanpa AJU (&lt;3h):
+                </span>
+                <span className="text-sm font-bold text-[#D64545] dark:text-red-400 tabular-nums">
                   {stats.urgentMissingAju}
-                </div>
+                </span>
               </div>
-            </div>
-          </div>
-          <div className="relative mt-3 flex items-end justify-between gap-2">
-            <div className="text-[11px] text-red-600 dark:text-violet-300 font-medium truncate">
-              {processSignalShipments.length} sinyal segera proses
-            </div>
-            <svg width="64" height="22" viewBox="0 0 64 22" fill="none" aria-hidden="true" className="shrink-0">
-              <path
-                d="M2 18 C 12 17, 22 14, 34 11 C 46 8, 52 9, 62 3"
-                stroke="#A78BFA"
-                strokeWidth="2.2"
-                strokeLinecap="round"
+              <CardWindowToggleButton
+                cardId="dash-kpi-missing-aju"
+                label="ETA Kurang 3 Hari Tanpa AJU"
+                compact
               />
-            </svg>
-          </div>
+            </div>
+          ) : (
+            <>
+              <div className="relative flex items-start justify-between gap-2">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-11 h-11 rounded-full bg-violet-500/15 border border-violet-500/30 flex items-center justify-center shrink-0">
+                    <AlertCircle className="w-5 h-5 text-red-600 dark:text-violet-400" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400 leading-snug">
+                      ETA &lt; 3 Hari Tanpa AJU
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-bold text-[#D64545] dark:text-red-400 mt-0.5 tabular-nums">
+                      {stats.urgentMissingAju}
+                    </div>
+                  </div>
+                </div>
+                <CardWindowToggleButton
+                  cardId="dash-kpi-missing-aju"
+                  label="ETA Kurang 3 Hari Tanpa AJU"
+                  compact
+                />
+              </div>
+              <div className="relative mt-3 flex items-end justify-between gap-2">
+                <div className="text-[11px] text-red-600 dark:text-violet-300 font-medium truncate">
+                  {processSignalShipments.length} sinyal segera proses
+                </div>
+                <svg width="64" height="22" viewBox="0 0 64 22" fill="none" aria-hidden="true" className="shrink-0">
+                  <path
+                    d="M2 18 C 12 17, 22 14, 34 11 C 46 8, 52 9, 62 3"
+                    stroke="#A78BFA"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
       {/* Middle Row: Asymmetric 7:5 Dark Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
         <div className="lg:col-span-7 bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
               <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
                 {monthlySeries.isDailyFallback
                   ? 'Tren Akumulasi Shipment (Timeline ETA)'
                   : 'Tren Shipment per Bulan'}
               </h3>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                Perbandingan total shipment masuk dan dokumen Ready/Selesai
+                {monthChartCollapsed
+                  ? `${stats.total} total shipment · ${stats.readyCount} Ready/Selesai`
+                  : 'Perbandingan total shipment masuk dan dokumen Ready/Selesai'}
               </p>
             </div>
+            <CardWindowToggleButton
+              cardId="dash-chart-month"
+              label="Tren Shipment per Bulan"
+              compact
+            />
           </div>
-          <div className="h-60 mt-3">
-            <canvas ref={monthCanvasRef} data-testid="chart-month" />
-          </div>
+          {!monthChartCollapsed && (
+            <div className="h-60 mt-3">
+              <canvas ref={monthCanvasRef} data-testid="chart-month" />
+            </div>
+          )}
         </div>
 
         <div className="lg:col-span-5 bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-5 flex flex-col justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-              Distribusi Jalur Kepabeanan
-            </h3>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-              Proporsi penetapan jalur dokumen impor saat ini
-            </p>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                Distribusi Jalur Kepabeanan
+              </h3>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                {jalurChartCollapsed
+                  ? `${stats.total} dokumen (H:${stats.byJalur.Hijau || 0} · K:${stats.byJalur.Kuning || 0} · M:${stats.byJalur.Merah || 0})`
+                  : 'Proporsi penetapan jalur dokumen impor saat ini'}
+              </p>
+            </div>
+            <CardWindowToggleButton
+              cardId="dash-chart-jalur"
+              label="Distribusi Jalur Kepabeanan"
+              compact
+            />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center my-auto pt-3">
-            <div className="sm:col-span-6 relative h-48 flex items-center justify-center">
-              <canvas ref={jalurCanvasRef} data-testid="chart-jalur" />
-              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                  Total
-                </span>
-                <span className="text-lg font-bold text-slate-900 dark:text-white tabular-nums">
-                  {stats.total} Dok
-                </span>
+          {!jalurChartCollapsed && (
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center my-auto pt-3">
+              <div className="sm:col-span-6 relative h-48 flex items-center justify-center">
+                <canvas ref={jalurCanvasRef} data-testid="chart-jalur" />
+                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                    Total
+                  </span>
+                  <span className="text-lg font-bold text-slate-900 dark:text-white tabular-nums">
+                    {stats.total} Dok
+                  </span>
+                </div>
+              </div>
+
+              <div className="sm:col-span-6 space-y-2.5">
+                {JALUR_CONFIG.map((j) => {
+                  const count = stats.byJalur[j.key] || 0;
+                  const pct = stats.total > 0 ? ((count / stats.total) * 100).toFixed(1) : '0.0';
+                  return (
+                    <div key={j.key} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="flex items-center gap-2 min-w-0 text-slate-700 dark:text-slate-300">
+                        <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${j.dotClass}`} />
+                        <span className="truncate">{j.key}</span>
+                      </span>
+                      <span className="font-semibold text-slate-900 dark:text-white tabular-nums shrink-0">
+                        {pct}% <span className="text-slate-400 font-normal">({count})</span>
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-
-            <div className="sm:col-span-6 space-y-2.5">
-              {JALUR_CONFIG.map((j) => {
-                const count = stats.byJalur[j.key] || 0;
-                const pct = stats.total > 0 ? ((count / stats.total) * 100).toFixed(1) : '0.0';
-                return (
-                  <div key={j.key} className="flex items-center justify-between gap-2 text-xs">
-                    <span className="flex items-center gap-2 min-w-0 text-slate-700 dark:text-slate-300">
-                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${j.dotClass}`} />
-                      <span className="truncate">{j.key}</span>
-                    </span>
-                    <span className="font-semibold text-slate-900 dark:text-white tabular-nums shrink-0">
-                      {pct}% <span className="text-slate-400 font-normal">({count})</span>
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -795,7 +988,13 @@ export function DashboardView({
         data-testid="dashboard-checker-table-section"
         className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] overflow-hidden"
       >
-        <div className="px-5 py-4 border-b border-slate-200 dark:border-white/[0.08] flex flex-wrap items-center justify-between gap-3">
+        <div
+          className={`px-5 py-4 flex flex-wrap items-center justify-between gap-3 ${
+            isCollapsed('dash-checker-table')
+              ? ''
+              : 'border-b border-slate-200 dark:border-white/[0.08]'
+          }`}
+        >
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-10 h-10 rounded-xl bg-violet-500/15 border border-violet-500/25 flex items-center justify-center shrink-0">
               <UserCheck className="w-5 h-5 text-violet-600 dark:text-violet-400" />
@@ -809,9 +1008,11 @@ export function DashboardView({
                   {checkerSummary.totalCheckers} Checker · {checkerSummary.totalDocuments} Dokumen
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                Ringkasan beban dokumen Draft, Ready, Outstanding, Selesai, serta sinyal segera proses seluruh checker. Klik baris checker untuk rincian.
-              </p>
+              {!isCollapsed('dash-checker-table') && (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Ringkasan beban dokumen Draft, Ready, Outstanding, Selesai, serta sinyal segera proses seluruh checker. Klik baris checker untuk rincian.
+                </p>
+              )}
             </div>
           </div>
 
@@ -824,24 +1025,32 @@ export function DashboardView({
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400" />
               <span>Ready: {checkerSummary.totalReady}</span>
             </span>
-            <button
-              type="button"
-              onClick={() =>
-                onNavigateView ? onNavigateView('checker') : onGoToOutstanding()
-              }
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-violet-500/20 hover:bg-slate-200 dark:hover:bg-violet-500/30 border border-slate-200 dark:border-violet-500/30 text-xs font-semibold text-slate-800 dark:text-violet-200 cursor-pointer transition-colors"
-            >
-              <span>Buka Rekap Checker</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+            {!isCollapsed('dash-checker-table') && (
+              <button
+                type="button"
+                onClick={() =>
+                  onNavigateView ? onNavigateView('checker') : onGoToOutstanding()
+                }
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-violet-500/20 hover:bg-slate-200 dark:hover:bg-violet-500/30 border border-slate-200 dark:border-violet-500/30 text-xs font-semibold text-slate-800 dark:text-violet-200 cursor-pointer transition-colors"
+              >
+                <span>Buka Rekap Checker</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <CardWindowToggleButton
+              cardId="dash-checker-table"
+              label="Rekap Semua Checker"
+              compact
+            />
           </div>
         </div>
 
-        {checkerSummary.checkers.length === 0 ? (
-          <div className="p-8 text-center text-xs text-slate-500 dark:text-slate-400">
-            Belum ada data dokumen checker untuk ditampilkan.
-          </div>
-        ) : (
+        {!isCollapsed('dash-checker-table') && (
+          checkerSummary.checkers.length === 0 ? (
+            <div className="p-8 text-center text-xs text-slate-500 dark:text-slate-400">
+              Belum ada data dokumen checker untuk ditampilkan.
+            </div>
+          ) : (
           <div className="overflow-x-auto">
             <table
               className="w-full text-left border-collapse text-xs"
@@ -1057,6 +1266,7 @@ export function DashboardView({
               </tfoot>
             </table>
           </div>
+          )
         )}
       </section>
 
@@ -1066,96 +1276,138 @@ export function DashboardView({
         <div className="lg:col-span-7 space-y-4">
           {/* Menu Modul PPJK matching Menu Modul ERP */}
           <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-5">
-            <div className="flex items-center justify-between gap-2 mb-3.5">
+            <div
+              className={`flex items-center justify-between gap-2 ${
+                isCollapsed('dash-menu-modul') ? '' : 'mb-3.5'
+              }`}
+            >
               <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
                 <Ship className="w-4 h-4 text-[#F28C28] dark:text-violet-400" />
                 <span>Menu Modul PPJK</span>
               </h3>
-              <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                Akses cepat operasional
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {isCollapsed('dash-menu-modul')
+                    ? `${moduleShortcuts.filter((m) => m.visible).length} modul aktif`
+                    : 'Akses cepat operasional'}
+                </span>
+                <CardWindowToggleButton
+                  cardId="dash-menu-modul"
+                  label="Menu Modul PPJK"
+                  compact
+                />
+              </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5">
-              {moduleShortcuts
-                .filter((m) => m.visible)
-                .map((mod) => {
-                  const Icon = mod.icon;
-                  return (
-                    <button
-                      key={mod.id}
-                      type="button"
-                      onClick={() =>
-                        onNavigateView ? onNavigateView(mod.id) : onGoToOutstanding()
-                      }
-                      className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-[#161D2F] hover:bg-slate-100 dark:hover:bg-[#1D263C] border border-slate-200/80 dark:border-white/[0.06] text-left transition-colors cursor-pointer group"
-                    >
-                      <div
-                        className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${mod.iconBoxClass}`}
+            {!isCollapsed('dash-menu-modul') && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5">
+                {moduleShortcuts
+                  .filter((m) => m.visible)
+                  .map((mod) => {
+                    const Icon = mod.icon;
+                    return (
+                      <button
+                        key={mod.id}
+                        type="button"
+                        onClick={() =>
+                          onNavigateView ? onNavigateView(mod.id) : onGoToOutstanding()
+                        }
+                        className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-[#161D2F] hover:bg-slate-100 dark:hover:bg-[#1D263C] border border-slate-200/80 dark:border-white/[0.06] text-left transition-colors cursor-pointer group"
                       >
-                        <Icon className="w-4.5 h-4.5" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs font-semibold text-slate-900 dark:text-white truncate group-hover:text-violet-600 dark:group-hover:text-violet-300 transition-colors">
-                          {mod.label}
+                        <div
+                          className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${mod.iconBoxClass}`}
+                        >
+                          <Icon className="w-4.5 h-4.5" />
                         </div>
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                          {mod.subtitle}
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-semibold text-slate-900 dark:text-white truncate group-hover:text-violet-600 dark:group-hover:text-violet-300 transition-colors">
+                            {mod.label}
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                            {mod.subtitle}
+                          </div>
                         </div>
-                      </div>
-                    </button>
-                  );
-                })}
-            </div>
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
           </div>
 
           {/* Distribusi Status Shipment + Draft/Ready indicators */}
           <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-5">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-3.5">
+            <div
+              className={`flex flex-wrap items-center justify-between gap-2 ${
+                isCollapsed('dash-status-dist') ? '' : 'mb-3.5'
+              }`}
+            >
               <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
                 Distribusi Status Shipment
               </h3>
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-yellow-100 dark:bg-yellow-500/15 border border-yellow-300 dark:border-yellow-500/35 text-yellow-800 dark:text-yellow-300 font-semibold tabular-nums">
                   <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 dark:bg-yellow-400" />
-                  <span>Dok. Draft (Belum Dibuat): {stats.draftCount}</span>
+                  <span>Draft: {stats.draftCount}</span>
                 </span>
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-500/15 border border-emerald-300 dark:border-emerald-500/35 text-emerald-800 dark:text-emerald-300 font-semibold tabular-nums">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400" />
-                  <span>Dok. Ready (Sudah Dibuat): {stats.readyCount}</span>
+                  <span>Ready: {stats.readyCount}</span>
                 </span>
+                <CardWindowToggleButton
+                  cardId="dash-status-dist"
+                  label="Distribusi Status Shipment"
+                  compact
+                />
               </div>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-              {Object.entries(stats.byStatus).length === 0 ? (
-                <p className="text-xs text-slate-500 dark:text-slate-400 col-span-full">
-                  Belum ada data status.
-                </p>
-              ) : (
-                Object.entries(stats.byStatus).map(([status, count]) => (
-                  <div
-                    key={status}
-                    className="p-3 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200/80 dark:border-white/[0.06]"
-                  >
-                    <div className="text-[11.5px] text-slate-600 dark:text-slate-400 truncate" title={status}>
-                      {status}
+            {!isCollapsed('dash-status-dist') && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                {Object.entries(stats.byStatus).length === 0 ? (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 col-span-full">
+                    Belum ada data status.
+                  </p>
+                ) : (
+                  Object.entries(stats.byStatus).map(([status, count]) => (
+                    <div
+                      key={status}
+                      className="p-3 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200/80 dark:border-white/[0.06]"
+                    >
+                      <div className="text-[11.5px] text-slate-600 dark:text-slate-400 truncate" title={status}>
+                        {status}
+                      </div>
+                      <div className="text-xl font-bold text-[#0B2545] dark:text-white mt-1 tabular-nums">
+                        {count}
+                      </div>
                     </div>
-                    <div className="text-xl font-bold text-[#0B2545] dark:text-white mt-1 tabular-nums">
-                      {count}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
           {/* Shipment per Customer */}
           <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-5">
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-              Shipment per Customer
-            </h3>
-            <div className="h-48 mt-3">
-              <canvas ref={customerCanvasRef} data-testid="chart-customer" />
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                  Shipment per Customer
+                </h3>
+                {customerChartCollapsed && (
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
+                    {stats.byCustomer.length} customer teratas · {stats.total} total shipment
+                  </p>
+                )}
+              </div>
+              <CardWindowToggleButton
+                cardId="dash-chart-customer"
+                label="Shipment per Customer"
+                compact
+              />
             </div>
+            {!customerChartCollapsed && (
+              <div className="h-48 mt-3">
+                <canvas ref={customerCanvasRef} data-testid="chart-customer" />
+              </div>
+            )}
           </div>
         </div>
 
@@ -1163,75 +1415,101 @@ export function DashboardView({
         <div className="lg:col-span-5 space-y-4">
           {/* Aktivitas Terbaru (Real db.logs timeline) */}
           <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-5">
-            <div className="flex items-center justify-between gap-2 mb-4">
-              <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-                Aktivitas Terbaru
-              </h3>
-              <button
-                type="button"
-                onClick={() =>
-                  onNavigateView ? onNavigateView('shipments') : onGoToOutstanding()
-                }
-                className="inline-flex items-center gap-1 text-xs font-semibold text-[#F28C28] dark:text-violet-400 hover:underline cursor-pointer"
-              >
-                <span>Lihat Semua</span>
-                <ArrowRight className="w-3 h-3" />
-              </button>
+            <div
+              className={`flex items-center justify-between gap-2 ${
+                isCollapsed('dash-recent-logs') ? '' : 'mb-4'
+              }`}
+            >
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                  Aktivitas Terbaru
+                </h3>
+                {isCollapsed('dash-recent-logs') && (
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
+                    {recentLogs.length} log aktivitas terkini
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {!isCollapsed('dash-recent-logs') && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onNavigateView ? onNavigateView('shipments') : onGoToOutstanding()
+                    }
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-[#F28C28] dark:text-violet-400 hover:underline cursor-pointer"
+                  >
+                    <span>Lihat Semua</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+                )}
+                <CardWindowToggleButton
+                  cardId="dash-recent-logs"
+                  label="Aktivitas Terbaru"
+                  compact
+                />
+              </div>
             </div>
 
-            {recentLogs.length === 0 ? (
-              <div className="text-xs text-slate-500 dark:text-slate-400 py-4 text-center">
-                Belum ada log aktivitas tercatat.
-              </div>
-            ) : (
-              <div className="relative space-y-3">
-                {recentLogs.map((log, idx) => {
-                  const toneClasses = [
-                    'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25',
-                    'bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/25',
-                    'bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/25',
-                    'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/25',
-                  ];
-                  const cls = toneClasses[idx % toneClasses.length];
-                  const timeStr = log.waktu.includes('T')
-                    ? log.waktu.slice(11, 16)
-                    : log.waktu.slice(0, 10);
-                  return (
-                    <button
-                      key={log.id}
-                      type="button"
-                      onClick={() => onOpenDetail(log.kodeOs)}
-                      className="w-full flex items-start justify-between gap-3 p-2 -mx-2 rounded-xl hover:bg-slate-50 dark:hover:bg-white/[0.04] text-left transition-colors cursor-pointer"
-                    >
-                      <div className="flex items-start gap-3 min-w-0">
-                        <div
-                          className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 ${cls}`}
-                        >
-                          <History className="w-4 h-4" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-xs font-semibold text-slate-900 dark:text-white truncate">
-                            {log.kodeOs} · {log.kolom}
+            {!isCollapsed('dash-recent-logs') && (
+              recentLogs.length === 0 ? (
+                <div className="text-xs text-slate-500 dark:text-slate-400 py-4 text-center">
+                  Belum ada log aktivitas tercatat.
+                </div>
+              ) : (
+                <div className="relative space-y-3">
+                  {recentLogs.map((log, idx) => {
+                    const toneClasses = [
+                      'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25',
+                      'bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/25',
+                      'bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/25',
+                      'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/25',
+                    ];
+                    const cls = toneClasses[idx % toneClasses.length];
+                    const timeStr = log.waktu.includes('T')
+                      ? log.waktu.slice(11, 16)
+                      : log.waktu.slice(0, 10);
+                    return (
+                      <button
+                        key={log.id}
+                        type="button"
+                        onClick={() => onOpenDetail(log.kodeOs)}
+                        className="w-full flex items-start justify-between gap-3 p-2 -mx-2 rounded-xl hover:bg-slate-50 dark:hover:bg-white/[0.04] text-left transition-colors cursor-pointer"
+                      >
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div
+                            className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 ${cls}`}
+                          >
+                            <History className="w-4 h-4" />
                           </div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                            {log.user}: {log.nilaiLama || '-'} &rarr; {log.nilaiBaru || '-'}
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+                              {log.kodeOs} · {log.kolom}
+                            </div>
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                              {log.user}: {log.nilaiLama || '-'} &rarr; {log.nilaiBaru || '-'}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <span className="text-[11px] text-slate-400 dark:text-slate-500 tabular-nums shrink-0 mt-0.5">
-                        {timeStr}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+                        <span className="text-[11px] text-slate-400 dark:text-slate-500 tabular-nums shrink-0 mt-0.5">
+                          {timeStr}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )
             )}
           </div>
 
           {/* Peringatan & Tugas Prioritas */}
           <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-5">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-3.5">
-              <div className="flex items-center gap-2">
+            <div
+              className={`flex flex-wrap items-center justify-between gap-2 ${
+                isCollapsed('dash-alerts') ? '' : 'mb-3.5'
+              }`}
+            >
+              <div className="flex items-center gap-2 min-w-0">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
                   Peringatan &amp; Tugas Prioritas
                 </h3>
@@ -1241,56 +1519,67 @@ export function DashboardView({
                   </span>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={onGoToOutstanding}
-                className="text-xs font-semibold text-[#F28C28] dark:text-violet-400 hover:underline cursor-pointer"
-              >
-                Outstanding &rarr;
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                {!isCollapsed('dash-alerts') && (
+                  <button
+                    type="button"
+                    onClick={onGoToOutstanding}
+                    className="text-xs font-semibold text-[#F28C28] dark:text-violet-400 hover:underline cursor-pointer"
+                  >
+                    Outstanding &rarr;
+                  </button>
+                )}
+                <CardWindowToggleButton
+                  cardId="dash-alerts"
+                  label="Peringatan dan Tugas Prioritas"
+                  compact
+                />
+              </div>
             </div>
 
-            {urgentShipments.length === 0 ? (
-              <div className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-500/15 border border-emerald-200 dark:border-emerald-500/30 rounded-xl px-4 py-3">
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <span>Tidak ada shipment mendesak yang memerlukan tindakan saat ini.</span>
-              </div>
-            ) : (
-              <div className="divide-y divide-slate-100 dark:divide-white/[0.06]">
-                {urgentShipments.map((s) => (
-                  <button
-                    key={s.kodeOs}
-                    type="button"
-                    onClick={() => onOpenDetail(s.kodeOs)}
-                    className="w-full py-3 px-2 -mx-2 flex items-start justify-between gap-2.5 text-left hover:bg-slate-50 dark:hover:bg-white/[0.04] rounded-xl transition-colors cursor-pointer"
-                  >
-                    <div className="flex items-start gap-2.5 min-w-0">
-                      <AlertTriangle className="w-4 h-4 text-red-500 dark:text-red-400 shrink-0 mt-0.5" />
-                      <div className="min-w-0 space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-mono-code text-xs font-bold text-[#0B2545] dark:text-violet-300">
-                            {s.kodeOs}
-                          </span>
-                          <span className="text-xs font-semibold text-slate-900 dark:text-white truncate">
-                            {s.namaCustomer}
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                          BL: {s.noBl} · ETA: {s.eta || '-'}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                          <ProcessSignalBadge shipment={s} compact />
-                          <CountdownBadge days={s.countDownEta} />
-                          <StatusDokumenBadge statusDokumen={s.statusDokumen} />
-                          <StatusBadge status={s.status} />
-                          <JalurBadge jalur={s.jalur} />
+            {!isCollapsed('dash-alerts') && (
+              urgentShipments.length === 0 ? (
+                <div className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-500/15 border border-emerald-200 dark:border-emerald-500/30 rounded-xl px-4 py-3">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>Tidak ada shipment mendesak yang memerlukan tindakan saat ini.</span>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100 dark:divide-white/[0.06]">
+                  {urgentShipments.map((s) => (
+                    <button
+                      key={s.kodeOs}
+                      type="button"
+                      onClick={() => onOpenDetail(s.kodeOs)}
+                      className="w-full py-3 px-2 -mx-2 flex items-start justify-between gap-2.5 text-left hover:bg-slate-50 dark:hover:bg-white/[0.04] rounded-xl transition-colors cursor-pointer"
+                    >
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        <AlertTriangle className="w-4 h-4 text-red-500 dark:text-red-400 shrink-0 mt-0.5" />
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono-code text-xs font-bold text-[#0B2545] dark:text-violet-300">
+                              {s.kodeOs}
+                            </span>
+                            <span className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+                              {s.namaCustomer}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                            BL: {s.noBl} · ETA: {s.eta || '-'}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                            <ProcessSignalBadge shipment={s} compact />
+                            <CountdownBadge days={s.countDownEta} />
+                            <StatusDokumenBadge statusDokumen={s.statusDokumen} />
+                            <StatusBadge status={s.status} />
+                            <JalurBadge jalur={s.jalur} />
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0 mt-1" />
-                  </button>
-                ))}
-              </div>
+                      <ChevronRight className="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0 mt-1" />
+                    </button>
+                  ))}
+                </div>
+              )
             )}
           </div>
         </div>

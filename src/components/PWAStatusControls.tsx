@@ -16,6 +16,8 @@ import {
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import type { IndexedDbStatusSummary } from '../services/indexedDbService';
 import { formatBytesReadable, type OfflineSyncTask } from '../utils/offlineDbLogic';
+import { CardWindowToggleButton } from './CardWindowControls';
+import { useCardCollapse } from '../contexts/CardCollapseContext';
 
 interface PWAInstallButtonProps {
   variant?: 'sidebar' | 'panel';
@@ -232,6 +234,8 @@ export const OfflineStorageSettingsCard: React.FC<OfflineStorageSettingsCardProp
   onClearOfflineQueue,
 }) => {
   const { swReady, swUpdateAvailable } = usePWAInstall();
+  const { isCollapsed } = useCardCollapse();
+  const offlineCollapsed = isCollapsed('master-settings-offline');
 
   return (
     <div
@@ -269,18 +273,34 @@ export const OfflineStorageSettingsCard: React.FC<OfflineStorageSettingsCardProp
                 <span>{swReady ? 'Service Worker Siap Offline' : 'Cache App Aktif'}</span>
               </span>
             </div>
-            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-              Seluruh database operasional tersimpan secara persisten di{' '}
-              <span className="font-mono-code font-semibold text-slate-800 dark:text-slate-200">
-                {idbStatus?.dbName || 'PTG_PPJK_OFFLINE_DB'}
-              </span>{' '}
-              ({idbStatus?.engine || 'IndexedDB'}). Aplikasi tetap bisa dibuka, dicari, dan diubah meski internet terputus.
-            </p>
+            {!offlineCollapsed ? (
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                Seluruh database operasional tersimpan secara persisten di{' '}
+                <span className="font-mono-code font-semibold text-slate-800 dark:text-slate-200">
+                  {idbStatus?.dbName || 'PTG_PPJK_OFFLINE_DB'}
+                </span>{' '}
+                ({idbStatus?.engine || 'IndexedDB'}). Aplikasi tetap bisa dibuka, dicari, dan diubah meski internet terputus.
+              </p>
+            ) : (
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
+                {idbStatus?.collectionCounts?.shipments ?? 0} dok ·{' '}
+                {formatBytesReadable(idbStatus?.approxBytes || 0)} · {syncQueue.length} antrean sync
+              </p>
+            )}
           </div>
         </div>
 
-        <PWAInstallButton variant="panel" />
+        <div className="flex items-center gap-2 shrink-0">
+          <PWAInstallButton variant="panel" />
+          <CardWindowToggleButton
+            cardId="master-settings-offline"
+            label="Mode Offline-First (PWA & IndexedDB)"
+          />
+        </div>
       </div>
+
+      {!offlineCollapsed && (
+        <>
 
       {swUpdateAvailable && (
         <div className="px-3 py-2 rounded-xl bg-sky-500/15 border border-sky-500/30 text-xs text-sky-800 dark:text-sky-200 flex items-center justify-between gap-2">
@@ -411,6 +431,8 @@ export const OfflineStorageSettingsCard: React.FC<OfflineStorageSettingsCardProp
           <span>Periksa Status IndexedDB</span>
         </button>
       </div>
+        </>
+      )}
     </div>
   );
 };

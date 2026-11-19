@@ -35,6 +35,8 @@ import {
   exportCheckerSummaryToExcel,
   exportCheckerSummaryToPDF,
 } from '../utils/exportUtils';
+import { useCardCollapse } from '../contexts/CardCollapseContext';
+import { CardWindowToggleButton, ModuleCardBatchToggle } from './CardWindowControls';
 import {
   CountdownBadge,
   JalurBadge,
@@ -104,6 +106,7 @@ export function CheckerSummaryView({
     initialCheckerName || null
   );
   const drilldownRef = useRef<HTMLElement | null>(null);
+  const { isCollapsed } = useCardCollapse();
 
   useEffect(() => {
     if (initialCheckerName) {
@@ -173,6 +176,16 @@ export function CheckerSummaryView({
   const selectCls =
     'px-3 py-2 rounded-lg border border-slate-300 dark:border-white/10 text-xs bg-white dark:bg-[#182032] text-slate-900 dark:text-slate-100 focus:outline-none focus:border-[#F28C28] dark:focus:border-violet-500';
 
+  const checkerModuleCardIds = useMemo(() => {
+    const ids = [
+      'checker-overall-summary',
+      'checker-filter-toolbar',
+      ...filteredCheckers.map((c) => `checker-card-${c.checkerName}`),
+    ];
+    if (activeChecker) ids.push('checker-drilldown');
+    return ids;
+  }, [filteredCheckers, activeChecker]);
+
   return (
     <div className="space-y-6">
       {/* Print Header */}
@@ -196,78 +209,91 @@ export function CheckerSummaryView({
               Rekapan Summary Semua Status (Seluruh Dokumen)
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Akumulasi status seluruh dokumen shipment impor. Klik kartu status untuk menyaring checker terkait.
+              {isCollapsed('checker-overall-summary')
+                ? `${summary.totalDocuments} dokumen · ${summary.totalCheckers} checker · ${overallCompletion}% selesai`
+                : 'Akumulasi status seluruh dokumen shipment impor. Klik kartu status untuk menyaring checker terkait.'}
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5 text-xs">
-            <div className="px-3 py-2 rounded-xl bg-[#0B2545] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] text-white flex items-center gap-2">
-              <FolderCheck className="w-4 h-4 text-[#F28C28] dark:text-white" />
-              <span>
-                Total Dokumen: <strong className="tabular-nums">{summary.totalDocuments}</strong>
-              </span>
-            </div>
-            <div className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-[#182032] text-slate-800 dark:text-slate-200 border border-transparent dark:border-white/[0.08] flex items-center gap-2">
-              <Users className="w-4 h-4 text-[#0B2545] dark:text-violet-400" />
-              <span>
-                Checker Aktif: <strong className="tabular-nums">{summary.totalCheckers}</strong>
-              </span>
-            </div>
-            <div className="px-3 py-2 rounded-xl bg-orange-50 dark:bg-amber-500/15 text-orange-800 dark:text-amber-300 border border-orange-200 dark:border-amber-500/30">
-              Outstanding: <strong className="tabular-nums">{summary.totalOutstanding}</strong>
-            </div>
-            {summary.totalProcessSignal > 0 && (
-              <div className="px-3 py-2 rounded-xl bg-red-100 dark:bg-red-500/20 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-500/40 flex items-center gap-1.5">
-                <span className="relative flex h-2 w-2 shrink-0">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-red-600 dark:bg-red-500" />
-                </span>
-                <span>
-                  Segera Proses: <strong className="tabular-nums">{summary.totalProcessSignal}</strong>
-                </span>
-              </div>
-            )}
-            <div className="px-3 py-2 rounded-xl bg-yellow-100 dark:bg-yellow-500/15 text-yellow-800 dark:text-yellow-300 border border-yellow-300 dark:border-yellow-500/35">
-              Dok. Draft: <strong className="tabular-nums">{summary.totalDraft}</strong>
-            </div>
-            <div className="px-3 py-2 rounded-xl bg-emerald-100 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/35">
-              Dok. Ready: <strong className="tabular-nums">{summary.totalReady}</strong>
-            </div>
-            <div className="px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30">
-              Selesai: <strong className="tabular-nums">{summary.totalCompleted}</strong> ({overallCompletion}%)
-            </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <ModuleCardBatchToggle cardIds={checkerModuleCardIds} moduleName="checker" />
+            <CardWindowToggleButton
+              cardId="checker-overall-summary"
+              label="Rekapan Summary Semua Status"
+              compact
+            />
           </div>
         </div>
 
-        {/* Stacked Status Distribution Bar */}
-        {summary.totalDocuments > 0 && (
-          <div className="space-y-1.5">
-            <div className="h-3 w-full rounded-full bg-slate-100 dark:bg-[#182032] overflow-hidden flex">
-              {summary.byStatus
-                .filter((item) => item.count > 0)
-                .map((item) => {
-                  const widthPct = (item.count / summary.totalDocuments) * 100;
-                  return (
-                    <div
-                      key={item.status}
-                      title={`${item.status}: ${item.count} dokumen (${item.percentage}%)`}
-                      style={{
-                        width: `${widthPct}%`,
-                        backgroundColor: getStatusAccentBarColor(item.status),
-                      }}
-                      className="h-full transition-all duration-300 border-r border-white/40 dark:border-black/30 last:border-r-0"
-                    />
-                  );
-                })}
+        {!isCollapsed('checker-overall-summary') && (
+          <>
+            <div className="flex flex-wrap items-center gap-2.5 text-xs">
+              <div className="px-3 py-2 rounded-xl bg-[#0B2545] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] text-white flex items-center gap-2">
+                <FolderCheck className="w-4 h-4 text-[#F28C28] dark:text-white" />
+                <span>
+                  Total Dokumen: <strong className="tabular-nums">{summary.totalDocuments}</strong>
+                </span>
+              </div>
+              <div className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-[#182032] text-slate-800 dark:text-slate-200 border border-transparent dark:border-white/[0.08] flex items-center gap-2">
+                <Users className="w-4 h-4 text-[#0B2545] dark:text-violet-400" />
+                <span>
+                  Checker Aktif: <strong className="tabular-nums">{summary.totalCheckers}</strong>
+                </span>
+              </div>
+              <div className="px-3 py-2 rounded-xl bg-orange-50 dark:bg-amber-500/15 text-orange-800 dark:text-amber-300 border border-orange-200 dark:border-amber-500/30">
+                Outstanding: <strong className="tabular-nums">{summary.totalOutstanding}</strong>
+              </div>
+              {summary.totalProcessSignal > 0 && (
+                <div className="px-3 py-2 rounded-xl bg-red-100 dark:bg-red-500/20 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-500/40 flex items-center gap-1.5">
+                  <span className="relative flex h-2 w-2 shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-600 dark:bg-red-500" />
+                  </span>
+                  <span>
+                    Segera Proses: <strong className="tabular-nums">{summary.totalProcessSignal}</strong>
+                  </span>
+                </div>
+              )}
+              <div className="px-3 py-2 rounded-xl bg-yellow-100 dark:bg-yellow-500/15 text-yellow-800 dark:text-yellow-300 border border-yellow-300 dark:border-yellow-500/35">
+                Dok. Draft: <strong className="tabular-nums">{summary.totalDraft}</strong>
+              </div>
+              <div className="px-3 py-2 rounded-xl bg-emerald-100 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/35">
+                Dok. Ready: <strong className="tabular-nums">{summary.totalReady}</strong>
+              </div>
+              <div className="px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30">
+                Selesai: <strong className="tabular-nums">{summary.totalCompleted}</strong> ({overallCompletion}%)
+              </div>
             </div>
-          </div>
-        )}
 
-        {/* Interactive Status Recap Cards */}
-        <div
-          className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3"
-          data-testid="global-status-recap"
-        >
+            {/* Stacked Status Distribution Bar */}
+            {summary.totalDocuments > 0 && (
+              <div className="space-y-1.5">
+                <div className="h-3 w-full rounded-full bg-slate-100 dark:bg-[#182032] overflow-hidden flex">
+                  {summary.byStatus
+                    .filter((item) => item.count > 0)
+                    .map((item) => {
+                      const widthPct = (item.count / summary.totalDocuments) * 100;
+                      return (
+                        <div
+                          key={item.status}
+                          title={`${item.status}: ${item.count} dokumen (${item.percentage}%)`}
+                          style={{
+                            width: `${widthPct}%`,
+                            backgroundColor: getStatusAccentBarColor(item.status),
+                          }}
+                          className="h-full transition-all duration-300 border-r border-white/40 dark:border-black/30 last:border-r-0"
+                        />
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+
+            {/* Interactive Status Recap Cards */}
+            <div
+              className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3"
+              data-testid="global-status-recap"
+            >
           {summary.byStatus.map((item) => {
             const isSelected = selectedStatusFilter === item.status;
             const accentHex = getStatusAccentBarColor(item.status);
@@ -317,11 +343,31 @@ export function CheckerSummaryView({
               </button>
             );
           })}
-        </div>
+            </div>
+          </>
+        )}
       </section>
 
       {/* TOOLBAR FILTER & EXPORT */}
-      <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-4 flex flex-wrap items-center justify-between gap-3 no-print">
+      <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-4 space-y-3 no-print">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs font-semibold text-[#0B2545] dark:text-white">
+            <Search className="w-3.5 h-3.5 text-[#F28C28] dark:text-violet-400" />
+            <span>Filter &amp; Ekspor Rekap Checker</span>
+            {isCollapsed('checker-filter-toolbar') && (
+              <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400 tabular-nums">
+                ({filteredCheckers.length} checker tampil)
+              </span>
+            )}
+          </div>
+          <CardWindowToggleButton
+            cardId="checker-filter-toolbar"
+            label="Filter dan Ekspor Rekap Checker"
+            compact
+          />
+        </div>
+        {!isCollapsed('checker-filter-toolbar') && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[260px]">
           <div className="relative flex-1 min-w-[200px] max-w-xs">
             <Search className="w-4 h-4 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -426,6 +472,8 @@ export function CheckerSummaryView({
             <span>Cetak</span>
           </button>
         </div>
+        </div>
+        )}
       </div>
 
       {/* SECTION 2: TAMPILAN KARTU MASING-MASING NAMA CHECKER */}
@@ -466,22 +514,26 @@ export function CheckerSummaryView({
             {filteredCheckers.map((checker) => {
               const isSelected = selectedCheckerName === checker.checkerName;
               const isUnassigned = checker.checkerName === 'Belum Ditugaskan';
+              const cardId = `checker-card-${checker.checkerName}`;
+              const cardCollapsed = isCollapsed(cardId);
               return (
                 <article
                   key={checker.checkerName}
                   data-testid={`checker-card-${checker.checkerName}`}
-                  className={`bg-white dark:bg-[#131926] rounded-2xl border p-5 flex flex-col justify-between gap-4 transition-all ${
+                  className={`bg-white dark:bg-[#131926] rounded-2xl border flex flex-col justify-between gap-4 transition-all ${
+                    cardCollapsed ? 'p-4' : 'p-5'
+                  } ${
                     isSelected
                       ? 'border-[#F28C28] dark:border-violet-500 ring-2 ring-[#F28C28]/25 dark:ring-violet-500/30'
                       : 'border-slate-200 dark:border-white/[0.08] hover:border-slate-300 dark:hover:border-white/20'
                   }`}
                 >
                   <div className="space-y-4">
-                    {/* Card Header: Avatar + Checker Name + Total */}
-                    <div className="flex items-start justify-between gap-3">
+                    {/* Card Header: Avatar + Checker Name + Total + Minimize */}
+                    <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-3 min-w-0">
                         <div
-                          className={`w-11 h-11 rounded-xl flex items-center justify-center text-sm font-bold shrink-0 ${
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold shrink-0 ${
                             isUnassigned
                               ? 'bg-slate-200 dark:bg-white/10 text-slate-700 dark:text-slate-300'
                               : 'bg-[#0B2545] dark:bg-gradient-to-br dark:from-[#7C3AED] dark:to-[#6366F1] text-white'
@@ -496,32 +548,46 @@ export function CheckerSummaryView({
                           >
                             {checker.checkerName}
                           </h4>
-                          <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
-                            {checker.total} total dokumen · {checker.etaNext7Days} ETA &le; 7h
+                          <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums truncate">
+                            {cardCollapsed
+                              ? `${checker.total} dok · ${checker.outstanding} OS · ${checker.completed} selesai`
+                              : `${checker.total} total dokumen · ${checker.etaNext7Days} ETA ≤ 7h`}
                           </div>
                         </div>
                       </div>
 
-                      {checker.processSignalCount > 0 ? (
-                        <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-100 dark:bg-red-500/20 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-500/40 text-[11px] font-bold shrink-0 tabular-nums">
-                          <span className="relative flex h-2 w-2 shrink-0">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-red-600 dark:bg-red-500" />
-                          </span>
-                          <span>{checker.processSignalCount} Segera Proses</span>
-                        </span>
-                      ) : checker.urgentMissingAju > 0 ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-50 dark:bg-red-500/15 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-500/35 text-[11px] font-semibold shrink-0 tabular-nums">
-                          <AlertTriangle className="w-3 h-3" />
-                          <span>{checker.urgentMissingAju} Urgent</span>
-                        </span>
-                      ) : checker.outstanding === 0 ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/35 text-[11px] font-semibold shrink-0">
-                          <CheckCircle2 className="w-3 h-3" />
-                          <span>Lengkap</span>
-                        </span>
-                      ) : null}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {!cardCollapsed && (
+                          checker.processSignalCount > 0 ? (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-100 dark:bg-red-500/20 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-500/40 text-[11px] font-bold shrink-0 tabular-nums">
+                              <span className="relative flex h-2 w-2 shrink-0">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-600 dark:bg-red-500" />
+                              </span>
+                              <span>{checker.processSignalCount} Segera Proses</span>
+                            </span>
+                          ) : checker.urgentMissingAju > 0 ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-50 dark:bg-red-500/15 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-500/35 text-[11px] font-semibold shrink-0 tabular-nums">
+                              <AlertTriangle className="w-3 h-3" />
+                              <span>{checker.urgentMissingAju} Urgent</span>
+                            </span>
+                          ) : checker.outstanding === 0 ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/35 text-[11px] font-semibold shrink-0">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>Lengkap</span>
+                            </span>
+                          ) : null
+                        )}
+                        <CardWindowToggleButton
+                          cardId={cardId}
+                          label={`Checker ${checker.checkerName}`}
+                          compact
+                        />
+                      </div>
                     </div>
+
+                    {!cardCollapsed && (
+                    <>
 
                     {/* KPI Metrics Trio + Completion Progress */}
                     <div className="space-y-2">
@@ -619,9 +685,12 @@ export function CheckerSummaryView({
                         );
                       })}
                     </div>
+                    </>
+                    )}
                   </div>
 
                   {/* Card Footer Actions */}
+                  {!cardCollapsed && (
                   <div className="pt-3 border-t border-slate-100 dark:border-white/[0.06] flex flex-wrap gap-2 no-print">
                     <button
                       type="button"
@@ -652,6 +721,7 @@ export function CheckerSummaryView({
                       </button>
                     )}
                   </div>
+                  )}
                 </article>
               );
             })}
@@ -667,7 +737,13 @@ export function CheckerSummaryView({
           data-testid="checker-drilldown-panel"
           className="bg-white dark:bg-[#131926] rounded-2xl border border-[#F28C28]/50 dark:border-violet-500/40 p-5 space-y-4"
         >
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-white/[0.08] pb-3">
+          <div
+            className={`flex flex-wrap items-center justify-between gap-3 ${
+              isCollapsed('checker-drilldown')
+                ? ''
+                : 'border-b border-slate-100 dark:border-white/[0.08] pb-3'
+            }`}
+          >
             <div>
               <h3 className="text-sm sm:text-base font-bold text-[#0B2545] dark:text-white">
                 Dokumen Ditangani: {activeChecker.checkerName}
@@ -677,18 +753,26 @@ export function CheckerSummaryView({
                 {selectedStatusFilter ? ` dengan status "${selectedStatusFilter}"` : ''}. Klik baris untuk membuka detail 39 kolom.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setSelectedCheckerName(null)}
-              aria-label="Tutup daftar dokumen checker"
-              className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-slate-100 dark:bg-white/[0.06] hover:bg-slate-200 dark:hover:bg-white/[0.12] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
-            >
-              <X className="w-3.5 h-3.5" />
-              <span>Tutup</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <CardWindowToggleButton
+                cardId="checker-drilldown"
+                label={`Dokumen Ditangani ${activeChecker.checkerName}`}
+                compact
+              />
+              <button
+                type="button"
+                onClick={() => setSelectedCheckerName(null)}
+                aria-label="Tutup daftar dokumen checker"
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-white/[0.06] hover:bg-slate-200 dark:hover:bg-white/[0.12] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Tutup</span>
+              </button>
+            </div>
           </div>
 
-          {activeCheckerShipments.length === 0 ? (
+          {!isCollapsed('checker-drilldown') && (
+            activeCheckerShipments.length === 0 ? (
             <p className="text-xs text-slate-500 dark:text-slate-400 py-4 text-center">
               Tidak ada dokumen yang cocok dengan filter status saat ini.
             </p>
@@ -847,6 +931,7 @@ export function CheckerSummaryView({
                 ))}
               </div>
             </>
+          )
           )}
         </section>
       )}

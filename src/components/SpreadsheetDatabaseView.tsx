@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Swal from 'sweetalert2';
 import {
   AlertTriangle,
@@ -43,6 +43,8 @@ import {
   buildUnauthorizedDomainHelp,
   type GoogleAuthDomainStatus,
 } from '../utils/googleAuthLogic';
+import { CardWindowToggleButton, ModuleCardBatchToggle } from './CardWindowControls';
+import { useCardCollapse } from '../contexts/CardCollapseContext';
 
 interface SpreadsheetDatabaseViewProps {
   db: DatabaseState;
@@ -122,6 +124,18 @@ export function SpreadsheetDatabaseView({
   );
   const [showSampleGasCode, setShowSampleGasCode] = useState(false);
   const [copiedSampleScript, setCopiedSampleScript] = useState(false);
+  const { isCollapsed } = useCardCollapse();
+  const sheetsModuleCardIds = useMemo(
+    () => [
+      'sheets-gas-webapp',
+      'sheets-step1-google',
+      'sheets-active-file',
+      'sheets-create-file',
+      'sheets-connect-existing',
+      'sheets-12tabs-schema',
+    ],
+    []
+  );
 
   useEffect(() => {
     setGasUrlInput(savedGasUrl);
@@ -281,7 +295,7 @@ export function SpreadsheetDatabaseView({
         </div>
 
         {/* Status Indicator */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {linkedId ? (
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/15 border border-emerald-200 dark:border-emerald-500/35 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
               <CheckCircle2 className="w-3.5 h-3.5" />
@@ -300,6 +314,10 @@ export function SpreadsheetDatabaseView({
               <span>Belum Terhubung ke Spreadsheet</span>
             </span>
           )}
+          <ModuleCardBatchToggle
+            cardIds={sheetsModuleCardIds}
+            moduleName="Database Spreadsheet"
+          />
         </div>
       </div>
 
@@ -319,37 +337,47 @@ export function SpreadsheetDatabaseView({
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-slate-600 dark:text-slate-400">
-              Mengambil daftar data melalui HTTP <code className="font-mono-code font-semibold">GET</code> dan otomatis mengirim data shipment baru via HTTP <code className="font-mono-code font-semibold">POST</code> dengan payload <code className="font-mono-code">{`{ action: 'add', data: {...} }`}</code>.
-            </p>
+            {!isCollapsed('sheets-gas-webapp') && (
+              <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                Mengambil daftar data melalui HTTP <code className="font-mono-code font-semibold">GET</code> dan otomatis mengirim data shipment baru via HTTP <code className="font-mono-code font-semibold">POST</code> dengan payload <code className="font-mono-code">{`{ action: 'add', data: {...} }`}</code>.
+              </p>
+            )}
           </div>
 
-          {isAdmin && (
-            <button
-              type="button"
-              role="switch"
-              aria-checked={savedGasAutoSync}
-              data-testid="toggle-gas-webapp-autosync"
-              onClick={() =>
-                void onSaveGasWebAppConfig({
-                  gasWebAppUrl: gasValidation.valid ? gasValidation.normalizedUrl : savedGasUrl,
-                  gasWebAppAutoSync: !savedGasAutoSync,
-                  gasWebAppFullSyncAuto: savedGasFullSyncAuto,
-                })
-              }
-              disabled={syncingGasWebApp}
-              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition-colors shrink-0 self-start sm:self-center ${
-                savedGasAutoSync
-                  ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700'
-                  : 'bg-white dark:bg-[#182032] border-slate-300 dark:border-white/15 text-slate-700 dark:text-slate-200'
-              }`}
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${syncingGasWebApp ? 'animate-spin' : ''}`} />
-              <span>Auto-POST Baru: {savedGasAutoSync ? 'ON' : 'OFF'}</span>
-            </button>
-          )}
+          <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+            {isAdmin && (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={savedGasAutoSync}
+                data-testid="toggle-gas-webapp-autosync"
+                onClick={() =>
+                  void onSaveGasWebAppConfig({
+                    gasWebAppUrl: gasValidation.valid ? gasValidation.normalizedUrl : savedGasUrl,
+                    gasWebAppAutoSync: !savedGasAutoSync,
+                    gasWebAppFullSyncAuto: savedGasFullSyncAuto,
+                  })
+                }
+                disabled={syncingGasWebApp}
+                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition-colors shrink-0 ${
+                  savedGasAutoSync
+                    ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700'
+                    : 'bg-white dark:bg-[#182032] border-slate-300 dark:border-white/15 text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncingGasWebApp ? 'animate-spin' : ''}`} />
+                <span>Auto-POST Baru: {savedGasAutoSync ? 'ON' : 'OFF'}</span>
+              </button>
+            )}
+            <CardWindowToggleButton
+              cardId="sheets-gas-webapp"
+              label="Koneksi Endpoint Google Apps Script"
+            />
+          </div>
         </div>
 
+        {!isCollapsed('sheets-gas-webapp') && (
+          <>
         <div className="space-y-2">
           <label
             htmlFor="gasWebAppUrlInput"
@@ -598,6 +626,8 @@ export function SpreadsheetDatabaseView({
             </pre>
           </div>
         )}
+          </>
+        )}
       </div>
 
       {/* Step 1: Google Account Auth Status */}
@@ -629,11 +659,13 @@ export function SpreadsheetDatabaseView({
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-slate-600 dark:text-slate-400">
-              {driveUserEmail
-                ? `Terhubung sebagai ${driveUserEmail}. Izin baca/tulis Google Spreadsheet aktif untuk sesi ini.`
-                : 'Masuk dengan akun Google Anda agar aplikasi dapat membuat, membaca, dan memperbarui file Google Spreadsheet.'}
-            </p>
+            {!isCollapsed('sheets-step1-google') && (
+              <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                {driveUserEmail
+                  ? `Terhubung sebagai ${driveUserEmail}. Izin baca/tulis Google Spreadsheet aktif untuk sesi ini.`
+                  : 'Masuk dengan akun Google Anda agar aplikasi dapat membuat, membaca, dan memperbarui file Google Spreadsheet.'}
+              </p>
+            )}
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
@@ -652,10 +684,14 @@ export function SpreadsheetDatabaseView({
                 label={driveConnecting ? 'Menghubungkan...' : 'Sign in with Google'}
               />
             )}
+            <CardWindowToggleButton
+              cardId="sheets-step1-google"
+              label="Koneksi Akun Google"
+            />
           </div>
         </div>
 
-        {domainStatus && !domainStatus.isDomainAuthorizedInFirebase && !driveUserEmail && (() => {
+        {!isCollapsed('sheets-step1-google') && domainStatus && !domainStatus.isDomainAuthorizedInFirebase && !driveUserEmail && (() => {
           const help = buildUnauthorizedDomainHelp({
             currentHostname: domainStatus.currentHostname,
             currentOrigin: domainStatus.currentOrigin,
@@ -744,209 +780,251 @@ export function SpreadsheetDatabaseView({
                   </a>
                 )}
               </div>
-              <div className="text-[11px] font-mono-code text-emerald-800/80 dark:text-emerald-300/80 break-all">
-                Spreadsheet ID: {linkedId}
-              </div>
-              <div className="text-[11px] text-slate-600 dark:text-slate-300">
-                Sinkronisasi terakhir: <strong>{formatDateTimeId(lastSyncAt)}</strong>
-                {db.pengaturan.spreadsheetLastSyncDirection
-                  ? ` (${db.pengaturan.spreadsheetLastSyncDirection.toUpperCase()})`
-                  : ''}
-              </div>
+              {!isCollapsed('sheets-active-file') && (
+                <>
+                  <div className="text-[11px] font-mono-code text-emerald-800/80 dark:text-emerald-300/80 break-all">
+                    Spreadsheet ID: {linkedId}
+                  </div>
+                  <div className="text-[11px] text-slate-600 dark:text-slate-300">
+                    Sinkronisasi terakhir: <strong>{formatDateTimeId(lastSyncAt)}</strong>
+                    {db.pengaturan.spreadsheetLastSyncDirection
+                      ? ` (${db.pengaturan.spreadsheetLastSyncDirection.toUpperCase()})`
+                      : ''}
+                  </div>
+                </>
+              )}
             </div>
 
-            {isAdmin && (
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={autoSyncEnabled}
-                  data-testid="toggle-spreadsheet-autosync"
-                  onClick={() => void onToggleAutoSync(!autoSyncEnabled)}
-                  disabled={syncingSheets}
-                  className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition-colors ${
-                    autoSyncEnabled
-                      ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700'
-                      : 'bg-white dark:bg-[#182032] border-slate-300 dark:border-white/15 text-slate-700 dark:text-slate-200'
-                  }`}
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${syncingSheets ? 'animate-spin' : ''}`} />
-                  <span>Auto-Sync: {autoSyncEnabled ? 'ON' : 'OFF'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void onDisconnectSpreadsheet()}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-red-200 dark:border-red-500/35 bg-white dark:bg-[#182032] hover:bg-red-50 dark:hover:bg-red-500/15 text-xs font-semibold text-red-600 dark:text-red-300 cursor-pointer"
-                >
-                  <Unlink className="w-3.5 h-3.5" />
-                  <span>Putuskan</span>
-                </button>
-              </div>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {isAdmin && (
+                <>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={autoSyncEnabled}
+                    data-testid="toggle-spreadsheet-autosync"
+                    onClick={() => void onToggleAutoSync(!autoSyncEnabled)}
+                    disabled={syncingSheets}
+                    className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition-colors ${
+                      autoSyncEnabled
+                        ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700'
+                        : 'bg-white dark:bg-[#182032] border-slate-300 dark:border-white/15 text-slate-700 dark:text-slate-200'
+                    }`}
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${syncingSheets ? 'animate-spin' : ''}`} />
+                    <span>Auto-Sync: {autoSyncEnabled ? 'ON' : 'OFF'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void onDisconnectSpreadsheet()}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-red-200 dark:border-red-500/35 bg-white dark:bg-[#182032] hover:bg-red-50 dark:hover:bg-red-500/15 text-xs font-semibold text-red-600 dark:text-red-300 cursor-pointer"
+                  >
+                    <Unlink className="w-3.5 h-3.5" />
+                    <span>Putuskan</span>
+                  </button>
+                </>
+              )}
+              <CardWindowToggleButton
+                cardId="sheets-active-file"
+                label="File Database Aktif"
+              />
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5 pt-2 border-t border-emerald-200/70 dark:border-emerald-500/20">
-            <button
-              type="button"
-              data-testid="push-sheets-btn"
-              onClick={() => void onPushToSpreadsheet(linkedId)}
-              disabled={!driveUserEmail || syncingSheets}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer"
-            >
-              <Upload className="w-3.5 h-3.5" />
-              <span>{syncingSheets ? 'Menyinkronkan...' : 'Kirim Data Lokal → Spreadsheet (Push)'}</span>
-            </button>
+          {!isCollapsed('sheets-active-file') && (
+            <div className="flex flex-wrap items-center gap-2.5 pt-2 border-t border-emerald-200/70 dark:border-emerald-500/20">
+              <button
+                type="button"
+                data-testid="push-sheets-btn"
+                onClick={() => void onPushToSpreadsheet(linkedId)}
+                disabled={!driveUserEmail || syncingSheets}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>{syncingSheets ? 'Menyinkronkan...' : 'Kirim Data Lokal → Spreadsheet (Push)'}</span>
+              </button>
 
-            <button
-              type="button"
-              data-testid="pull-sheets-btn"
-              onClick={() => void onPullFromSpreadsheet(linkedId)}
-              disabled={!driveUserEmail || syncingSheets}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#0B2545] hover:bg-[#123663] dark:bg-violet-600 dark:hover:bg-violet-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Tarik Data dari Spreadsheet → Aplikasi (Pull)</span>
-            </button>
-          </div>
+              <button
+                type="button"
+                data-testid="pull-sheets-btn"
+                onClick={() => void onPullFromSpreadsheet(linkedId)}
+                disabled={!driveUserEmail || syncingSheets}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#0B2545] hover:bg-[#123663] dark:bg-violet-600 dark:hover:bg-violet-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Tarik Data dari Spreadsheet → Aplikasi (Pull)</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
 
       {/* Step 3: Create New or Link Existing Google Spreadsheet */}
       {isAdmin && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
           {/* Create new database spreadsheet */}
           <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08] space-y-3">
-            <div className="text-xs font-bold text-[#0B2545] dark:text-white flex items-center gap-1.5">
-              <PlusCircle className="w-4 h-4 text-[#F28C28] dark:text-violet-400" />
-              <span>Buat File Google Spreadsheet Database Baru</span>
-            </div>
-            <p className="text-[11px] text-slate-600 dark:text-slate-400">
-              Membuat file Google Spreadsheet baru di Google Drive Anda dengan 11 tab database terstruktur dan langsung mengisi seluruh data saat ini.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                type="text"
-                aria-label="Nama file Google Spreadsheet baru"
-                value={newSheetTitle}
-                onChange={(e) => setNewSheetTitle(e.target.value)}
-                placeholder="PTG_PPJK_DATABASE"
-                className={`flex-1 ${inputCls}`}
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs font-bold text-[#0B2545] dark:text-white flex items-center gap-1.5">
+                <PlusCircle className="w-4 h-4 text-[#F28C28] dark:text-violet-400" />
+                <span>Buat File Google Spreadsheet Database Baru</span>
+              </div>
+              <CardWindowToggleButton
+                cardId="sheets-create-file"
+                label="Buat File Spreadsheet Baru"
+                compact
               />
-              <button
-                type="button"
-                data-testid="create-spreadsheet-btn"
-                onClick={() => void onCreateSpreadsheet(newSheetTitle)}
-                disabled={!driveUserEmail || syncingSheets}
-                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[#F28C28] hover:bg-[#D97719] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] disabled:opacity-50 text-white text-xs font-semibold cursor-pointer whitespace-nowrap"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                <span>Buat &amp; Sinkronkan</span>
-              </button>
             </div>
+            {!isCollapsed('sheets-create-file') && (
+              <>
+                <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                  Membuat file Google Spreadsheet baru di Google Drive Anda dengan 11 tab database terstruktur dan langsung mengisi seluruh data saat ini.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    aria-label="Nama file Google Spreadsheet baru"
+                    value={newSheetTitle}
+                    onChange={(e) => setNewSheetTitle(e.target.value)}
+                    placeholder="PTG_PPJK_DATABASE"
+                    className={`flex-1 ${inputCls}`}
+                  />
+                  <button
+                    type="button"
+                    data-testid="create-spreadsheet-btn"
+                    onClick={() => void onCreateSpreadsheet(newSheetTitle)}
+                    disabled={!driveUserEmail || syncingSheets}
+                    className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[#F28C28] hover:bg-[#D97719] dark:bg-gradient-to-r dark:from-[#7C3AED] dark:to-[#6366F1] disabled:opacity-50 text-white text-xs font-semibold cursor-pointer whitespace-nowrap"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    <span>Buat &amp; Sinkronkan</span>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Link existing spreadsheet */}
           <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08] space-y-3">
-            <div className="text-xs font-bold text-[#0B2545] dark:text-white flex items-center gap-1.5">
-              <Link2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              <span>Hubungkan ke Google Spreadsheet yang Sudah Ada</span>
-            </div>
-            <p className="text-[11px] text-slate-600 dark:text-slate-400">
-              Tempel URL atau ID Google Spreadsheet Anda, atau pilih langsung dari daftar file Google Drive.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                type="text"
-                aria-label="URL atau ID Google Spreadsheet"
-                value={existingInput}
-                onChange={(e) => setExistingInput(e.target.value)}
-                placeholder="https://docs.google.com/spreadsheets/d/..."
-                className={`flex-1 ${inputCls} font-mono-code`}
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs font-bold text-[#0B2545] dark:text-white flex items-center gap-1.5">
+                <Link2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span>Hubungkan ke Google Spreadsheet yang Sudah Ada</span>
+              </div>
+              <CardWindowToggleButton
+                cardId="sheets-connect-existing"
+                label="Hubungkan ke Spreadsheet Ada"
+                compact
               />
-              <button
-                type="button"
-                onClick={() => void handleConnectInputSubmit()}
-                disabled={!driveUserEmail || syncingSheets}
-                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#0B2545] hover:bg-[#123663] dark:bg-[#232D48] dark:hover:bg-[#2D395A] disabled:opacity-50 text-white text-xs font-semibold cursor-pointer whitespace-nowrap"
-              >
-                <Link2 className="w-3.5 h-3.5" />
-                <span>Hubungkan</span>
-              </button>
             </div>
-
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => void handleLoadDriveSpreadsheets()}
-                disabled={!driveUserEmail || loadingList}
-                className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#0B2545] dark:text-violet-300 hover:underline disabled:opacity-50 cursor-pointer"
-              >
-                <FolderSearch className="w-3.5 h-3.5" />
-                <span>
-                  {loadingList ? 'Memuat daftar Google Drive...' : 'Pilih dari Google Drive Saya'}
-                </span>
-              </button>
-
-              {driveSheets.length > 0 && (
-                <div className="max-h-36 overflow-y-auto divide-y divide-slate-200 dark:divide-white/[0.06] rounded-xl border border-slate-200 dark:border-white/[0.08] bg-white dark:bg-[#131926]">
-                  {driveSheets.map((item) => (
-                    <div
-                      key={item.id}
-                      className="px-3 py-2 flex items-center justify-between gap-2 text-xs"
-                    >
-                      <div className="min-w-0">
-                        <div className="font-semibold text-slate-900 dark:text-white truncate">
-                          {item.name}
-                        </div>
-                        <div className="text-[10px] font-mono-code text-slate-500 dark:text-slate-400 truncate">
-                          {item.id}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setExistingInput(item.id);
-                          void onConnectExistingSpreadsheet(item.id);
-                        }}
-                        className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-semibold text-[11px] hover:bg-emerald-100 dark:hover:bg-emerald-500/25 cursor-pointer shrink-0"
-                      >
-                        Pilih
-                      </button>
-                    </div>
-                  ))}
+            {!isCollapsed('sheets-connect-existing') && (
+              <>
+                <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                  Tempel URL atau ID Google Spreadsheet Anda, atau pilih langsung dari daftar file Google Drive.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    aria-label="URL atau ID Google Spreadsheet"
+                    value={existingInput}
+                    onChange={(e) => setExistingInput(e.target.value)}
+                    placeholder="https://docs.google.com/spreadsheets/d/..."
+                    className={`flex-1 ${inputCls} font-mono-code`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleConnectInputSubmit()}
+                    disabled={!driveUserEmail || syncingSheets}
+                    className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#0B2545] hover:bg-[#123663] dark:bg-[#232D48] dark:hover:bg-[#2D395A] disabled:opacity-50 text-white text-xs font-semibold cursor-pointer whitespace-nowrap"
+                  >
+                    <Link2 className="w-3.5 h-3.5" />
+                    <span>Hubungkan</span>
+                  </button>
                 </div>
-              )}
-            </div>
+
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleLoadDriveSpreadsheets()}
+                    disabled={!driveUserEmail || loadingList}
+                    className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#0B2545] dark:text-violet-300 hover:underline disabled:opacity-50 cursor-pointer"
+                  >
+                    <FolderSearch className="w-3.5 h-3.5" />
+                    <span>
+                      {loadingList ? 'Memuat daftar Google Drive...' : 'Pilih dari Google Drive Saya'}
+                    </span>
+                  </button>
+
+                  {driveSheets.length > 0 && (
+                    <div className="max-h-36 overflow-y-auto divide-y divide-slate-200 dark:divide-white/[0.06] rounded-xl border border-slate-200 dark:border-white/[0.08] bg-white dark:bg-[#131926]">
+                      {driveSheets.map((item) => (
+                        <div
+                          key={item.id}
+                          className="px-3 py-2 flex items-center justify-between gap-2 text-xs"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-semibold text-slate-900 dark:text-white truncate">
+                              {item.name}
+                            </div>
+                            <div className="text-[10px] font-mono-code text-slate-500 dark:text-slate-400 truncate">
+                              {item.id}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setExistingInput(item.id);
+                              void onConnectExistingSpreadsheet(item.id);
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-semibold text-[11px] hover:bg-emerald-100 dark:hover:bg-emerald-500/25 cursor-pointer shrink-0"
+                          >
+                            Pilih
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
 
       {/* Step 4: Live Schema Overview */}
-      <div className="space-y-2.5">
-        <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#0B2545] dark:text-violet-300">
-          <Table2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-          <span>Struktur {DATABASE_SHEET_TABS.length} Tab Database Google Spreadsheet</span>
+      <div className="p-4 rounded-xl border border-slate-200 dark:border-white/[0.08] bg-slate-50/40 dark:bg-[#161D2F]/60 space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#0B2545] dark:text-violet-300">
+            <Table2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <span>Struktur {DATABASE_SHEET_TABS.length} Tab Database Google Spreadsheet</span>
+          </div>
+          <CardWindowToggleButton
+            cardId="sheets-12tabs-schema"
+            label={`Struktur ${DATABASE_SHEET_TABS.length} Tab Database`}
+          />
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-          {DATABASE_SHEET_TABS.map((tab) => (
-            <div
-              key={tab.title}
-              className="p-3 rounded-xl border border-slate-200 dark:border-white/[0.07] bg-slate-50/70 dark:bg-[#161D2F] flex items-center justify-between gap-2"
-            >
-              <div className="min-w-0">
-                <div className="text-xs font-mono-code font-semibold text-[#0B2545] dark:text-white truncate">
-                  {tab.title}
+        {!isCollapsed('sheets-12tabs-schema') && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+            {DATABASE_SHEET_TABS.map((tab) => (
+              <div
+                key={tab.title}
+                className="p-3 rounded-xl border border-slate-200 dark:border-white/[0.07] bg-slate-50/70 dark:bg-[#161D2F] flex items-center justify-between gap-2"
+              >
+                <div className="min-w-0">
+                  <div className="text-xs font-mono-code font-semibold text-[#0B2545] dark:text-white truncate">
+                    {tab.title}
+                  </div>
+                  <div className="text-[10.5px] text-slate-500 dark:text-slate-400">
+                    {tab.headers.length} kolom
+                  </div>
                 </div>
-                <div className="text-[10.5px] text-slate-500 dark:text-slate-400">
-                  {tab.headers.length} kolom
-                </div>
+                <span className="px-2 py-0.5 rounded-lg bg-white dark:bg-[#1D263E] border border-slate-200 dark:border-white/[0.08] text-[11px] font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
+                  {tabCounts[tab.title] ?? 0}
+                </span>
               </div>
-              <span className="px-2 py-0.5 rounded-lg bg-white dark:bg-[#1D263E] border border-slate-200 dark:border-white/[0.08] text-[11px] font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
-                {tabCounts[tab.title] ?? 0}
-              </span>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
