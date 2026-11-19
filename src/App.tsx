@@ -83,6 +83,16 @@ import {
   type IndexedDbStatusSummary,
   saveDatabaseToIndexedDB,
 } from './services/indexedDbService';
+import {
+  buildDatabaseBackupJsonFile,
+  deleteLocalBackupSnapshot,
+  downloadDatabaseBackupExcel,
+  downloadDatabaseBackupJson,
+  downloadSnapshotRecordJson,
+  listLocalBackupSnapshots,
+  saveLocalBackupSnapshot,
+} from './services/backupService';
+import type { LocalBackupSnapshotRecord } from './utils/backupLogic';
 import type { OfflineSyncTask } from './utils/offlineDbLogic';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import {
@@ -243,6 +253,15 @@ export default function App() {
   const [idbStatus, setIdbStatus] = useState<IndexedDbStatusSummary | null>(null);
   const [offlineSyncQueue, setOfflineSyncQueue] = useState<OfflineSyncTask[]>([]);
   const [syncingOfflineQueue, setSyncingOfflineQueue] = useState(false);
+  const [localBackups, setLocalBackups] = useState<LocalBackupSnapshotRecord[]>([]);
+  const [backupBusyAction, setBackupBusyAction] = useState<string | null>(null);
+  const [lastCloudBackup, setLastCloudBackup] = useState<{
+    fileName: string;
+    webViewLink?: string;
+    ownerEmail?: string;
+    uploadedAt: string;
+    channel: 'oauth-direct' | 'gas-webapp';
+  } | null>(null);
 
   const refreshOfflineTelemetry = async (snapshot?: DatabaseState) => {
     try {
@@ -325,6 +344,11 @@ export default function App() {
         setDb(loadedDb);
         setLastSyncedAt(new Date().toISOString());
         void refreshOfflineTelemetry(loadedDb);
+        void listLocalBackupSnapshots()
+          .then((snaps) => {
+            if (active) setLocalBackups(snaps);
+          })
+          .catch(() => {});
 
         const existingSession = getStoredSession();
         if (existingSession) {
@@ -2642,13 +2666,115 @@ export default function App() {
     );
   };
 
+  const handleDownloadBackupJson = (label?: string) => {
+    if (!db || !session) return;
+    downloadDatabaseBackupJson(db, session.nama, label);
+  };
+
+  const handleDownloadBackupExcel = () => {
+    if (!db || !session) return;
+    downloadDatabaseBackupExcel(db, session.nama);
+  };
+
+  const handleCreateLocalBackup = async (label?: string) => {
+    if (!db || !session) return;
+    setBackupBusyAction('local');
+    try {
+      const res = await saveLocalBackupSnapshot(db, {
+        createdBy: session.nama,
+        source: 'manual',
+        label: label || `Snapshot Manual (${db.shipments.length} dok)`,
+      });
+      setLocalBackups(res.allRecords);
+    } finally {
+      setBackupBusyAction(null);
+    }
+  };
+
+  const handleDeleteLocalBackup = async (id: string) => {
+    setBackupBusyAction('delete');
+    try {
+      const next = await deleteLocalBackupSnapshot(id);
+      setLocalBackups(next);
+    } finally {
+      setBackupBusyAction(null);
+    }
+  };
+
+  const handleBackupToGoogleDrive = async (label?: string) => {
+    if (!db || !session) return;
+    setBackupBusyAction('drive');
+    try {
+      const backupFile = buildDatabaseBackupJsonFile(
+        db,
+        session.nama,
+        label || `Backup Cloud (${db.shipments.length} dok)`
+      );
+      const uploaded = await uploadFileViaRegisteredDrive(db, {
+        file: backupFile,
+        kodeOs: 'BACKUP_DATABASE',
+        jenisDokumen: 'Backup_JSON',
+      });
+      const updatedDb = await persistResolvedDriveFolderToPengaturan(db, uploaded);
+      setDb({ ...updatedDb });
+      const snapRes = await saveLocalBackupSnapshot(updatedDb, {
+        createdBy: session.nama,
+        source: 'cloud-drive',
+        label: label || `Backup Drive: ${uploaded.name}`,
+      });
+      setLocalBackups(snapRes.allRecords);
+      setLastCloudBackup({
+        fileName: uploaded.name,
+        webViewLink: uploaded.webViewLink,
+        ownerEmail: uploaded.ownerEmail || updatedDb.pengaturan.driveOwnerGmail,
+        uploadedAt: new Date().toISOString(),
+        channel: uploaded.channel,
+      });
+    } finally {
+      setBackupBusyAction(null);
+    }
+  };
+
+  const handleRestoreDatabaseFromBackup = async (params: {
+    database: DatabaseState;
+    sourceLabel: string;
+    saveSafetyBackupFirst: boolean;
+  }) => {
+    if (!db || !session) return;
+    setBackupBusyAction('restore');
+    try {
+      if (params.saveSafetyBackupFirst) {
+        const safety = await saveLocalBackupSnapshot(db, {
+          createdBy: session.nama,
+          source: 'pre-restore',
+          label: `Cadangan otomatis sebelum ${params.sourceLabel}`,
+        });
+        setLocalBackups(safety.allRecords);
+      }
+
+      const restoredDb = await importDatabaseSnapshot(params.database);
+      gasLocalDirtyRef.current = true;
+      setDb({ ...restoredDb });
+      setDetailKodeOs(null);
+      setLastSyncedAt(new Date().toISOString());
+      await refreshOfflineTelemetry(restoredDb);
+
+      const synced = await syncSessionWithDb(session);
+      if (synced) {
+        setSession(synced);
+      }
+    } finally {
+      setBackupBusyAction(null);
+    }
+  };
+
   const handleResetDb = async (mode: 'empty' | 'seed') => {
     const confirm = await Swal.fire({
       title: mode === 'empty' ? 'Mulai dari Nol?' : 'Muat Data Contoh PTG?',
       text:
         mode === 'empty'
-          ? 'Seluruh shipment dan master data akan dikosongkan (akun user tetap dipertahankan).'
-          : 'Data simulasi PTG akan dimuat ulang.',
+          ? 'Seluruh shipment dan master data akan dikosongkan (akun user tetap dipertahankan). Snapshot cadangan otomatis akan disimpan terlebih dahulu.'
+          : 'Data simulasi PTG akan dimuat ulang. Snapshot cadangan otomatis akan disimpan terlebih dahulu.',
       icon: 'question',
       showCancelButton: true,
       confirmButtonColor: '#7C3AED',
@@ -2656,9 +2782,22 @@ export default function App() {
       cancelButtonText: 'Batal',
     });
     if (!confirm.isConfirmed) return;
+    if (db && session) {
+      try {
+        const safety = await saveLocalBackupSnapshot(db, {
+          createdBy: session.nama,
+          source: 'pre-reset',
+          label: `Cadangan otomatis sebelum Reset (${mode === 'empty' ? 'Kosongkan' : 'Data Contoh'})`,
+        });
+        setLocalBackups(safety.allRecords);
+      } catch {
+        // do not block explicit user reset if vault fails
+      }
+    }
     const nextDb = await resetDatabase(mode);
     setDb({ ...nextDb });
     setDetailKodeOs(null);
+    await refreshOfflineTelemetry(nextDb);
   };
 
   if (loading) {
@@ -3348,6 +3487,18 @@ export default function App() {
               onPrepareDriveFolder={handlePrepareRegisteredDriveFolder}
               onVerifyDriveFolder={handleVerifyRegisteredDriveFolder}
               onResetDatabase={handleResetDb}
+              localBackups={localBackups}
+              backupBusyAction={backupBusyAction}
+              lastCloudBackup={lastCloudBackup}
+              onDownloadBackupJson={handleDownloadBackupJson}
+              onDownloadBackupExcel={handleDownloadBackupExcel}
+              onCreateLocalBackup={handleCreateLocalBackup}
+              onDownloadSnapshotJson={(record) => {
+                downloadSnapshotRecordJson(record);
+              }}
+              onDeleteLocalBackup={handleDeleteLocalBackup}
+              onBackupToGoogleDrive={handleBackupToGoogleDrive}
+              onRestoreDatabaseFromBackup={handleRestoreDatabaseFromBackup}
             />
           )}
 

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
 import {
   CheckCircle2,
+  Database,
   ExternalLink,
   FileSpreadsheet,
   FolderPlus,
@@ -17,10 +18,12 @@ import {
 } from 'lucide-react';
 import { GasDeployView } from './GasDeployView';
 import { SpreadsheetDatabaseView } from './SpreadsheetDatabaseView';
+import { DatabaseBackupView } from './DatabaseBackupView';
 import { OfflineStorageSettingsCard } from './PWAStatusControls';
 import type { SpreadsheetDriveEntry } from '../services/googleSheetsService';
 import type { IndexedDbStatusSummary } from '../services/indexedDbService';
 import type { OfflineSyncTask } from '../utils/offlineDbLogic';
+import type { LocalBackupSnapshotRecord } from '../utils/backupLogic';
 import type {
   Customer,
   DatabaseState,
@@ -133,6 +136,26 @@ interface MasterSettingsViewProps {
   onForceSaveIdbSnapshot: () => Promise<void>;
   onReplayOfflineQueue: () => Promise<void>;
   onClearOfflineQueue: () => Promise<void>;
+  localBackups?: LocalBackupSnapshotRecord[];
+  backupBusyAction?: string | null;
+  lastCloudBackup?: {
+    fileName: string;
+    webViewLink?: string;
+    ownerEmail?: string;
+    uploadedAt: string;
+    channel: 'oauth-direct' | 'gas-webapp';
+  } | null;
+  onDownloadBackupJson?: (label?: string) => void;
+  onDownloadBackupExcel?: () => void;
+  onCreateLocalBackup?: (label?: string) => Promise<void>;
+  onDownloadSnapshotJson?: (record: LocalBackupSnapshotRecord) => void;
+  onDeleteLocalBackup?: (id: string) => Promise<void>;
+  onBackupToGoogleDrive?: (label?: string) => Promise<void>;
+  onRestoreDatabaseFromBackup?: (params: {
+    database: DatabaseState;
+    sourceLabel: string;
+    saveSafetyBackupFirst: boolean;
+  }) => Promise<void>;
 }
 
 export type MasterTab =
@@ -142,6 +165,7 @@ export type MasterTab =
   | 'users'
   | 'settings'
   | 'spreadsheet'
+  | 'backup'
   | 'gas';
 
 export function MasterSettingsView({
@@ -194,6 +218,16 @@ export function MasterSettingsView({
   onForceSaveIdbSnapshot,
   onReplayOfflineQueue,
   onClearOfflineQueue,
+  localBackups = [],
+  backupBusyAction = null,
+  lastCloudBackup = null,
+  onDownloadBackupJson,
+  onDownloadBackupExcel,
+  onCreateLocalBackup,
+  onDownloadSnapshotJson,
+  onDeleteLocalBackup,
+  onBackupToGoogleDrive,
+  onRestoreDatabaseFromBackup,
 }: MasterSettingsViewProps) {
   const [tab, setTab] = useState<MasterTab>(initialTab || 'customer');
   const isAdmin = canPerformAction(userRole, 'manage_users');
@@ -604,6 +638,17 @@ export function MasterSettingsView({
           <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
           <span>Database Spreadsheet</span>
         </button>
+        {isAdmin && (
+          <button
+            type="button"
+            data-testid="tab-master-backup"
+            onClick={() => setTab('backup')}
+            className={`inline-flex items-center gap-1.5 ${tabBtnCls(tab === 'backup')}`}
+          >
+            <Database className="w-3.5 h-3.5 text-[#F28C28] dark:text-violet-400" />
+            <span>Backup Database{localBackups.length > 0 ? ` (${localBackups.length})` : ''}</span>
+          </button>
+        )}
         {canViewGas && (
           <button
             type="button"
@@ -1562,6 +1607,34 @@ export function MasterSettingsView({
             onSyncFullDatabaseCycleWithGasWebApp={onSyncFullDatabaseCycleWithGasWebApp}
           />
         )}
+
+        {tab === 'backup' &&
+          isAdmin &&
+          onDownloadBackupJson &&
+          onDownloadBackupExcel &&
+          onCreateLocalBackup &&
+          onDownloadSnapshotJson &&
+          onDeleteLocalBackup &&
+          onBackupToGoogleDrive &&
+          onRestoreDatabaseFromBackup && (
+            <DatabaseBackupView
+              db={dbSnapshot}
+              currentUserName={currentUsername}
+              driveUserEmail={driveUserEmail}
+              darkMode={darkMode}
+              isAdmin={isAdmin}
+              localBackups={localBackups}
+              busyAction={backupBusyAction}
+              lastCloudBackup={lastCloudBackup}
+              onDownloadJson={onDownloadBackupJson}
+              onDownloadExcel={onDownloadBackupExcel}
+              onCreateLocalSnapshot={onCreateLocalBackup}
+              onDownloadSnapshotJson={onDownloadSnapshotJson}
+              onDeleteLocalSnapshot={onDeleteLocalBackup}
+              onBackupToGoogleDrive={onBackupToGoogleDrive}
+              onRestoreDatabase={onRestoreDatabaseFromBackup}
+            />
+          )}
 
         {tab === 'gas' && canViewGas && (
           <GasDeployView
