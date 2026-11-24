@@ -50,6 +50,7 @@ import {
   ensureDbInitialized,
   flushIndexedDbWrites,
   getStoredSession,
+  hydrateDatabaseBrandingFromServer,
   importDatabaseSnapshot,
   importShipmentsFromExcelBatch,
   OFFLINE_BROADCAST_CHANNEL,
@@ -182,6 +183,10 @@ import { OfflineIndicator } from './components/PWAStatusControls';
 import { ViewportModeSwitcher } from './components/ViewportModeSwitcher';
 import { PtgPpjkOutstandingPage } from './components/PtgPpjkOutstandingPage';
 import { useViewportMode } from './contexts/ViewportModeContext';
+import {
+  fetchServerBrandingStatus,
+  syncBrandingToServerAndHead,
+} from './services/dynamicBrandingService';
 
 const VIEW_TITLES: Record<AppView, string> = {
   dashboard: 'Dashboard Ringkasan',
@@ -290,10 +295,23 @@ export default function App() {
     }
   }, [darkMode]);
 
+  const hasDbLoaded = Boolean(db);
   useEffect(() => {
-    const id = getPpjkIdentity(db?.pengaturan);
-    document.title = `${id.brandName} — ${id.companyName}`;
-  }, [db?.pengaturan]);
+    if (!db) return;
+    const id = getPpjkIdentity(db.pengaturan);
+    void syncBrandingToServerAndHead({
+      logoDataUrl: id.logoDataUrl,
+      brandName: id.brandName,
+      tagline: id.tagline,
+      companyName: id.companyName,
+    });
+  }, [
+    hasDbLoaded,
+    db?.pengaturan?.ppjkLogoDataUrl,
+    db?.pengaturan?.ppjkBrandName,
+    db?.pengaturan?.ppjkCompanyName,
+    db?.pengaturan?.ppjkTagline,
+  ]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'auto' });
@@ -345,10 +363,20 @@ export default function App() {
         const params = new URLSearchParams(window.location.search);
         const autostart = params.get('autostart') === '1';
         const loadedDb = await ensureDbInitialized();
+        let bootDb = loadedDb;
+        if (!loadedDb.pengaturan?.ppjkLogoDataUrl?.trim()) {
+          const serverBranding = await fetchServerBrandingStatus();
+          if (serverBranding?.hasCustomLogo && serverBranding.logoDataUrl) {
+            bootDb = await hydrateDatabaseBrandingFromServer({
+              logoDataUrl: serverBranding.logoDataUrl,
+              brandName: serverBranding.brandName,
+            });
+          }
+        }
         if (!active) return;
-        setDb(loadedDb);
+        setDb(bootDb);
         setLastSyncedAt(new Date().toISOString());
-        void refreshOfflineTelemetry(loadedDb);
+        void refreshOfflineTelemetry(bootDb);
         void listLocalBackupSnapshots()
           .then((snaps) => {
             if (active) setLocalBackups(snaps);
@@ -2956,7 +2984,16 @@ export default function App() {
 
             {viewportMode === 'desktop' ? (
               <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-white/10 dark:bg-[#151B2B] border border-white/10 dark:border-white/[0.07] shrink-0">
-                <Building2 className="w-4 h-4 text-[#F28C28] dark:text-[#A78BFA] shrink-0" />
+                {ppjkIdentity.logoDataUrl ? (
+                  <img
+                    src={ppjkIdentity.logoDataUrl}
+                    alt={`Logo ${ppjkIdentity.brandName}`}
+                    data-testid="header-brand-logo"
+                    className="w-5 h-5 rounded-md bg-white p-0.5 object-contain shrink-0"
+                  />
+                ) : (
+                  <Building2 className="w-4 h-4 text-[#F28C28] dark:text-[#A78BFA] shrink-0" />
+                )}
                 <span
                   data-testid="header-brand-title"
                   className="text-xs font-semibold text-white truncate max-w-[190px]"
@@ -2967,14 +3004,24 @@ export default function App() {
                 </span>
               </div>
             ) : (
-              <h1
-                data-testid="header-brand-title"
-                className="text-xs sm:text-sm font-semibold text-white truncate min-w-0"
-              >
-                {effectiveView === 'dashboard' || !effectiveView
-                  ? `${ppjkIdentity.brandName}`
-                  : VIEW_TITLES[effectiveView]}
-              </h1>
+              <div className="flex items-center gap-2 min-w-0">
+                {ppjkIdentity.logoDataUrl && (
+                  <img
+                    src={ppjkIdentity.logoDataUrl}
+                    alt={`Logo ${ppjkIdentity.brandName}`}
+                    data-testid="header-brand-logo"
+                    className="w-6 h-6 rounded-lg bg-white p-0.5 object-contain shrink-0"
+                  />
+                )}
+                <h1
+                  data-testid="header-brand-title"
+                  className="text-xs sm:text-sm font-semibold text-white truncate min-w-0"
+                >
+                  {effectiveView === 'dashboard' || !effectiveView
+                    ? `${ppjkIdentity.brandName}`
+                    : VIEW_TITLES[effectiveView]}
+                </h1>
+              </div>
             )}
           </div>
 

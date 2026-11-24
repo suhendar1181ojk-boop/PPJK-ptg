@@ -2339,6 +2339,30 @@ export async function savePengaturanRecord(
   return db;
 }
 
+export async function hydrateDatabaseBrandingFromServer(branding: {
+  logoDataUrl: string;
+  brandName?: string;
+  logoFileName?: string;
+}): Promise<DatabaseState> {
+  const db = await ensureDbInitialized();
+  const cleanLogo = (branding.logoDataUrl || '').trim();
+  if (!cleanLogo || db.pengaturan.ppjkLogoDataUrl?.trim()) {
+    return db;
+  }
+  const nextDb: DatabaseState = {
+    ...db,
+    pengaturan: {
+      ...db.pengaturan,
+      ppjkLogoDataUrl: cleanLogo,
+      ppjkLogoFileName: db.pengaturan.ppjkLogoFileName?.trim() || branding.logoFileName || 'logo-pt-aktif.png',
+      ...(branding.brandName?.trim() ? { ppjkBrandName: branding.brandName.trim() } : {}),
+    },
+  };
+  writeDbToStorage(nextDb);
+  await flushIndexedDbWrites();
+  return nextDb;
+}
+
 export async function savePengeluaranOpsRecord(
   session: SessionUser,
   payload: PengeluaranOpsInputPayload,

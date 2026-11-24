@@ -1,9 +1,19 @@
 import 'dotenv/config';
-import express, { type Request, type Response } from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  buildDynamicManifestPayload,
+  computeBrandingLogoHash,
+  DEFAULT_APP_DESCRIPTION,
+  DEFAULT_APP_NAME,
+  derivePwaShortName,
+  parsePngDataUrlToBase64,
+  type BrandingIconSet,
+  type ServerBrandingStatus,
+} from './src/utils/appBrandingIcons.ts';
 import {
   cleanText,
   filterD1Shipments,
@@ -56,6 +66,98 @@ const USE_CLOUDFLARE_PROXY = Boolean(
 
 // Stateful D1-contract fallback store used when CLOUDFLARE_WORKER_URL is not configured
 let edgeStoreShipments: D1ShipmentRecord[] = getInitialSeedD1Shipments();
+
+interface PersistedBrandingRecord {
+  brandName: string;
+  shortName: string;
+  description: string;
+  companyName: string;
+  logoDataUrl: string;
+  version: string;
+  updatedAt: string;
+  iconsBase64: {
+    favicon64: string;
+    appleTouch180: string;
+    pwa192: string;
+    pwa512: string;
+    maskable512: string;
+  };
+}
+
+const BRANDING_DATA_DIR = path.resolve(__dirname, '.data');
+const BRANDING_DATA_FILE = path.join(BRANDING_DATA_DIR, 'app-branding.json');
+
+function loadPersistedBranding(): PersistedBrandingRecord | null {
+  try {
+    if (!fs.existsSync(BRANDING_DATA_FILE)) return null;
+    const raw = fs.readFileSync(BRANDING_DATA_FILE, 'utf-8');
+    const parsed = JSON.parse(raw) as Partial<PersistedBrandingRecord>;
+    if (
+      parsed &&
+      typeof parsed.logoDataUrl === 'string' &&
+      parsed.logoDataUrl &&
+      parsed.iconsBase64 &&
+      typeof parsed.iconsBase64.pwa192 === 'string' &&
+      typeof parsed.iconsBase64.pwa512 === 'string' &&
+      typeof parsed.iconsBase64.maskable512 === 'string' &&
+      typeof parsed.iconsBase64.appleTouch180 === 'string' &&
+      typeof parsed.iconsBase64.favicon64 === 'string'
+    ) {
+      return parsed as PersistedBrandingRecord;
+    }
+  } catch {
+    // Ignore corrupted branding file and fall back to default static assets
+  }
+  return null;
+}
+
+function savePersistedBranding(record: PersistedBrandingRecord | null): void {
+  try {
+    if (!record) {
+      if (fs.existsSync(BRANDING_DATA_FILE)) {
+        fs.unlinkSync(BRANDING_DATA_FILE);
+      }
+      return;
+    }
+    fs.mkdirSync(BRANDING_DATA_DIR, { recursive: true });
+    fs.writeFileSync(BRANDING_DATA_FILE, JSON.stringify(record), 'utf-8');
+  } catch {
+    // Keep in-memory state active even on read-only filesystem
+  }
+}
+
+let activeBrandingRecord: PersistedBrandingRecord | null = loadPersistedBranding();
+
+function buildServerBrandingStatusPayload(record: PersistedBrandingRecord | null): ServerBrandingStatus {
+  if (!record) {
+    return {
+      ok: true,
+      hasCustomLogo: false,
+      version: '',
+      brandName: DEFAULT_APP_NAME,
+      shortName: DEFAULT_APP_NAME,
+      description: DEFAULT_APP_DESCRIPTION,
+      logoDataUrl: '',
+    };
+  }
+  return {
+    ok: true,
+    hasCustomLogo: true,
+    version: record.version,
+    brandName: record.brandName,
+    shortName: record.shortName,
+    description: record.description,
+    logoDataUrl: record.logoDataUrl,
+    updatedAt: record.updatedAt,
+  };
+}
+
+function sendPngBase64(res: Response, base64: string): void {
+  const buf = Buffer.from(base64, 'base64');
+  res.setHeader('Content-Type', 'image/png');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.send(buf);
+}
 
 async function proxyToCloudflareWorker(req: Request, res: Response, apiPath: string): Promise<void> {
   const queryIndex = req.originalUrl.indexOf('?');
@@ -267,6 +369,172 @@ async function startServer(): Promise<void> {
         error: err instanceof Error ? err.message : 'Gagal menghapus (soft delete) shipment D1.',
       });
     }
+  });
+
+  // Dynamic Logo PT -> PWA Home Screen Icons, Apple Touch Icon, Favicon & Web App Manifest
+  app.get('/api/branding/status', (_req: Request, res: Response) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.json(buildServerBrandingStatusPayload(activeBrandingRecord));
+  });
+
+  app.post('/api/branding/logo', (req: Request, res: Response) => {
+    try {
+      const body = (req.body || {}) as {
+        brandName?: string;
+        shortName?: string;
+        description?: string;
+        companyName?: string;
+        logoDataUrl?: string;
+        icons?: Partial<BrandingIconSet>;
+      };
+
+      const logoDataUrl = typeof body.logoDataUrl === 'string' ? body.logoDataUrl.trim() : '';
+      if (!logoDataUrl.startsWith('data:image/')) {
+        res.status(400).json({ ok: false, error: 'logoDataUrl tidak valid.' });
+        return;
+      }
+
+      const favicon64 = parsePngDataUrlToBase64(body.icons?.favicon64);
+      const appleTouch180 = parsePngDataUrlToBase64(body.icons?.appleTouch180);
+      const pwa192 = parsePngDataUrlToBase64(body.icons?.pwa192);
+      const pwa512 = parsePngDataUrlToBase64(body.icons?.pwa512);
+      const maskable512 = parsePngDataUrlToBase64(body.icons?.maskable512);
+
+      if (!favicon64 || !appleTouch180 || !pwa192 || !pwa512 || !maskable512) {
+        res.status(400).json({
+          ok: false,
+          error: 'Semua ukuran ikon PNG (64, 180, 192, 512, maskable 512) wajib tersedia.',
+        });
+        return;
+      }
+
+      const brandName = cleanText(body.brandName) || DEFAULT_APP_NAME;
+      const shortName = derivePwaShortName(cleanText(body.shortName) || brandName);
+      const description = cleanText(body.description) || DEFAULT_APP_DESCRIPTION;
+      const companyName = cleanText(body.companyName) || 'PT PTG Logistik Kepabeanan';
+      const version = computeBrandingLogoHash(logoDataUrl, `${brandName}|${description}`);
+
+      const record: PersistedBrandingRecord = {
+        brandName,
+        shortName,
+        description,
+        companyName,
+        logoDataUrl,
+        version,
+        updatedAt: new Date().toISOString(),
+        iconsBase64: {
+          favicon64,
+          appleTouch180,
+          pwa192,
+          pwa512,
+          maskable512,
+        },
+      };
+
+      activeBrandingRecord = record;
+      savePersistedBranding(record);
+
+      res.json({
+        ok: true,
+        hasCustomLogo: true,
+        version,
+        brandName,
+        shortName,
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Gagal menyimpan ikon branding ke server.',
+      });
+    }
+  });
+
+  app.delete('/api/branding/logo', (_req: Request, res: Response) => {
+    activeBrandingRecord = null;
+    savePersistedBranding(null);
+    res.json({ ok: true, hasCustomLogo: false });
+  });
+
+  app.get('/api/branding/favicon.png', (_req: Request, res: Response) => {
+    if (activeBrandingRecord) {
+      sendPngBase64(res, activeBrandingRecord.iconsBase64.favicon64);
+      return;
+    }
+    const fallbackCandidates = [
+      path.resolve(__dirname, 'dist', 'pwa-192x192.png'),
+      path.resolve(__dirname, 'public', 'pwa-192x192.png'),
+    ];
+    for (const candidate of fallbackCandidates) {
+      if (fs.existsSync(candidate)) {
+        res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+        res.sendFile(candidate);
+        return;
+      }
+    }
+    res.status(404).end();
+  });
+
+  app.get('/api/branding/manifest.webmanifest', (_req: Request, res: Response) => {
+    const verSuffix = activeBrandingRecord ? `?v=${encodeURIComponent(activeBrandingRecord.version)}` : '';
+    const manifest = buildDynamicManifestPayload({
+      name: activeBrandingRecord?.brandName || DEFAULT_APP_NAME,
+      shortName: activeBrandingRecord?.shortName || DEFAULT_APP_NAME,
+      description: activeBrandingRecord?.description || DEFAULT_APP_DESCRIPTION,
+      iconUrls: {
+        pwa192: `/pwa-192x192.png${verSuffix}`,
+        pwa512: `/pwa-512x512.png${verSuffix}`,
+        maskable512: `/pwa-maskable-512x512.png${verSuffix}`,
+      },
+    });
+    res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.json(manifest);
+  });
+
+  app.get('/manifest.webmanifest', (_req: Request, res: Response, next: NextFunction) => {
+    if (!activeBrandingRecord) {
+      next();
+      return;
+    }
+    const verSuffix = `?v=${encodeURIComponent(activeBrandingRecord.version)}`;
+    const manifest = buildDynamicManifestPayload({
+      name: activeBrandingRecord.brandName,
+      shortName: activeBrandingRecord.shortName,
+      description: activeBrandingRecord.description,
+      iconUrls: {
+        pwa192: `/pwa-192x192.png${verSuffix}`,
+        pwa512: `/pwa-512x512.png${verSuffix}`,
+        maskable512: `/pwa-maskable-512x512.png${verSuffix}`,
+      },
+    });
+    res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.json(manifest);
+  });
+
+  app.get('/pwa-192x192.png', (_req: Request, res: Response, next: NextFunction) => {
+    if (!activeBrandingRecord) return next();
+    sendPngBase64(res, activeBrandingRecord.iconsBase64.pwa192);
+  });
+
+  app.get('/pwa-512x512.png', (_req: Request, res: Response, next: NextFunction) => {
+    if (!activeBrandingRecord) return next();
+    sendPngBase64(res, activeBrandingRecord.iconsBase64.pwa512);
+  });
+
+  app.get('/pwa-maskable-512x512.png', (_req: Request, res: Response, next: NextFunction) => {
+    if (!activeBrandingRecord) return next();
+    sendPngBase64(res, activeBrandingRecord.iconsBase64.maskable512);
+  });
+
+  app.get('/apple-touch-icon.png', (_req: Request, res: Response, next: NextFunction) => {
+    if (!activeBrandingRecord) return next();
+    sendPngBase64(res, activeBrandingRecord.iconsBase64.appleTouch180);
+  });
+
+  app.get('/favicon.ico', (_req: Request, res: Response, next: NextFunction) => {
+    if (!activeBrandingRecord) return next();
+    sendPngBase64(res, activeBrandingRecord.iconsBase64.favicon64);
   });
 
   const httpServer = http.createServer(app);

@@ -19,6 +19,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
+  Smartphone,
   Trash2,
   Upload,
   Users,
@@ -47,6 +48,8 @@ import {
 } from '../utils/ppjkLogic';
 import { CardWindowToggleButton, ModuleCardBatchToggle } from './CardWindowControls';
 import { useCardCollapse } from '../contexts/CardCollapseContext';
+import { syncBrandingToServerAndHead } from '../services/dynamicBrandingService';
+import { derivePwaShortName } from '../utils/appBrandingIcons';
 
 interface SetupAppViewProps {
   pengaturan: Pengaturan;
@@ -187,23 +190,36 @@ export function SetupAppView({
     }
     setSavingIdentity(true);
     try {
+      const nextBrand = ppjkBrandName.trim();
+      const nextCompany = ppjkCompanyName.trim();
+      const nextTagline = ppjkTagline.trim();
+      const nextLogo = ppjkLogoDataUrl.trim();
       await onSavePengaturan({
         ...pengaturan,
-        ppjkBrandName: ppjkBrandName.trim(),
-        ppjkCompanyName: ppjkCompanyName.trim(),
-        ppjkTagline: ppjkTagline.trim(),
+        ppjkBrandName: nextBrand,
+        ppjkCompanyName: nextCompany,
+        ppjkTagline: nextTagline,
         ppjkNpwp: ppjkNpwp.trim(),
         ppjkAddress: ppjkAddress.trim(),
         ppjkPhone: ppjkPhone.trim(),
         ppjkEmail: ppjkEmail.trim(),
         ppjkWebsite: ppjkWebsite.trim(),
         ppjkFooterNote: ppjkFooterNote.trim(),
-        ppjkLogoDataUrl: ppjkLogoDataUrl.trim(),
+        ppjkLogoDataUrl: nextLogo,
         ppjkLogoFileName: ppjkLogoFileName.trim(),
         ppjkKopSuratDataUrl: ppjkKopSuratDataUrl.trim(),
         ppjkKopSuratFileName: ppjkKopSuratFileName.trim(),
       });
-      notify('Identitas aplikasi, Logo PT & Kop Surat PPJK berhasil diperbarui.');
+      await syncBrandingToServerAndHead({
+        logoDataUrl: nextLogo,
+        brandName: nextBrand,
+        tagline: nextTagline,
+        companyName: nextCompany,
+        forceServerSync: true,
+      });
+      notify(
+        'Identitas aplikasi, Logo PT (ikon HP, favicon & aplikasi) & Kop Surat PPJK berhasil diperbarui.'
+      );
     } catch (err) {
       notifyErr(err, 'Gagal menyimpan identitas PPJK.');
     } finally {
@@ -223,11 +239,44 @@ export function SetupAppView({
     try {
       const result = await prepareBrandingImageDataUrl(file, variant);
       if (variant === 'logo') {
+        const nextBrand = ppjkBrandName.trim() || DEFAULT_PENGATURAN.ppjkBrandName || 'PTG PPJK';
+        const nextCompany =
+          ppjkCompanyName.trim() ||
+          DEFAULT_PENGATURAN.ppjkCompanyName ||
+          'PT PTG Logistik Kepabeanan';
+        const nextTagline = ppjkTagline.trim();
+
         setPpjkLogoDataUrl(result.dataUrl);
         setPpjkLogoFileName(file.name);
+
+        await onSavePengaturan({
+          ...pengaturan,
+          ppjkBrandName: nextBrand,
+          ppjkCompanyName: nextCompany,
+          ppjkTagline: nextTagline,
+          ppjkNpwp: ppjkNpwp.trim(),
+          ppjkAddress: ppjkAddress.trim(),
+          ppjkPhone: ppjkPhone.trim(),
+          ppjkEmail: ppjkEmail.trim(),
+          ppjkWebsite: ppjkWebsite.trim(),
+          ppjkFooterNote: ppjkFooterNote.trim(),
+          ppjkLogoDataUrl: result.dataUrl,
+          ppjkLogoFileName: file.name,
+          ppjkKopSuratDataUrl: ppjkKopSuratDataUrl.trim(),
+          ppjkKopSuratFileName: ppjkKopSuratFileName.trim(),
+        });
+
+        await syncBrandingToServerAndHead({
+          logoDataUrl: result.dataUrl,
+          brandName: nextBrand,
+          tagline: nextTagline,
+          companyName: nextCompany,
+          forceServerSync: true,
+        });
+
         notify(
           result.note ||
-            `Logo PT "${file.name}" siap. Klik "Simpan Identitas PPJK" untuk menerapkan ke seluruh aplikasi.`
+            `Logo PT "${file.name}" langsung diterapkan ke logo aplikasi, favicon browser, dan ikon layar HP.`
         );
       } else {
         setPpjkKopSuratDataUrl(result.dataUrl);
@@ -244,6 +293,32 @@ export function SetupAppView({
           ? 'Gagal memproses file Logo PT.'
           : 'Gagal memproses file Kop Surat PPJK.'
       );
+    } finally {
+      setUploadingAsset(null);
+    }
+  };
+
+  const handleRemoveLogoPt = async () => {
+    setUploadingAsset('logo');
+    setErrorMsg('');
+    try {
+      setPpjkLogoDataUrl('');
+      setPpjkLogoFileName('');
+      await onSavePengaturan({
+        ...pengaturan,
+        ppjkLogoDataUrl: '',
+        ppjkLogoFileName: '',
+      });
+      await syncBrandingToServerAndHead({
+        logoDataUrl: '',
+        brandName: ppjkBrandName.trim(),
+        tagline: ppjkTagline.trim(),
+        companyName: ppjkCompanyName.trim(),
+        forceServerSync: true,
+      });
+      notify('Logo PT dihapus. Favicon dan ikon layar HP dikembalikan ke standar awal.');
+    } catch (err) {
+      notifyErr(err, 'Gagal menghapus Logo PT.');
     } finally {
       setUploadingAsset(null);
     }
@@ -776,22 +851,20 @@ export function SetupAppView({
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <div className="text-xs font-bold text-slate-900 dark:text-white">
-                          Logo PT. PPJK
+                          Logo PT. PPJK (Sekali Upload)
                         </div>
                         <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                          Tampil di Sidebar, Login &amp; ikon kop PDF
+                          Otomatis jadi Logo Aplikasi, Favicon Tab, &amp; Ikon Layar HP (Android/iOS)
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {ppjkLogoDataUrl && (
                           <button
                             type="button"
-                            onClick={() => {
-                              setPpjkLogoDataUrl('');
-                              setPpjkLogoFileName('');
-                            }}
+                            onClick={() => void handleRemoveLogoPt()}
+                            disabled={uploadingAsset === 'logo'}
                             aria-label="Hapus Logo PT"
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15 cursor-pointer"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/15 disabled:opacity-50 cursor-pointer"
                           >
                             <Trash2 className="w-3 h-3" />
                             <span>Hapus</span>
@@ -1067,6 +1140,68 @@ export function SetupAppView({
                       <div className="h-[1.5px] bg-[#F28C28]" />
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* Pratinjau Ikon Layar HP, Favicon & Logo Aplikasi */}
+              <div
+                data-testid="branding-targets-preview"
+                className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.06] space-y-2.5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                    <Smartphone className="w-3.5 h-3.5 text-[#F28C28] dark:text-violet-400" />
+                    <span>Target Logo Otomatis</span>
+                  </div>
+                  <span className="text-[10.5px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                    {ppjkLogoDataUrl ? 'Logo PT Aktif' : 'Ikon Default'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="p-2 rounded-xl bg-white dark:bg-[#0D111C] border border-slate-200 dark:border-white/10 flex flex-col items-center text-center gap-1.5">
+                    <div className="w-11 h-11 rounded-[12px] bg-white border border-slate-200 shadow-sm p-1 flex items-center justify-center overflow-hidden">
+                      <img
+                        src={ppjkLogoDataUrl || '/pwa-192x192.png'}
+                        alt="Pratinjau Ikon Layar HP"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <div className="text-[10px] font-semibold text-slate-700 dark:text-slate-200 truncate w-full">
+                      {derivePwaShortName(ppjkBrandName)}
+                    </div>
+                    <div className="text-[9.5px] text-slate-400">Ikon Layar HP</div>
+                  </div>
+
+                  <div className="p-2 rounded-xl bg-white dark:bg-[#0D111C] border border-slate-200 dark:border-white/10 flex flex-col items-center text-center gap-1.5">
+                    <div className="w-full px-2 py-1.5 rounded-lg bg-slate-100 dark:bg-[#182032] border border-slate-200 dark:border-white/10 flex items-center gap-1.5 min-w-0">
+                      <img
+                        src={ppjkLogoDataUrl || '/pwa-192x192.png'}
+                        alt="Pratinjau Favicon Tab"
+                        className="w-4 h-4 rounded-xs object-contain shrink-0 bg-white"
+                      />
+                      <span className="text-[10px] font-medium text-slate-700 dark:text-slate-200 truncate">
+                        {ppjkBrandName || 'PTG PPJK'}
+                      </span>
+                    </div>
+                    <div className="text-[10px] font-semibold text-slate-700 dark:text-slate-200">
+                      Favicon Tab
+                    </div>
+                    <div className="text-[9.5px] text-slate-400">Browser Tab</div>
+                  </div>
+
+                  <div className="p-2 rounded-xl bg-white dark:bg-[#0D111C] border border-slate-200 dark:border-white/10 flex flex-col items-center text-center gap-1.5">
+                    <div className="w-11 h-11 rounded-xl bg-[#0B2545] p-1.5 flex items-center justify-center overflow-hidden">
+                      <img
+                        src={ppjkLogoDataUrl || '/pwa-192x192.png'}
+                        alt="Pratinjau Logo Aplikasi"
+                        className="w-full h-full object-contain rounded-md bg-white p-0.5"
+                      />
+                    </div>
+                    <div className="text-[10px] font-semibold text-slate-700 dark:text-slate-200">
+                      Logo Aplikasi
+                    </div>
+                    <div className="text-[9.5px] text-slate-400">Sidebar &amp; Header</div>
+                  </div>
                 </div>
               </div>
 

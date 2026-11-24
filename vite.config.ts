@@ -52,9 +52,32 @@ export default defineConfig(() => {
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          globIgnores: ['**/pwa-*.png', '**/apple-touch-icon.png', '**/manifest.webmanifest'],
           navigateFallback: 'index.html',
+          navigateFallbackDenylist: [
+            /^\/api\//,
+            /^\/manifest\.webmanifest/,
+            /^\/pwa-.*\.png/,
+            /^\/apple-touch-icon\.png/,
+            /^\/favicon\.ico/,
+          ],
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           runtimeCaching: [
+            {
+              urlPattern: /\/(?:api\/branding\/.*|manifest\.webmanifest|pwa-.*\.png|apple-touch-icon\.png|favicon\.ico)(?:\?.*)?$/i,
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'dynamic-branding-cache',
+                networkTimeoutSeconds: 3,
+                expiration: {
+                  maxEntries: 20,
+                  maxAgeSeconds: 60 * 60 * 24 * 30,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
               handler: 'CacheFirst',
