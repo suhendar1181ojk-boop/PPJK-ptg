@@ -1174,9 +1174,11 @@ export const ROLE_LIMITS_INFO: Record<
     restrictions: 'Tidak bisa buat/hapus shipment, Fase 1 & 4 terkunci; tidak bisa kelola master data, user, atau pengaturan.',
   },
   Manajer: {
-    title: 'Manajer (Lihat & Ekspor)',
-    summary: 'Pantau Dashboard, Rekap Checker, Outstanding, detail 39 kolom, serta ekspor Excel/CSV/PDF & Cetak.',
-    restrictions: 'Mode baca saja (read-only): tidak bisa buat, edit, hapus shipment, upload dokumen, atau tambah catatan.',
+    title: 'Manajer (Pemantauan & Edit Dokumen Checker)',
+    summary:
+      'Pantau Dashboard, Rekap Checker, Outstanding, detail 39 kolom, ekspor laporan, serta satu-satunya peran lain yang diizinkan mengedit dokumen yang dipegang Checker.',
+    restrictions:
+      'Tidak bisa buat/hapus shipment, kelola master data, manajemen user, atau pengaturan sistem.',
   },
 };
 
@@ -1222,12 +1224,22 @@ export function canPerformAction(
     case 'delete_pengeluaran_ops':
       return role === 'Admin';
     case 'edit_shipment':
-      return role === 'Admin' || isCheckerRole(role) || isDrafterOrOpsRole(role);
+      return (
+        role === 'Admin' ||
+        isCheckerRole(role) ||
+        isDrafterOrOpsRole(role) ||
+        role === 'Manajer'
+      );
     case 'manage_pengeluaran_ops':
       return role === 'Admin' || isCheckerRole(role) || role === 'Operasional';
     case 'upload_dokumen':
     case 'add_catatan':
-      return role === 'Admin' || isCheckerRole(role) || isDrafterOrOpsRole(role);
+      return (
+        role === 'Admin' ||
+        isCheckerRole(role) ||
+        isDrafterOrOpsRole(role) ||
+        role === 'Manajer'
+      );
     case 'manage_master':
       return role === 'Admin' || isCheckerRole(role);
     case 'manage_users':
@@ -1332,7 +1344,7 @@ export const PHASE_META: Array<{
 ];
 
 export function getDefaultPhasePermissions(role: UserRole): PhasePermissions {
-  if (role === 'Owner' || role === 'Admin') {
+  if (role === 'Owner' || role === 'Admin' || role === 'Manajer') {
     return { phase1: true, phase2: true, phase3: true, phase4: true };
   }
   if (isCheckerRole(role)) {
@@ -1398,6 +1410,146 @@ export function getAllowedFieldsForPermissions(
 
 export function canEditPhase(role: UserRole, phase: ShipmentPhase): boolean {
   return getDefaultPhasePermissions(role)[`phase${phase}`];
+}
+
+const CHECKER_ROLE_SUFFIX_RE =
+  /\s*\((?:dokumen\/checker|checker|admin|owner|drafter|operasional|manajer)\)\s*$/i;
+
+export function getCleanCheckerDisplayName(value?: string | null): string {
+  return (value || '').trim().replace(CHECKER_ROLE_SUFFIX_RE, '').replace(/\s+/g, ' ').trim();
+}
+
+export function normalizeCheckerIdentityName(value?: string | null): string {
+  return getCleanCheckerDisplayName(value).toLowerCase();
+}
+
+export function doesUserMatchCheckerName(
+  user: { username?: string | null; nama?: string | null } | null | undefined,
+  checkerName?: string | null
+): boolean {
+  if (!user) return false;
+  const targetNorm = normalizeCheckerIdentityName(checkerName);
+  const targetRaw = (checkerName || '').trim().toLowerCase();
+  if (!targetNorm && !targetRaw) return false;
+
+  const candidates = new Set<string>();
+  const namaNorm = normalizeCheckerIdentityName(user.nama);
+  const namaRaw = (user.nama || '').trim().toLowerCase();
+  const usernameRaw = (user.username || '').trim().toLowerCase();
+  if (namaNorm) candidates.add(namaNorm);
+  if (namaRaw) candidates.add(namaRaw);
+  if (usernameRaw) candidates.add(usernameRaw);
+
+  return candidates.has(targetNorm) || candidates.has(targetRaw);
+}
+
+export function isShipmentVisibleToUser(
+  shipment: Pick<Shipment, 'dokumenChecker' | 'createdBy'>,
+  user: { username?: string | null; nama?: string | null; role: UserRole } | null | undefined
+): boolean {
+  if (!user) return false;
+  if (!isCheckerRole(user.role)) return true;
+
+  const rawChecker = (shipment.dokumenChecker || '').trim();
+  if (rawChecker && rawChecker.toLowerCase() !== 'belum ditugaskan') {
+    return doesUserMatchCheckerName(user, rawChecker);
+  }
+  const creator = (shipment.createdBy || '').trim().toLowerCase();
+  const uname = (user.username || '').trim().toLowerCase();
+  return Boolean(creator && uname && creator === uname);
+}
+
+export function filterShipmentsVisibleToUser<
+  T extends Pick<Shipment, 'dokumenChecker' | 'createdBy'>,
+>(
+  shipments: T[],
+  user: { username?: string | null; nama?: string | null; role: UserRole } | null | undefined
+): T[] {
+  if (!user) return [];
+  if (!isCheckerRole(user.role)) return shipments;
+  return shipments.filter((s) => isShipmentVisibleToUser(s, user));
+}
+
+export interface ShipmentCheckerHolderInfo {
+  heldByChecker: boolean;
+  holderLabel: string;
+  matchedCheckerUser: { username: string; nama: string; role: UserRole } | null;
+}
+
+export function getShipmentCheckerHolder(
+  shipment: Pick<Shipment, 'dokumenChecker'>,
+  users: Array<{ username: string; nama: string; role: UserRole }> = []
+): ShipmentCheckerHolderInfo {
+  const rawHolder = (shipment.dokumenChecker || '').trim();
+  if (!rawHolder || rawHolder.toLowerCase() === 'belum ditugaskan') {
+    return { heldByChecker: false, holderLabel: '', matchedCheckerUser: null };
+  }
+
+  const matched = users.find((u) => doesUserMatchCheckerName(u, rawHolder));
+  if (matched) {
+    if (isCheckerRole(matched.role)) {
+      return {
+        heldByChecker: true,
+        holderLabel: rawHolder,
+        matchedCheckerUser: {
+          username: matched.username,
+          nama: matched.nama,
+          role: matched.role,
+        },
+      };
+    }
+    return { heldByChecker: false, holderLabel: rawHolder, matchedCheckerUser: null };
+  }
+
+  return { heldByChecker: true, holderLabel: rawHolder, matchedCheckerUser: null };
+}
+
+export function canUserEditShipmentRecord(
+  shipment: Pick<Shipment, 'dokumenChecker' | 'createdBy'>,
+  user:
+    | {
+        username?: string | null;
+        nama?: string | null;
+        role: UserRole;
+        phasePermissions?: Partial<PhasePermissions> | null;
+      }
+    | null
+    | undefined,
+  users: Array<{ username: string; nama: string; role: UserRole }> = []
+): { allowed: boolean; reason: string } {
+  if (!user) {
+    return { allowed: false, reason: 'Sesi pengguna tidak ditemukan.' };
+  }
+
+  if (!canUserEditAnyPhase({ role: user.role, phasePermissions: user.phasePermissions })) {
+    return {
+      allowed: false,
+      reason: `Seluruh fase edit dinonaktifkan untuk akun Anda (${user.role}).`,
+    };
+  }
+
+  const holder = getShipmentCheckerHolder(shipment, users);
+  if (holder.heldByChecker) {
+    if (user.role === 'Manajer') {
+      return { allowed: true, reason: '' };
+    }
+    if (isCheckerRole(user.role) && doesUserMatchCheckerName(user, holder.holderLabel)) {
+      return { allowed: true, reason: '' };
+    }
+    return {
+      allowed: false,
+      reason: `Terkunci: Dokumen dipegang atas nama Checker "${holder.holderLabel}". Hanya Checker bersangkutan atau Manajer yang dapat mengedit.`,
+    };
+  }
+
+  if (isCheckerRole(user.role) && !isShipmentVisibleToUser(shipment, user)) {
+    return {
+      allowed: false,
+      reason: 'Akses ditolak: Dokumen ini bukan atas nama akun Checker Anda.',
+    };
+  }
+
+  return { allowed: true, reason: '' };
 }
 
 /**

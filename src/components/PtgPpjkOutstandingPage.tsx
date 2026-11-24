@@ -8,6 +8,7 @@ import {
   Edit3,
   FileSpreadsheet,
   Flame,
+  Lock,
   Plus,
   Search,
   Trash2,
@@ -17,6 +18,7 @@ import { usePtgD1Sync } from '../hooks/usePtgD1Sync';
 import {
   D1_STATUS_OPTIONS,
   filterD1Shipments,
+  type D1ImporterSummaryRow,
   type D1ShipmentFilter,
   type D1ShipmentRecord,
 } from '../utils/d1Contract';
@@ -24,7 +26,16 @@ import {
   exportLocalShipmentsToCsv,
   exportShipmentsFromD1ToCsv,
 } from '../utils/exportShipmentsToCsv';
-import { formatRupiah, getJalurBadgeStyle, getStatusBadgeClass } from '../utils/ppjkLogic';
+import type { SessionUser, UserAccount } from '../types/ppjk';
+import {
+  canUserEditShipmentRecord,
+  formatRupiah,
+  getCleanCheckerDisplayName,
+  getJalurBadgeStyle,
+  getStatusBadgeClass,
+  isCheckerRole,
+  isShipmentVisibleToUser,
+} from '../utils/ppjkLogic';
 import { useCardCollapse } from '../contexts/CardCollapseContext';
 import { useViewportMode } from '../contexts/ViewportModeContext';
 import { CardWindowToggleButton, ModuleCardBatchToggle } from './CardWindowControls';
@@ -38,7 +49,15 @@ const D1_MODULE_CARD_IDS = [
   'd1-shipments-table',
 ] as const;
 
-export function PtgPpjkOutstandingPage() {
+interface PtgPpjkOutstandingPageProps {
+  currentUser?: SessionUser | null;
+  users?: UserAccount[];
+}
+
+export function PtgPpjkOutstandingPage({
+  currentUser = null,
+  users = [],
+}: PtgPpjkOutstandingPageProps = {}) {
   const {
     shipments,
     importerSummary,
@@ -57,6 +76,52 @@ export function PtgPpjkOutstandingPage() {
   const { isCollapsed } = useCardCollapse();
   const { viewportMode } = useViewportMode();
   const isMobileMode = viewportMode === 'mobile';
+  const isCheckerAccount = Boolean(currentUser && isCheckerRole(currentUser.role));
+
+  const visibleShipments = useMemo(
+    () =>
+      isCheckerAccount && currentUser
+        ? shipments.filter((s) =>
+            isShipmentVisibleToUser({ dokumenChecker: s.checker_name, createdBy: '' }, currentUser)
+          )
+        : shipments,
+    [shipments, isCheckerAccount, currentUser]
+  );
+
+  const visibleImporterSummary = useMemo<D1ImporterSummaryRow[]>(() => {
+    if (!isCheckerAccount) return importerSummary;
+    const grouped = new Map<string, D1ImporterSummaryRow>();
+    for (const s of visibleShipments) {
+      const key = `${s.importer_code}||${s.importer_name}`;
+      const existing = grouped.get(key) || {
+        importer_code: s.importer_code,
+        importer_name: s.importer_name,
+        total_shipments: 0,
+        urgent_count: 0,
+        outstanding_count: 0,
+        ready_count: 0,
+        total_bm_pdri: 0,
+      };
+      existing.total_shipments += 1;
+      if (s.is_urgent === 1) existing.urgent_count += 1;
+      if (!s.sppb_date && s.status !== 'Selesai') existing.outstanding_count += 1;
+      if (s.doc_status === 'Ready' || s.status === 'Selesai') existing.ready_count += 1;
+      existing.total_bm_pdri += Number.isFinite(s.bm_pdri_amount) ? s.bm_pdri_amount : 0;
+      grouped.set(key, existing);
+    }
+    return Array.from(grouped.values()).sort((a, b) =>
+      a.importer_code.localeCompare(b.importer_code)
+    );
+  }, [isCheckerAccount, importerSummary, visibleShipments]);
+
+  const getD1RowEditAccess = (row: D1ShipmentRecord) =>
+    currentUser
+      ? canUserEditShipmentRecord(
+          { dokumenChecker: row.checker_name, createdBy: '' },
+          currentUser,
+          users
+        )
+      : { allowed: true, reason: '' };
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -80,25 +145,25 @@ export function PtgPpjkOutstandingPage() {
   );
 
   const filteredShipments = useMemo(
-    () => filterD1Shipments(shipments, activeFilter),
-    [shipments, activeFilter]
+    () => filterD1Shipments(visibleShipments, activeFilter),
+    [visibleShipments, activeFilter]
   );
 
   const metrics = useMemo(() => {
-    const total = shipments.length;
-    const urgent = shipments.filter((s) => s.is_urgent === 1).length;
-    const outstanding = shipments.filter(
+    const total = visibleShipments.length;
+    const urgent = visibleShipments.filter((s) => s.is_urgent === 1).length;
+    const outstanding = visibleShipments.filter(
       (s) => !s.sppb_date && s.status !== 'Selesai'
     ).length;
-    const readyOrSelesai = shipments.filter(
+    const readyOrSelesai = visibleShipments.filter(
       (s) => s.doc_status === 'Ready' || s.status === 'Selesai'
     ).length;
-    const totalBmPdri = shipments.reduce(
+    const totalBmPdri = visibleShipments.reduce(
       (acc, s) => acc + (Number.isFinite(s.bm_pdri_amount) ? s.bm_pdri_amount : 0),
       0
     );
     return { total, urgent, outstanding, readyOrSelesai, totalBmPdri };
-  }, [shipments]);
+  }, [visibleShipments]);
 
   const showFeedback = (type: 'success' | 'error', text: string) => {
     setToastFeedback({ type, text });
@@ -108,7 +173,7 @@ export function PtgPpjkOutstandingPage() {
   };
 
   const handleExportLocal = () => {
-    const res = exportLocalShipmentsToCsv(shipments, activeFilter);
+    const res = exportLocalShipmentsToCsv(visibleShipments, activeFilter);
     showFeedback(
       'success',
       `Ekspor CSV (Lokal IndexedDB) selesai: ${res.rowCount} baris diunduh (${res.filename}).`
@@ -136,6 +201,11 @@ export function PtgPpjkOutstandingPage() {
   };
 
   const handleDeleteRow = async (row: D1ShipmentRecord) => {
+    const access = getD1RowEditAccess(row);
+    if (!access.allowed) {
+      showFeedback('error', access.reason);
+      return;
+    }
     await deleteShipment(row.id);
     showFeedback(
       'success',
@@ -149,6 +219,11 @@ export function PtgPpjkOutstandingPage() {
   };
 
   const openEditModal = (row: D1ShipmentRecord) => {
+    const access = getD1RowEditAccess(row);
+    if (!access.allowed) {
+      showFeedback('error', access.reason);
+      return;
+    }
     setEditingRecord(row);
     setModalOpen(true);
   };
@@ -305,7 +380,7 @@ export function PtgPpjkOutstandingPage() {
                 {formatRupiah(metrics.totalBmPdri)}
               </div>
               <div className="mt-0.5 text-[11px] text-emerald-700/80 dark:text-emerald-300/80 tabular-nums">
-                {importerSummary.length} Importir aktif
+                {visibleImporterSummary.length} Importir aktif
               </div>
             </div>
           </div>
@@ -318,7 +393,7 @@ export function PtgPpjkOutstandingPage() {
           <div className="flex items-center gap-2 min-w-0">
             <Building2 className="w-4 h-4 text-[#0B2545] dark:text-violet-400 shrink-0" />
             <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200 truncate">
-              Rekap per Importir ({importerSummary.length})
+              Rekap per Importir ({visibleImporterSummary.length})
             </span>
           </div>
           <CardWindowToggleButton cardId="d1-importer-recap" label="Rekap per Importir" />
@@ -326,7 +401,7 @@ export function PtgPpjkOutstandingPage() {
 
         {!isCollapsed('d1-importer-recap') && (
           <div className="p-3.5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-            {importerSummary.map((imp) => {
+            {visibleImporterSummary.map((imp) => {
               const isSelected =
                 importerFilter.toUpperCase() === imp.importer_code.toUpperCase();
               return (
@@ -360,7 +435,7 @@ export function PtgPpjkOutstandingPage() {
                 </button>
               );
             })}
-            {importerSummary.length === 0 && (
+            {visibleImporterSummary.length === 0 && (
               <div className="col-span-full text-center py-4 text-xs text-slate-500 dark:text-slate-400">
                 Belum ada data importir.
               </div>
@@ -418,7 +493,7 @@ export function PtgPpjkOutstandingPage() {
                 className="h-9 px-3 rounded-xl border border-slate-200 dark:border-white/[0.1] bg-slate-50 dark:bg-[#0D111C] text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#F28C28] dark:focus:ring-violet-500"
               >
                 <option value="">Semua Importir</option>
-                {importerSummary.map((imp) => (
+                {visibleImporterSummary.map((imp) => (
                   <option key={imp.importer_code} value={imp.importer_code}>
                     {imp.importer_code} — {imp.importer_name}
                   </option>
@@ -564,28 +639,47 @@ export function PtgPpjkOutstandingPage() {
                         </td>
 
                         <td className="py-2.5 px-3 align-top text-right whitespace-nowrap">
-                          <div className="inline-flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              data-testid={`d1-edit-${row.os_code}`}
-                              onClick={() => openEditModal(row)}
-                              className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-200 dark:border-white/[0.1] bg-white dark:bg-white/[0.04] hover:bg-slate-100 dark:hover:bg-white/[0.1] text-[11px] font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
-                            >
-                              <Edit3 className="w-3 h-3" />
-                              <span>Edit</span>
-                            </button>
-                            <button
-                              type="button"
-                              data-testid={`d1-delete-${row.os_code}`}
-                              onClick={() => {
-                                void handleDeleteRow(row);
-                              }}
-                              aria-label={`Hapus ${row.os_code}`}
-                              className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/20 text-red-600 dark:text-red-300 cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                          {(() => {
+                            const rowAccess = getD1RowEditAccess(row);
+                            if (!rowAccess.allowed) {
+                              return (
+                                <button
+                                  type="button"
+                                  disabled
+                                  title={rowAccess.reason}
+                                  data-testid={`d1-locked-edit-${row.os_code}`}
+                                  className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-[11px] font-semibold text-amber-700 dark:text-amber-300 opacity-85 cursor-not-allowed"
+                                >
+                                  <Lock className="w-3 h-3" />
+                                  <span>Terkunci</span>
+                                </button>
+                              );
+                            }
+                            return (
+                              <div className="inline-flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  data-testid={`d1-edit-${row.os_code}`}
+                                  onClick={() => openEditModal(row)}
+                                  className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-200 dark:border-white/[0.1] bg-white dark:bg-white/[0.04] hover:bg-slate-100 dark:hover:bg-white/[0.1] text-[11px] font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                  <span>Edit</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  data-testid={`d1-delete-${row.os_code}`}
+                                  onClick={() => {
+                                    void handleDeleteRow(row);
+                                  }}
+                                  aria-label={`Hapus ${row.os_code}`}
+                                  className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/20 text-red-600 dark:text-red-300 cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            );
+                          })()}
                         </td>
                       </tr>
                     );
@@ -650,24 +744,44 @@ export function PtgPpjkOutstandingPage() {
                   </div>
 
                   <div className="pt-1 flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => openEditModal(row)}
-                      className="inline-flex items-center gap-1 h-8 px-3 rounded-lg border border-slate-200 dark:border-white/[0.1] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                      <span>Edit</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void handleDeleteRow(row);
-                      }}
-                      className="inline-flex items-center gap-1 h-8 px-3 rounded-lg border border-red-200 dark:border-red-500/30 text-xs font-semibold text-red-600 dark:text-red-300 cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Hapus</span>
-                    </button>
+                    {(() => {
+                      const rowAccess = getD1RowEditAccess(row);
+                      if (!rowAccess.allowed) {
+                        return (
+                          <button
+                            type="button"
+                            disabled
+                            title={rowAccess.reason}
+                            className="inline-flex items-center gap-1 h-8 px-3 rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-xs font-semibold text-amber-700 dark:text-amber-300 opacity-85 cursor-not-allowed"
+                          >
+                            <Lock className="w-3.5 h-3.5" />
+                            <span>Terkunci</span>
+                          </button>
+                        );
+                      }
+                      return (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(row)}
+                            className="inline-flex items-center gap-1 h-8 px-3 rounded-lg border border-slate-200 dark:border-white/[0.1] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void handleDeleteRow(row);
+                            }}
+                            className="inline-flex items-center gap-1 h-8 px-3 rounded-lg border border-red-200 dark:border-red-500/30 text-xs font-semibold text-red-600 dark:text-red-300 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Hapus</span>
+                          </button>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               ))}
@@ -684,6 +798,10 @@ export function PtgPpjkOutstandingPage() {
       {modalOpen && (
         <ShipmentFormModal
           initialRecord={editingRecord}
+          defaultCheckerName={
+            isCheckerAccount && currentUser ? getCleanCheckerDisplayName(currentUser.nama) : ''
+          }
+          lockCheckerName={isCheckerAccount}
           onClose={() => {
             setModalOpen(false);
             setEditingRecord(null);

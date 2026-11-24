@@ -17,13 +17,16 @@ import type {
   StatusDoPelayaranType,
   StatusGateOutType,
   StatusGatePassType,
+  UserAccount,
   UserRole,
 } from '../types/ppjk';
 import {
   calculateCountdownEta,
   canPerformAction,
   canUserEditPhase,
+  canUserEditShipmentRecord,
   createEmptyChecklist,
+  getCleanCheckerDisplayName,
   isCheckerRole,
   normalizeGatePassJenis,
   normalizeStatusDokumen,
@@ -48,6 +51,8 @@ interface ShipmentFormModalProps {
   userRole: UserRole;
   phasePermissions?: PhasePermissions;
   currentUsername: string;
+  userAccountUsername?: string;
+  users?: UserAccount[];
   googleDriveUserEmail?: string | null;
   driveConnecting?: boolean;
   onConnectGoogleDrive?: () => Promise<void>;
@@ -78,6 +83,8 @@ export function ShipmentFormModal({
   userRole,
   phasePermissions,
   currentUsername,
+  userAccountUsername = '',
+  users = [],
   googleDriveUserEmail,
   driveConnecting = false,
   onConnectGoogleDrive,
@@ -85,6 +92,19 @@ export function ShipmentFormModal({
   onSubmit,
 }: ShipmentFormModalProps) {
   const isNew = !initialShipment;
+  const checkerIsActor = isCheckerRole(userRole);
+  const recordEditAccess = initialShipment
+    ? canUserEditShipmentRecord(
+        initialShipment,
+        {
+          username: userAccountUsername,
+          nama: currentUsername,
+          role: userRole,
+          phasePermissions,
+        },
+        users
+      )
+    : { allowed: true, reason: '' };
   const [phase, setPhase] = useState<ShipmentPhase>(() => {
     if (isNew) return 1;
     const firstEditable = ([1, 2, 3, 4] as ShipmentPhase[]).find((p) =>
@@ -159,7 +179,9 @@ export function ShipmentFormModal({
       sptnp: 'Tidak',
       noSppb: '',
       tglSppb: '',
-      dokumenChecker: currentUsername,
+      dokumenChecker: checkerIsActor
+        ? getCleanCheckerDisplayName(currentUsername) || userAccountUsername || currentUsername
+        : currentUsername,
       noSptnp: '',
       tglSptnp: '',
       pfpb: '',
@@ -186,7 +208,7 @@ export function ShipmentFormModal({
   const [submitError, setSubmitError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const canUpload = canPerformAction(userRole, 'upload_dokumen');
+  const canUpload = canPerformAction(userRole, 'upload_dokumen') && recordEditAccess.allowed;
   const [uploadJenis, setUploadJenis] = useState(
     pengaturan.checklistItems[0] || 'Bill of Lading (BL)'
   );
@@ -300,6 +322,7 @@ export function ShipmentFormModal({
   };
 
   const canEditPhaseForForm = (p: ShipmentPhase) => {
+    if (!recordEditAccess.allowed) return false;
     if (isNew && isCheckerRole(userRole) && p === 2) {
       // Saat membuat shipment baru, Checker dapat mengisi data awal termasuk ETA (Fase 2)
       return true;
@@ -314,6 +337,9 @@ export function ShipmentFormModal({
   );
 
   const getLockBannerText = () => {
+    if (!recordEditAccess.allowed) {
+      return recordEditAccess.reason;
+    }
     const activeLabels = PHASE_META.filter((m) => canEditPhaseForForm(m.id)).map(
       (m) => m.label
     );
@@ -517,11 +543,16 @@ export function ShipmentFormModal({
                   <input
                     id="dokumenCheckerInput"
                     type="text"
-                    disabled={isPhaseLocked(1)}
+                    disabled={isPhaseLocked(1) || checkerIsActor}
                     value={form.dokumenChecker}
                     onChange={(e) => updateField('dokumenChecker', e.target.value)}
                     className={inputCls}
                   />
+                  {checkerIsActor && (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                      Terkunci otomatis atas nama akun Checker Anda sendiri.
+                    </p>
+                  )}
                 </div>
 
                 <div className="md:col-span-2">

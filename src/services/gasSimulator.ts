@@ -38,6 +38,7 @@ import {
   canPerformAction,
   canUserEditAnyPhase,
   canUserEditPhase,
+  canUserEditShipmentRecord,
   computeSha256Hex,
   createEmptyChecklist,
   DEFAULT_CHECKLIST_ITEMS,
@@ -45,6 +46,8 @@ import {
   formatContainerSummary,
   generateNextKodeOS,
   getAllowedFieldsForPermissions,
+  getCleanCheckerDisplayName,
+  isCheckerRole,
   isOwnerSuperAdmin,
   isShipmentBillingEligible,
   isShipmentOutstanding,
@@ -911,6 +914,8 @@ export async function ensureDbInitialized(): Promise<DatabaseState> {
       });
       changed = true;
     }
+    const pengaturanFlags = existing.pengaturan as unknown as Record<string, unknown>;
+    const needManagerEditMigration = !pengaturanFlags._managerCheckerEditV1;
     for (const u of existing.users) {
       if (
         !u.phasePermissions ||
@@ -921,7 +926,21 @@ export async function ensureDbInitialized(): Promise<DatabaseState> {
       ) {
         u.phasePermissions = resolveUserPhasePermissions(u.role, u.phasePermissions);
         changed = true;
+      } else if (
+        needManagerEditMigration &&
+        u.role === 'Manajer' &&
+        !u.phasePermissions.phase1 &&
+        !u.phasePermissions.phase2 &&
+        !u.phasePermissions.phase3 &&
+        !u.phasePermissions.phase4
+      ) {
+        u.phasePermissions = resolveUserPhasePermissions('Manajer');
+        changed = true;
       }
+    }
+    if (needManagerEditMigration) {
+      pengaturanFlags._managerCheckerEditV1 = true;
+      changed = true;
     }
     if (
       !existing.pengaturan.ownerWhatsapp ||
@@ -1270,10 +1289,27 @@ export async function saveShipmentRecord(
     merged.kodeOs = kodeOs;
     merged.createdAt = nowIso;
     merged.createdBy = activeUser.username;
+    if (isCheckerRole(activeUser.role)) {
+      merged.dokumenChecker = getCleanCheckerDisplayName(activeUser.nama) || activeUser.username;
+    }
   } else {
     const oldIdx = db.shipments.findIndex((s) => s.kodeOs === kodeOs);
     if (oldIdx === -1) throw new Error(`Shipment ${kodeOs} tidak ditemukan.`);
     const old = db.shipments[oldIdx];
+
+    const editAccess = canUserEditShipmentRecord(
+      old,
+      {
+        username: activeUser.username,
+        nama: activeUser.nama,
+        role: activeUser.role,
+        phasePermissions: activePerms,
+      },
+      db.users
+    );
+    if (!editAccess.allowed) {
+      throw new Error(editAccess.reason);
+    }
 
     // Server-side RBAC berdasarkan pengaturan toggle fase manual dari Admin per user:
     const allowedFields = getAllowedFieldsForPermissions(activePerms);
@@ -1282,6 +1318,9 @@ export async function saveShipmentRecord(
       (restrictedMerged as unknown as Record<string, unknown>)[field] = (
         merged as unknown as Record<string, unknown>
       )[field];
+    }
+    if (isCheckerRole(activeUser.role)) {
+      restrictedMerged.dokumenChecker = old.dokumenChecker;
     }
     merged = restrictedMerged;
     if (!activePerms.phase2) {
@@ -1404,6 +1443,19 @@ export async function updateShipmentStatusDokumen(
   if (idx === -1) throw new Error(`Shipment ${kodeOs} tidak ditemukan.`);
 
   const target = db.shipments[idx];
+  const editAccess = canUserEditShipmentRecord(
+    target,
+    {
+      username: activeUser.username,
+      nama: activeUser.nama,
+      role: activeUser.role,
+      phasePermissions: activePerms,
+    },
+    db.users
+  );
+  if (!editAccess.allowed) {
+    throw new Error(editAccess.reason);
+  }
   const oldVal = normalizeStatusDokumen(target.statusDokumen);
   const newVal = normalizeStatusDokumen(nextStatus);
   if (oldVal === newVal) return db;
@@ -1448,6 +1500,19 @@ export async function updateShipmentKodeManualDokOs(
   if (idx === -1) throw new Error(`Shipment ${kodeOs} tidak ditemukan.`);
 
   const target = db.shipments[idx];
+  const editAccess = canUserEditShipmentRecord(
+    target,
+    {
+      username: activeUser.username,
+      nama: activeUser.nama,
+      role: activeUser.role,
+      phasePermissions: activePerms,
+    },
+    db.users
+  );
+  if (!editAccess.allowed) {
+    throw new Error(editAccess.reason);
+  }
   const oldVal = (target.kodeManualDokOs || '').trim();
   const newVal = (kodeManualDokOs || '').trim();
   if (oldVal === newVal) return db;
@@ -1494,6 +1559,19 @@ export async function updateShipmentBc11(
   if (idx === -1) throw new Error(`Shipment ${kodeOs} tidak ditemukan.`);
 
   const target = db.shipments[idx];
+  const editAccess = canUserEditShipmentRecord(
+    target,
+    {
+      username: activeUser.username,
+      nama: activeUser.nama,
+      role: activeUser.role,
+      phasePermissions: activePerms,
+    },
+    db.users
+  );
+  if (!editAccess.allowed) {
+    throw new Error(editAccess.reason);
+  }
   const oldState = Boolean(target.bc11Terbit || target.noBc11?.trim() || target.tglBc11?.trim());
   const nextNo = noBc11 !== undefined ? noBc11.trim() : target.noBc11 || '';
   const nextTgl =
@@ -1570,6 +1648,19 @@ export async function updateShipmentDoPelayaran(
   if (idx === -1) throw new Error(`Shipment ${kodeOs} tidak ditemukan.`);
 
   const target = db.shipments[idx];
+  const editAccess = canUserEditShipmentRecord(
+    target,
+    {
+      username: activeUser.username,
+      nama: activeUser.nama,
+      role: activeUser.role,
+      phasePermissions: activePerms,
+    },
+    db.users
+  );
+  if (!editAccess.allowed) {
+    throw new Error(editAccess.reason);
+  }
   const oldDokStatus = normalizeStatusDokumen(target.statusDokumen);
   const nextDokStatus =
     payload.statusDokumen !== undefined && activePerms.phase1
@@ -1968,8 +2059,14 @@ export async function deleteShipmentRecord(
     throw new Error('Akses ditolak: Anda tidak diizinkan menghapus shipment.');
   }
   const db = await ensureDbInitialized();
-  assertSessionActive(db, session);
+  const activeUser = assertSessionActive(db, session);
   const target = db.shipments.find((s) => s.kodeOs === kodeOs);
+  if (target) {
+    const editAccess = canUserEditShipmentRecord(target, activeUser, db.users);
+    if (!editAccess.allowed) {
+      throw new Error(editAccess.reason);
+    }
+  }
   db.shipments = db.shipments.filter((s) => s.kodeOs !== kodeOs);
   db.kontainers = db.kontainers.filter((k) => k.kodeOs !== kodeOs);
   db.logs.unshift({
@@ -1994,7 +2091,14 @@ export async function addShipmentComment(
     throw new Error('Akses ditolak.');
   }
   const db = await ensureDbInitialized();
-  assertSessionActive(db, session);
+  const activeUser = assertSessionActive(db, session);
+  const target = db.shipments.find((s) => s.kodeOs === kodeOs);
+  if (target) {
+    const editAccess = canUserEditShipmentRecord(target, activeUser, db.users);
+    if (!editAccess.allowed) {
+      throw new Error(editAccess.reason);
+    }
+  }
   db.catatan.push({
     id: `cat_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     kodeOs,
@@ -2022,7 +2126,14 @@ export async function addShipmentDocument(
     throw new Error('Akses ditolak.');
   }
   const db = await ensureDbInitialized();
-  assertSessionActive(db, session);
+  const activeUser = assertSessionActive(db, session);
+  const target = db.shipments.find((s) => s.kodeOs === kodeOs);
+  if (target) {
+    const editAccess = canUserEditShipmentRecord(target, activeUser, db.users);
+    if (!editAccess.allowed) {
+      throw new Error(editAccess.reason);
+    }
+  }
   const nowIso = new Date().toISOString();
   const folderId = db.pengaturan.driveParentFolderId || 'PTG_PPJK_DOKUMEN_ROOT';
   const randSuffix = Math.random().toString(36).slice(2, 7);
@@ -2061,8 +2172,17 @@ export async function deleteShipmentDocument(
     throw new Error('Akses ditolak.');
   }
   const db = await ensureDbInitialized();
-  assertSessionActive(db, session);
+  const activeUser = assertSessionActive(db, session);
   const target = db.dokumen.find((d) => d.id === docId);
+  if (target) {
+    const targetShipment = db.shipments.find((s) => s.kodeOs === target.kodeOs);
+    if (targetShipment) {
+      const editAccess = canUserEditShipmentRecord(targetShipment, activeUser, db.users);
+      if (!editAccess.allowed) {
+        throw new Error(editAccess.reason);
+      }
+    }
+  }
   db.dokumen = db.dokumen.filter((d) => d.id !== docId);
   if (target) {
     const randSuffix = Math.random().toString(36).slice(2, 7);
@@ -2575,11 +2695,19 @@ export async function importShipmentsFromExcelBatch(
 
     if (existingIdx !== -1 && options.updateExisting) {
       const prev = db.shipments[existingIdx];
+      const editAccess = canUserEditShipmentRecord(prev, activeUser, db.users);
+      if (!editAccess.allowed) {
+        skippedCount++;
+        continue;
+      }
       kodeOs = prev.kodeOs;
       merged = {
         ...prev,
         ...item.shipment,
         kodeOs,
+        dokumenChecker: isCheckerRole(activeUser.role)
+          ? prev.dokumenChecker
+          : item.shipment.dokumenChecker || prev.dokumenChecker,
         terimaDok: prev.terimaDok || item.shipment.terimaDok,
         dokumenOs: prev.dokumenOs || item.shipment.dokumenOs,
         createdAt: prev.createdAt || nowIso,
@@ -2592,6 +2720,12 @@ export async function importShipmentsFromExcelBatch(
       merged = {
         ...item.shipment,
         kodeOs,
+        ...(isCheckerRole(activeUser.role)
+          ? {
+              dokumenChecker:
+                getCleanCheckerDisplayName(activeUser.nama) || activeUser.username,
+            }
+          : {}),
         createdAt: nowIso,
         createdBy: activeUser.username,
       };

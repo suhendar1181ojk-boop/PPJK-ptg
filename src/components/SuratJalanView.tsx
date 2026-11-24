@@ -4,6 +4,7 @@ import {
   ClipboardList,
   Download,
   FileText,
+  Lock,
   LogOut,
   MapPin,
   PackageCheck,
@@ -17,10 +18,12 @@ import type {
   PhasePermissions,
   Shipment,
   StatusSuratJalanType,
+  UserAccount,
   UserRole,
 } from '../types/ppjk';
 import {
   canUserEditPhase,
+  canUserEditShipmentRecord,
   computeDoReadinessSummary,
   generateSuratJalanNomor,
   isContainerGateOut,
@@ -39,6 +42,9 @@ interface SuratJalanViewProps {
   pengaturan?: Pengaturan;
   userRole: UserRole;
   phasePermissions?: PhasePermissions;
+  currentUserName?: string;
+  currentUserUsername?: string;
+  users?: UserAccount[];
   onOpenDetail: (kodeOs: string) => void;
   onOpenBilling?: (kodeOs: string, tab?: 'owner' | 'customer') => void;
   onUpdateDoPelayaran: (
@@ -62,6 +68,9 @@ export function SuratJalanView({
   pengaturan,
   userRole,
   phasePermissions,
+  currentUserName = '',
+  currentUserUsername = '',
+  users = [],
   onOpenDetail,
   onOpenBilling,
   onUpdateDoPelayaran,
@@ -73,6 +82,18 @@ export function SuratJalanView({
   const { isCollapsed } = useCardCollapse();
 
   const canEditPhase2 = canUserEditPhase({ role: userRole, phasePermissions }, 2);
+  const getRowEditAccess = (s: Shipment) =>
+    canUserEditShipmentRecord(
+      s,
+      {
+        username: currentUserUsername,
+        nama: currentUserName,
+        role: userRole,
+        phasePermissions,
+      },
+      users
+    );
+  const canEditRowPhase2 = (s: Shipment) => canEditPhase2 && getRowEditAccess(s).allowed;
   const summary = useMemo(() => computeDoReadinessSummary(shipments), [shipments]);
 
   const issuedShipments = useMemo(() => {
@@ -326,7 +347,9 @@ export function SuratJalanView({
           </div>
           {!readyPanelCollapsed && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-              {pendingGateOutShipments.map((s) => (
+              {pendingGateOutShipments.map((s) => {
+                const rowAccess = getRowEditAccess(s);
+                return (
                 <div
                   key={s.kodeOs}
                   className="p-3 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
@@ -345,21 +368,34 @@ export function SuratJalanView({
                       Cont: {s.noCont || '-'} · Supir: {s.truckingNamaSupir || '-'} ({s.truckingNoPlat || '-'})
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    disabled={processingKodeOs === s.kodeOs}
-                    onClick={() => void handleMarkGateOutAndOpenSj(s)}
-                    className="shrink-0 w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer disabled:opacity-60"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>
-                      {processingKodeOs === s.kodeOs
-                        ? 'Memproses...'
-                        : 'Gate-Out & Buat SJ'}
-                    </span>
-                  </button>
+                  {rowAccess.allowed ? (
+                    <button
+                      type="button"
+                      disabled={processingKodeOs === s.kodeOs}
+                      onClick={() => void handleMarkGateOutAndOpenSj(s)}
+                      className="shrink-0 w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer disabled:opacity-60"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>
+                        {processingKodeOs === s.kodeOs
+                          ? 'Memproses...'
+                          : 'Gate-Out & Buat SJ'}
+                      </span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled
+                      title={rowAccess.reason}
+                      className="shrink-0 w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs font-semibold cursor-not-allowed opacity-85"
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                      <span>Terkunci</span>
+                    </button>
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -546,7 +582,7 @@ export function SuratJalanView({
                           gateOutStatus="Sudah"
                           shipmentStatus={s.status}
                           onToggle={
-                            canEditPhase2
+                            canEditRowPhase2(s)
                               ? (next) =>
                                   void onUpdateDoPelayaran(s.kodeOs, {
                                     suratJalanStatus: next,
@@ -649,7 +685,7 @@ export function SuratJalanView({
                         gateOutStatus="Sudah"
                         shipmentStatus={s.status}
                         onToggle={
-                          canEditPhase2
+                          canEditRowPhase2(s)
                             ? (next) =>
                                 void onUpdateDoPelayaran(s.kodeOs, {
                                   suratJalanStatus: next,
@@ -705,7 +741,7 @@ export function SuratJalanView({
         <SuratJalanModal
           shipment={modalShipment}
           pengaturan={pengaturan}
-          canEdit={canEditPhase2}
+          canEdit={canEditRowPhase2(modalShipment)}
           onClose={() => setActiveSjKodeOs(null)}
           onOpenBilling={onOpenBilling}
           onSaveSuratJalan={async (kodeOs, payload) => {

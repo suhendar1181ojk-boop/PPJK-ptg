@@ -7,6 +7,7 @@ import {
   FileSpreadsheet,
   FileText,
   FolderCheck,
+  Lock,
   Printer,
   RotateCcw,
   Search,
@@ -19,14 +20,17 @@ import type {
   PhasePermissions,
   Shipment,
   StatusDokumenType,
+  UserAccount,
   UserRole,
 } from '../types/ppjk';
 import {
   canUserEditAnyPhase,
   canUserEditPhase,
+  canUserEditShipmentRecord,
   computeCheckerSummaries,
   getShipmentProcessSignal,
   getStatusBadgeClass,
+  isCheckerRole,
   isUrgentMissingAju,
   normalizeStatusDokumen,
 } from '../utils/ppjkLogic';
@@ -51,6 +55,9 @@ interface CheckerSummaryViewProps {
   checklistItems: string[];
   userRole: UserRole;
   phasePermissions?: PhasePermissions;
+  currentUserName?: string;
+  currentUserUsername?: string;
+  users?: UserAccount[];
   onOpenDetail: (kodeOs: string) => void;
   onEditShipment: (kodeOs: string) => void;
   onOpenCheckerInTable: (checkerName: string) => void;
@@ -92,6 +99,9 @@ export function CheckerSummaryView({
   checklistItems,
   userRole,
   phasePermissions,
+  currentUserName = '',
+  currentUserUsername = '',
+  users = [],
   onOpenDetail,
   onEditShipment,
   onOpenCheckerInTable,
@@ -168,6 +178,17 @@ export function CheckerSummaryView({
 
   const canEdit = canUserEditAnyPhase({ role: userRole, phasePermissions });
   const canEditPhase1 = canUserEditPhase({ role: userRole, phasePermissions }, 1);
+  const getRowEditAccess = (s: Shipment) =>
+    canUserEditShipmentRecord(
+      s,
+      {
+        username: currentUserUsername,
+        nama: currentUserName,
+        role: userRole,
+        phasePermissions,
+      },
+      users
+    );
   const overallCompletion =
     summary.totalDocuments > 0
       ? Math.round((summary.totalCompleted / summary.totalDocuments) * 100)
@@ -197,6 +218,18 @@ export function CheckerSummaryView({
           Dicetak: {new Date().toLocaleString('id-ID')} · Total Dokumen: {summary.totalDocuments} · Total Checker: {summary.totalCheckers}
         </p>
       </div>
+
+      {isCheckerRole(userRole) && (
+        <div
+          data-testid="checker-isolation-banner"
+          className="rounded-xl border border-violet-200 dark:border-violet-500/35 bg-violet-50/80 dark:bg-violet-500/10 px-4 py-2.5 text-xs text-violet-900 dark:text-violet-200 flex items-center gap-2 no-print"
+        >
+          <UserCheck className="w-4 h-4 shrink-0" />
+          <span>
+            Mode Tampilan Checker: Hanya menampilkan dokumen yang dipegang atas nama akun Anda sendiri ({currentUserName || currentUserUsername}).
+          </span>
+        </div>
+      )}
 
       {/* SECTION 1: REKAPAN SUMMARY SEMUA STATUS PADA SEMUA DOKUMEN */}
       <section
@@ -798,6 +831,7 @@ export function CheckerSummaryView({
                     {activeCheckerShipments.map((s) => {
                       const urgent = isUrgentMissingAju(s);
                       const sig = getShipmentProcessSignal(s);
+                      const rowEditAccess = getRowEditAccess(s);
                       return (
                         <tr
                           key={s.kodeOs}
@@ -832,7 +866,7 @@ export function CheckerSummaryView({
                             <StatusDokumenBadge
                               statusDokumen={s.statusDokumen}
                               onToggle={
-                                canEditPhase1 && onUpdateStatusDokumen
+                                canEditPhase1 && rowEditAccess.allowed && onUpdateStatusDokumen
                                   ? (next) => void onUpdateStatusDokumen(s.kodeOs, next)
                                   : undefined
                               }
@@ -856,7 +890,7 @@ export function CheckerSummaryView({
                               >
                                 Detail
                               </button>
-                              {canEdit && (
+                              {canEdit && rowEditAccess.allowed ? (
                                 <button
                                   type="button"
                                   onClick={() => onEditShipment(s.kodeOs)}
@@ -864,7 +898,18 @@ export function CheckerSummaryView({
                                 >
                                   Edit
                                 </button>
-                              )}
+                              ) : !rowEditAccess.allowed ? (
+                                <button
+                                  type="button"
+                                  disabled
+                                  title={rowEditAccess.reason}
+                                  data-testid={`checker-locked-edit-${s.kodeOs}`}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-[11px] font-semibold text-amber-700 dark:text-amber-300 cursor-not-allowed opacity-85"
+                                >
+                                  <Lock className="w-3 h-3" />
+                                  <span>Terkunci</span>
+                                </button>
+                              ) : null}
                             </div>
                           </td>
                         </tr>
@@ -876,7 +921,9 @@ export function CheckerSummaryView({
 
               {/* Mobile Cards */}
               <div className="md:hidden space-y-2.5">
-                {activeCheckerShipments.map((s) => (
+                {activeCheckerShipments.map((s) => {
+                  const rowEditAccess = getRowEditAccess(s);
+                  return (
                   <div
                     key={s.kodeOs}
                     className="p-3.5 rounded-xl border border-slate-200 dark:border-white/[0.08] bg-slate-50/70 dark:bg-[#161D2F] space-y-2"
@@ -901,7 +948,7 @@ export function CheckerSummaryView({
                       <StatusDokumenBadge
                         statusDokumen={s.statusDokumen}
                         onToggle={
-                          canEditPhase1 && onUpdateStatusDokumen
+                          canEditPhase1 && rowEditAccess.allowed && onUpdateStatusDokumen
                             ? (next) => void onUpdateStatusDokumen(s.kodeOs, next)
                             : undefined
                         }
@@ -917,7 +964,7 @@ export function CheckerSummaryView({
                       >
                         Lihat 39 Kolom
                       </button>
-                      {canEdit && (
+                      {canEdit && rowEditAccess.allowed ? (
                         <button
                           type="button"
                           onClick={() => onEditShipment(s.kodeOs)}
@@ -925,10 +972,21 @@ export function CheckerSummaryView({
                         >
                           Edit
                         </button>
-                      )}
+                      ) : !rowEditAccess.allowed ? (
+                        <button
+                          type="button"
+                          disabled
+                          title={rowEditAccess.reason}
+                          className="flex-1 min-h-[40px] inline-flex items-center justify-center gap-1 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-xs font-semibold text-amber-700 dark:text-amber-300 cursor-not-allowed opacity-85"
+                        >
+                          <Lock className="w-3.5 h-3.5" />
+                          <span>Terkunci</span>
+                        </button>
+                      ) : null}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           )

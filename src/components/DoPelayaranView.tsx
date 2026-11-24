@@ -10,6 +10,7 @@ import {
   FileCheck2,
   FileSpreadsheet,
   IdCard,
+  Lock,
   LogOut,
   Pencil,
   Phone,
@@ -34,11 +35,13 @@ import type {
   StatusGateOutType,
   StatusGatePassType,
   StatusSuratJalanType,
+  UserAccount,
   UserRole,
 } from '../types/ppjk';
 import {
   calculateCountdownEta,
   canUserEditPhase,
+  canUserEditShipmentRecord,
   computeDoReadinessSummary,
   createEmptyChecklist,
   DEFAULT_CHECKLIST_ITEMS,
@@ -46,6 +49,8 @@ import {
   filterDoShipments,
   formatContainerSummary,
   generateSuratJalanNomor,
+  getCleanCheckerDisplayName,
+  isCheckerRole,
   isContainerGateOut,
   isShipmentBillingEligible,
   isSppbReadyForGateOut,
@@ -82,6 +87,8 @@ interface DoPelayaranViewProps {
   checklistItems?: string[];
   pengaturan?: Pengaturan;
   currentUsername?: string;
+  currentUserUsername?: string;
+  users?: UserAccount[];
   userRole: UserRole;
   phasePermissions?: PhasePermissions;
   canCreateShipment?: boolean;
@@ -129,6 +136,8 @@ export function DoPelayaranView({
   checklistItems = DEFAULT_CHECKLIST_ITEMS,
   pengaturan,
   currentUsername = '',
+  currentUserUsername = '',
+  users = [],
   userRole,
   phasePermissions,
   canCreateShipment = false,
@@ -202,6 +211,15 @@ export function DoPelayaranView({
   const canCreateFromDo = Boolean(canCreateShipment && onCreateShipmentFromDo);
   const { isCollapsed } = useCardCollapse();
 
+  const getRowEditAccess = (s: Shipment) =>
+    canUserEditShipmentRecord(
+      s,
+      { nama: currentUsername, username: currentUserUsername, role: userRole },
+      users
+    );
+  const canEditRowPhase1 = (s: Shipment) => canEditPhase1 && getRowEditAccess(s).allowed;
+  const canEditRowPhase2 = (s: Shipment) => canEditPhase2 && getRowEditAccess(s).allowed;
+
   const doModuleCardIds = useMemo(
     () => [
       'do-kpi-total',
@@ -253,6 +271,9 @@ export function DoPelayaranView({
   const pickableShipments = useMemo(() => {
     const q = pickSearch.trim().toLowerCase();
     return shipments.filter((s) => {
+      if (!canUserEditShipmentRecord(s, { nama: currentUsername, username: currentUserUsername, role: userRole }, users).allowed) {
+        return false;
+      }
       const dok = normalizeStatusDokumen(s.statusDokumen);
       if (pickDokFilter && dok !== pickDokFilter) return false;
       if (!q) return true;
@@ -261,9 +282,10 @@ export function DoPelayaranView({
         .toLowerCase()
         .includes(q);
     });
-  }, [shipments, pickSearch, pickDokFilter]);
+  }, [shipments, pickSearch, pickDokFilter, currentUsername, currentUserUsername, userRole, users]);
 
   const openEditor = (s: Shipment) => {
+    if (!getRowEditAccess(s).allowed) return;
     const currentGateOut = normalizeStatusGateOut(s.gateOutStatus, s.status);
     setEditingShipment(s);
     setEditStatusDokumen(normalizeStatusDokumen(s.statusDokumen));
@@ -434,7 +456,9 @@ export function DoPelayaranView({
       sptnp: 'Tidak',
       noSppb: '',
       tglSppb: '',
-      dokumenChecker: currentUsername,
+      dokumenChecker: isCheckerRole(userRole)
+        ? getCleanCheckerDisplayName(currentUsername) || currentUserUsername || currentUsername
+        : currentUsername,
       noSptnp: '',
       tglSptnp: '',
       pfpb: '',
@@ -1071,6 +1095,9 @@ export function DoPelayaranView({
                   const gateOutStatus = normalizeStatusGateOut(s.gateOutStatus, s.status);
                   const hasSppb = isSppbReadyForGateOut(s);
                   const sppbWaitingDo = hasSppb && doStatus === 'Belum' && s.status !== 'Selesai';
+                  const rowEditAccess = getRowEditAccess(s);
+                  const rowCanEditPhase1 = canEditPhase1 && rowEditAccess.allowed;
+                  const rowCanEditPhase2 = canEditPhase2 && rowEditAccess.allowed;
                   return (
                     <tr
                       key={s.kodeOs}
@@ -1092,7 +1119,7 @@ export function DoPelayaranView({
                           <StatusDokumenBadge
                             statusDokumen={dokStatus}
                             onToggle={
-                              canEditPhase1 && onUpdateStatusDokumen
+                              rowCanEditPhase1 && onUpdateStatusDokumen
                                 ? (next) => void onUpdateStatusDokumen(s.kodeOs, next)
                                 : undefined
                             }
@@ -1133,7 +1160,7 @@ export function DoPelayaranView({
                           <StatusDoBadge
                             statusDo={doStatus}
                             onToggle={
-                              canEditPhase2
+                              rowCanEditPhase2
                                 ? (next) =>
                                     void onUpdateDoPelayaran(s.kodeOs, {
                                       doPelayaranStatus: next,
@@ -1171,7 +1198,7 @@ export function DoPelayaranView({
                           <StatusGatePassBadge
                             statusGatePass={gatePassStatus}
                             onToggle={
-                              canEditPhase2
+                              rowCanEditPhase2
                                 ? (next) =>
                                     void onUpdateDoPelayaran(s.kodeOs, {
                                       doGatePassStatus: next,
@@ -1196,7 +1223,7 @@ export function DoPelayaranView({
                           <StatusTruckingBadge
                             statusTrucking={truckingStatus}
                             onToggle={
-                              canEditPhase2
+                              rowCanEditPhase2
                                 ? (next) =>
                                     void onUpdateDoPelayaran(s.kodeOs, {
                                       truckingStatus: next,
@@ -1233,7 +1260,7 @@ export function DoPelayaranView({
                             gateOutStatus={gateOutStatus}
                             shipmentStatus={s.status}
                             onToggle={
-                              canEditPhase2
+                              rowCanEditPhase2
                                 ? async (next) => {
                                     await onUpdateDoPelayaran(s.kodeOs, {
                                       gateOutStatus: next,
@@ -1262,7 +1289,7 @@ export function DoPelayaranView({
                                 gateOutStatus={gateOutStatus}
                                 shipmentStatus={s.status}
                                 onToggle={
-                                  canEditPhase2
+                                  rowCanEditPhase2
                                     ? (nextSj) =>
                                         void onUpdateDoPelayaran(s.kodeOs, {
                                           suratJalanStatus: nextSj,
@@ -1297,7 +1324,7 @@ export function DoPelayaranView({
                             />
                           )}
                           <div className="inline-flex items-center gap-1">
-                            {canEditPhase2 && (
+                            {rowCanEditPhase2 ? (
                               <button
                                 type="button"
                                 onClick={() => openEditor(s)}
@@ -1306,7 +1333,16 @@ export function DoPelayaranView({
                                 <Pencil className="w-3 h-3" />
                                 <span>Atur D/O</span>
                               </button>
-                            )}
+                            ) : canEditPhase2 && !rowEditAccess.allowed ? (
+                              <span
+                                title={rowEditAccess.reason}
+                                data-testid={`do-locked-${s.kodeOs}`}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-[11px] font-semibold text-amber-700 dark:text-amber-300"
+                              >
+                                <Lock className="w-3 h-3" />
+                                <span>Terkunci</span>
+                              </span>
+                            ) : null}
                             <button
                               type="button"
                               onClick={() => onOpenDetail(s.kodeOs)}
@@ -1338,6 +1374,9 @@ export function DoPelayaranView({
               const gateOutStatus = normalizeStatusGateOut(s.gateOutStatus, s.status);
               const mobCardId = `do-mobile-${s.kodeOs}`;
               const mobCollapsed = isCollapsed(mobCardId);
+              const rowEditAccess = getRowEditAccess(s);
+              const rowCanEditPhase1 = canEditPhase1 && rowEditAccess.allowed;
+              const rowCanEditPhase2 = canEditPhase2 && rowEditAccess.allowed;
               return (
                 <div
                   key={s.kodeOs}
@@ -1354,7 +1393,7 @@ export function DoPelayaranView({
                           <StatusDokumenBadge
                             statusDokumen={dokStatus}
                             onToggle={
-                              canEditPhase1 && onUpdateStatusDokumen
+                              rowCanEditPhase1 && onUpdateStatusDokumen
                                 ? (next) => void onUpdateStatusDokumen(s.kodeOs, next)
                                 : undefined
                             }
@@ -1372,7 +1411,7 @@ export function DoPelayaranView({
                       <StatusDoBadge
                         statusDo={doStatus}
                         onToggle={
-                          canEditPhase2
+                          rowCanEditPhase2
                             ? (next) =>
                                 void onUpdateDoPelayaran(s.kodeOs, {
                                   doPelayaranStatus: next,
@@ -1415,7 +1454,7 @@ export function DoPelayaranView({
                           <StatusGatePassBadge
                             statusGatePass={gatePassStatus}
                             onToggle={
-                              canEditPhase2
+                              rowCanEditPhase2
                                 ? (next) =>
                                     void onUpdateDoPelayaran(s.kodeOs, {
                                       doGatePassStatus: next,
@@ -1440,7 +1479,7 @@ export function DoPelayaranView({
                           <StatusTruckingBadge
                             statusTrucking={truckingStatus}
                             onToggle={
-                              canEditPhase2
+                              rowCanEditPhase2
                                 ? (next) =>
                                     void onUpdateDoPelayaran(s.kodeOs, {
                                       truckingStatus: next,
@@ -1475,7 +1514,7 @@ export function DoPelayaranView({
                             gateOutStatus={gateOutStatus}
                             shipmentStatus={s.status}
                             onToggle={
-                              canEditPhase2
+                              rowCanEditPhase2
                                 ? async (next) => {
                                     await onUpdateDoPelayaran(s.kodeOs, {
                                       gateOutStatus: next,
@@ -1518,7 +1557,7 @@ export function DoPelayaranView({
                             gateOutStatus={gateOutStatus}
                             shipmentStatus={s.status}
                             onToggle={
-                              canEditPhase2
+                              rowCanEditPhase2
                                 ? (nextSj) =>
                                     void onUpdateDoPelayaran(s.kodeOs, {
                                       suratJalanStatus: nextSj,
@@ -1539,7 +1578,7 @@ export function DoPelayaranView({
                     </div>
                   </div>
 
-                  {canEditPhase2 && (
+                  {rowCanEditPhase2 ? (
                     <div
                       className="flex flex-wrap justify-end gap-2 pt-1"
                       onClick={(e) => e.stopPropagation()}
@@ -1562,7 +1601,20 @@ export function DoPelayaranView({
                         Atur D/O, TILA &amp; Gate-Out
                       </button>
                     </div>
-                  )}
+                  ) : canEditPhase2 && !rowEditAccess.allowed ? (
+                    <div
+                      className="flex flex-wrap justify-end gap-2 pt-1"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <span
+                        title={rowEditAccess.reason}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-[11px] font-semibold text-amber-700 dark:text-amber-300"
+                      >
+                        <Lock className="w-3 h-3" />
+                        <span>Terkunci (Checker)</span>
+                      </span>
+                    </div>
+                  ) : null}
                     </>
                   )}
                 </div>
@@ -2578,7 +2630,7 @@ export function DoPelayaranView({
           <SuratJalanModal
             shipment={sjShipment}
             pengaturan={pengaturan}
-            canEdit={canEditPhase2}
+            canEdit={canEditRowPhase2(sjShipment)}
             onClose={() => setActiveSjKodeOs(null)}
             onOpenBilling={onOpenBilling}
             onSaveSuratJalan={async (kodeOs, sjPayload) => {

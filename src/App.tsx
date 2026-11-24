@@ -148,8 +148,10 @@ import {
 } from './utils/gasWebAppLogic';
 import {
   canPerformAction,
+  canUserEditShipmentRecord,
   computeBillingSummary,
   filterShipments,
+  filterShipmentsVisibleToUser,
   getFirstAccessibleModule,
   getPpjkIdentity,
   getShipmentProcessSignal,
@@ -437,19 +439,25 @@ export default function App() {
 
   const searchMatches = useMemo(() => {
     if (!db || !globalSearch.trim()) return [];
+    const scopedShipments = session
+      ? filterShipmentsVisibleToUser(db.shipments, session)
+      : db.shipments;
     return filterShipments(
-      db.shipments,
+      scopedShipments,
       { mode: 'all', search: globalSearch.trim() },
       db.pengaturan.checklistItems
     ).slice(0, 6);
-  }, [db, globalSearch]);
+  }, [db, session, globalSearch]);
 
   const urgentAlerts = useMemo(() => {
     if (!db) return [];
-    return db.shipments.filter(
+    const scopedShipments = session
+      ? filterShipmentsVisibleToUser(db.shipments, session)
+      : db.shipments;
+    return scopedShipments.filter(
       (s) => getShipmentProcessSignal(s).active || isUrgentMissingAju(s)
     );
-  }, [db]);
+  }, [db, session]);
 
   const formatSyncClock = (iso: string | null): string => {
     if (!iso) return '-';
@@ -789,8 +797,20 @@ export default function App() {
   };
 
   const openEditForm = (kodeOs: string) => {
-    if (!db) return;
+    if (!db || !session) return;
     const found = db.shipments.find((s) => s.kodeOs === kodeOs) || null;
+    if (!found) return;
+    const editAccess = canUserEditShipmentRecord(found, session, db.users);
+    if (!editAccess.allowed) {
+      void Swal.fire({
+        title: 'Akses Edit Terkunci',
+        text: editAccess.reason,
+        icon: 'warning',
+        background: darkMode ? '#131926' : '#ffffff',
+        color: darkMode ? '#f1f5f9' : '#0f172a',
+      });
+      return;
+    }
     const conts = db.kontainers.filter((c) => c.kodeOs === kodeOs);
     setDetailKodeOs(null);
     setFormState({ open: true, shipment: found, containers: conts });
@@ -2136,7 +2156,23 @@ export default function App() {
     isNew: boolean,
     pendingUploads: PendingUploadFile[] = []
   ) => {
-    if (!session) return;
+    if (!session || !db) return;
+    if (!isNew) {
+      const existing = db.shipments.find((s) => s.kodeOs === shipment.kodeOs);
+      if (existing) {
+        const editAccess = canUserEditShipmentRecord(existing, session, db.users);
+        if (!editAccess.allowed) {
+          await Swal.fire({
+            title: 'Akses Edit Terkunci',
+            text: editAccess.reason,
+            icon: 'warning',
+            background: darkMode ? '#131926' : '#ffffff',
+            color: darkMode ? '#f1f5f9' : '#0f172a',
+          });
+          return;
+        }
+      }
+    }
     const res = await saveShipmentRecord(session, shipment, containers, isNew);
     let latestDb = res.db;
     let driveUploadedCount = 0;
@@ -2846,14 +2882,15 @@ export default function App() {
   }
 
   const ppjkIdentity = getPpjkIdentity(db.pengaturan);
-  const outstandingCount = db.shipments.filter((s) =>
+  const visibleShipments = filterShipmentsVisibleToUser(db.shipments, session);
+  const outstandingCount = visibleShipments.filter((s) =>
     isShipmentOutstanding(s, db.pengaturan.checklistItems)
   ).length;
-  const doBelumCount = db.shipments.filter(
+  const doBelumCount = visibleShipments.filter(
     (s) => normalizeStatusDoPelayaran(s.doPelayaranStatus) === 'Belum'
   ).length;
-  const suratJalanCount = db.shipments.filter(isContainerGateOut).length;
-  const billingSummary = computeBillingSummary(db.shipments);
+  const suratJalanCount = visibleShipments.filter(isContainerGateOut).length;
+  const billingSummary = computeBillingSummary(visibleShipments);
   const pendingBillingCount =
     billingSummary.siapInfoOwnerCount + billingSummary.ownerNotifiedCount;
   const opsExpenseMissingProofCount = (db.pengeluaranOps || []).filter(
@@ -2881,10 +2918,10 @@ export default function App() {
     : firstAllowedModule;
 
   const detailShipment = detailKodeOs
-    ? db.shipments.find((s) => s.kodeOs === detailKodeOs) || null
+    ? visibleShipments.find((s) => s.kodeOs === detailKodeOs) || null
     : null;
   const billingModalShipment = billingModalState
-    ? db.shipments.find((s) => s.kodeOs === billingModalState.kodeOs) || null
+    ? visibleShipments.find((s) => s.kodeOs === billingModalState.kodeOs) || null
     : null;
 
   const userInitials = session.nama
@@ -3305,7 +3342,7 @@ export default function App() {
 
           {effectiveView === 'dashboard' && (
             <DashboardView
-              shipments={db.shipments}
+              shipments={visibleShipments}
               logs={db.logs}
               statusList={db.pengaturan.statusList}
               checklistItems={db.pengaturan.checklistItems}
@@ -3331,10 +3368,13 @@ export default function App() {
 
           {effectiveView === 'checker' && (
             <CheckerSummaryView
-              shipments={db.shipments}
+              shipments={visibleShipments}
               statusList={db.pengaturan.statusList}
               checklistItems={db.pengaturan.checklistItems}
               userRole={session.role}
+              currentUserName={session.nama}
+              currentUserUsername={session.username}
+              users={db.users}
               phasePermissions={session.phasePermissions}
               initialCheckerName={selectedRecapChecker}
               onOpenDetail={(kodeOs) => setDetailKodeOs(kodeOs)}
@@ -3349,11 +3389,13 @@ export default function App() {
 
           {effectiveView === 'do' && (
             <DoPelayaranView
-              shipments={db.shipments}
+              shipments={visibleShipments}
               customers={db.customers}
               checklistItems={db.pengaturan.checklistItems}
               pengaturan={db.pengaturan}
               currentUsername={session.nama}
+              currentUserUsername={session.username}
+              users={db.users}
               userRole={session.role}
               phasePermissions={session.phasePermissions}
               canCreateShipment={canCreate}
@@ -3367,9 +3409,12 @@ export default function App() {
 
           {effectiveView === 'surat-jalan' && (
             <SuratJalanView
-              shipments={db.shipments}
+              shipments={visibleShipments}
               pengaturan={db.pengaturan}
               userRole={session.role}
+              currentUserName={session.nama}
+              currentUserUsername={session.username}
+              users={db.users}
               phasePermissions={session.phasePermissions}
               onOpenDetail={(kodeOs) => setDetailKodeOs(kodeOs)}
               onOpenBilling={(kodeOs, tab = 'owner') => setBillingModalState({ kodeOs, tab })}
@@ -3379,7 +3424,7 @@ export default function App() {
 
           {effectiveView === 'penagihan' && (
             <PenagihanView
-              shipments={db.shipments}
+              shipments={visibleShipments}
               customers={db.customers}
               pengaturan={db.pengaturan}
               userRole={session.role}
@@ -3391,7 +3436,7 @@ export default function App() {
           {effectiveView === 'keuangan-ops' && (
             <KeuanganOpsView
               items={db.pengeluaranOps || []}
-              shipments={db.shipments}
+              shipments={visibleShipments}
               users={db.users}
               pengaturan={db.pengaturan}
               session={session}
@@ -3405,7 +3450,7 @@ export default function App() {
 
           {effectiveView === 'report-nopen' && (
             <NopenReportView
-              shipments={db.shipments}
+              shipments={visibleShipments}
               importirs={db.importirs}
               statusList={db.pengaturan.statusList}
               jalurList={db.pengaturan.jalurList}
@@ -3414,12 +3459,14 @@ export default function App() {
             />
           )}
 
-          {effectiveView === 'd1-sync' && <PtgPpjkOutstandingPage />}
+          {effectiveView === 'd1-sync' && (
+            <PtgPpjkOutstandingPage currentUser={session} users={db.users} />
+          )}
 
           {(effectiveView === 'shipments' || effectiveView === 'outstanding') && (
             <ShipmentTableView
               mode={effectiveView === 'outstanding' ? 'outstanding' : 'all'}
-              shipments={db.shipments}
+              shipments={visibleShipments}
               customers={db.customers}
               importirs={db.importirs}
               pengaturan={db.pengaturan}
@@ -3429,6 +3476,8 @@ export default function App() {
               checklistItems={db.pengaturan.checklistItems}
               userRole={session.role}
               currentUsername={session.nama}
+              userAccountUsername={session.username}
+              users={db.users}
               phasePermissions={session.phasePermissions}
               initialCheckerFilter={effectiveView === 'shipments' ? tableCheckerFilter : ''}
               initialSearchQuery={effectiveView === 'shipments' ? tableSearchQuery : ''}
@@ -3608,6 +3657,9 @@ export default function App() {
           logs={db.logs.filter((l) => l.kodeOs === detailShipment.kodeOs)}
           checklistItems={db.pengaturan.checklistItems}
           userRole={session.role}
+          currentUserName={session.nama}
+          currentUserUsername={session.username}
+          users={db.users}
           phasePermissions={session.phasePermissions}
           googleDriveUserEmail={driveUserEmail}
           driveConnecting={driveConnecting}
@@ -3667,6 +3719,8 @@ export default function App() {
           userRole={session.role}
           phasePermissions={session.phasePermissions}
           currentUsername={session.nama}
+          userAccountUsername={session.username}
+          users={db.users}
           googleDriveUserEmail={driveUserEmail}
           driveConnecting={driveConnecting}
           onConnectGoogleDrive={handleConnectGoogleDrive}

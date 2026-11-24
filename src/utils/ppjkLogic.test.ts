@@ -15,6 +15,7 @@ import {
   canUserAccessModule,
   canUserEditAnyPhase,
   canUserEditPhase,
+  canUserEditShipmentRecord,
   computeBillingSummary,
   computeCheckerSummaries,
   computeDashboardStats,
@@ -29,10 +30,15 @@ import {
   DEFAULT_GAS_DEPLOY_PIN,
   DEFAULT_PENGATURAN,
   DEFAULT_STATUS_LIST,
+  doesUserMatchCheckerName,
   filterBillingShipments,
   filterDoShipments,
   filterNopenRecapShipments,
   filterShipments,
+  filterShipmentsVisibleToUser,
+  getCleanCheckerDisplayName,
+  getShipmentCheckerHolder,
+  isShipmentVisibleToUser,
   formatContainerSummary,
   formatCurrencyTotals,
   formatNopenPeriodLabel,
@@ -269,7 +275,8 @@ test('RBAC permissions enforce distinct limits for Admin, Checker, Drafter, Oper
   assert.equal(canPerformAction('Operasional', 'edit_shipment'), true);
   assert.equal(canEditPhase('Operasional', 2), true);
   assert.equal(canEditPhase('Operasional', 4), false);
-  assert.equal(canPerformAction('Manajer', 'edit_shipment'), false);
+  assert.equal(canPerformAction('Manajer', 'edit_shipment'), true);
+  assert.equal(canPerformAction('Manajer', 'upload_dokumen'), true);
   assert.equal(canPerformAction('Manajer', 'export_report'), true);
 });
 
@@ -1932,6 +1939,65 @@ test('validateAndDeleteUserRecord enforces Admin/Owner role, blocks self/Owner d
     res.nextUsers.map((u) => u.username),
     ['owner', 'admin', 'drafter1']
   );
+});
+
+test('Checker document visibility and edit restriction lock other accounts except Manajer', () => {
+  const users: Array<{ username: string; nama: string; role: 'Owner' | 'Admin' | 'Checker' | 'Drafter' | 'Operasional' | 'Manajer' }> = [
+    { username: 'owner', nama: 'Bpk. Gunawan (Owner)', role: 'Owner' },
+    { username: 'admin', nama: 'Hendra Wijaya (Admin)', role: 'Admin' },
+    { username: 'checker1', nama: 'Rina Kusuma (Checker)', role: 'Checker' },
+    { username: 'checker2', nama: 'Dewi Lestari (Checker)', role: 'Checker' },
+    { username: 'drafter1', nama: 'Andi Pratama (Drafter)', role: 'Drafter' },
+    { username: 'ops1', nama: 'Budi Santoso (Operasional)', role: 'Operasional' },
+    { username: 'manajer1', nama: 'Siti Rahayu (Manajer)', role: 'Manajer' },
+  ];
+
+  const rinaDoc = { kodeOs: 'OS-2611-0001', dokumenChecker: 'Rina Kusuma', createdBy: 'checker1' };
+  const dewiDoc = { kodeOs: 'OS-2611-0006', dokumenChecker: 'Dewi Lestari', createdBy: 'checker2' };
+  const adminDoc = { kodeOs: 'OS-2611-0005', dokumenChecker: 'Hendra Wijaya', createdBy: 'admin' };
+  const externalCheckerDoc = { kodeOs: 'OS-2611-0009', dokumenChecker: 'Anton Checker', createdBy: 'admin' };
+
+  assert.equal(getCleanCheckerDisplayName('Rina Kusuma (Checker)'), 'Rina Kusuma');
+  assert.equal(doesUserMatchCheckerName(users[2], 'Rina Kusuma'), true);
+  assert.equal(doesUserMatchCheckerName(users[2], 'checker1'), true);
+  assert.equal(doesUserMatchCheckerName(users[2], 'Dewi Lestari'), false);
+
+  // Visibility: Checker only sees own documents; Manajer/Admin/Drafter/Owner see all
+  const allDocs = [rinaDoc, dewiDoc, adminDoc, externalCheckerDoc];
+  assert.deepEqual(
+    filterShipmentsVisibleToUser(allDocs, users[2]).map((d) => d.kodeOs),
+    ['OS-2611-0001']
+  );
+  assert.deepEqual(
+    filterShipmentsVisibleToUser(allDocs, users[3]).map((d) => d.kodeOs),
+    ['OS-2611-0006']
+  );
+  assert.equal(filterShipmentsVisibleToUser(allDocs, users[6]).length, 4);
+  assert.equal(filterShipmentsVisibleToUser(allDocs, users[1]).length, 4);
+  assert.equal(isShipmentVisibleToUser(dewiDoc, users[2]), false);
+
+  // Holder classification
+  assert.equal(getShipmentCheckerHolder(rinaDoc, users).heldByChecker, true);
+  assert.equal(getShipmentCheckerHolder(adminDoc, users).heldByChecker, false);
+  assert.equal(getShipmentCheckerHolder(externalCheckerDoc, users).heldByChecker, true);
+
+  // Edit access on Rina's Checker document:
+  // - Rina (owner checker) -> allowed
+  // - Manajer -> allowed ("terkecuali manajer")
+  // - Admin, Owner, Drafter, Operasional, Dewi (other checker) -> blocked
+  assert.equal(canUserEditShipmentRecord(rinaDoc, users[2], users).allowed, true);
+  assert.equal(canUserEditShipmentRecord(rinaDoc, users[6], users).allowed, true);
+  assert.equal(canUserEditShipmentRecord(rinaDoc, users[1], users).allowed, false);
+  assert.equal(canUserEditShipmentRecord(rinaDoc, users[0], users).allowed, false);
+  assert.equal(canUserEditShipmentRecord(rinaDoc, users[4], users).allowed, false);
+  assert.equal(canUserEditShipmentRecord(rinaDoc, users[5], users).allowed, false);
+  assert.equal(canUserEditShipmentRecord(rinaDoc, users[3], users).allowed, false);
+
+  // Non-checker held document (Admin Hendra Wijaya): Admin/Drafter/Manajer can edit; Checker cannot
+  assert.equal(canUserEditShipmentRecord(adminDoc, users[1], users).allowed, true);
+  assert.equal(canUserEditShipmentRecord(adminDoc, users[4], users).allowed, true);
+  assert.equal(canUserEditShipmentRecord(adminDoc, users[6], users).allowed, true);
+  assert.equal(canUserEditShipmentRecord(adminDoc, users[2], users).allowed, false);
 });
 
 

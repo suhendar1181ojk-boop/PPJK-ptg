@@ -10,12 +10,16 @@ import {
 
 interface ShipmentFormModalProps {
   initialRecord: D1ShipmentRecord | null;
+  defaultCheckerName?: string;
+  lockCheckerName?: boolean;
   onClose: () => void;
   onSubmit: (input: D1ShipmentInput) => Promise<D1ShipmentRecord>;
 }
 
 export function ShipmentFormModal({
   initialRecord,
+  defaultCheckerName = '',
+  lockCheckerName = false,
   onClose,
   onSubmit,
 }: ShipmentFormModalProps) {
@@ -37,7 +41,9 @@ export function ShipmentFormModal({
   const [status, setStatus] = useState(initialRecord?.status || 'Dokumen Diterima');
   const [docStatus, setDocStatus] = useState(initialRecord?.doc_status || 'Draft');
   const [jalur, setJalur] = useState(initialRecord?.jalur || '');
-  const [checkerName, setCheckerName] = useState(initialRecord?.checker_name || '');
+  const [checkerName, setCheckerName] = useState(
+    initialRecord?.checker_name || defaultCheckerName || ''
+  );
   const [etaDate, setEtaDate] = useState(initialRecord?.eta_date || '');
   const [etdDate, setEtdDate] = useState(initialRecord?.etd_date || '');
   const [receivedDate, setReceivedDate] = useState(
@@ -366,10 +372,11 @@ export function ShipmentFormModal({
               </label>
               <input
                 type="text"
+                disabled={lockCheckerName}
                 value={checkerName}
                 onChange={(e) => setCheckerName(e.target.value)}
                 placeholder="Budi Santoso"
-                className="w-full h-9 px-3 rounded-xl border border-slate-200 dark:border-white/[0.1] bg-slate-50 dark:bg-[#0D111C] text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#F28C28] dark:focus:ring-violet-500"
+                className="w-full h-9 px-3 rounded-xl border border-slate-200 dark:border-white/[0.1] bg-slate-50 dark:bg-[#0D111C] disabled:opacity-70 disabled:cursor-not-allowed text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#F28C28] dark:focus:ring-violet-500"
               />
             </div>
 

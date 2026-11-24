@@ -7,6 +7,7 @@ import {
   ExternalLink,
   FolderOpen,
   History,
+  Lock,
   MessageSquare,
   Package,
   Paperclip,
@@ -36,6 +37,7 @@ import type {
   StatusGateOutType,
   StatusGatePassType,
   StatusSuratJalanType,
+  UserAccount,
   UserRole,
 } from '../types/ppjk';
 import {
@@ -50,6 +52,7 @@ import {
   canPerformAction,
   canUserEditAnyPhase,
   canUserEditPhase,
+  canUserEditShipmentRecord,
   formatChecklistProgress,
   formatRupiah,
   generateSuratJalanNomor,
@@ -99,6 +102,9 @@ interface ShipmentDetailDrawerProps {
   checklistItems: string[];
   userRole: UserRole;
   phasePermissions?: PhasePermissions;
+  currentUserName?: string;
+  currentUserUsername?: string;
+  users?: UserAccount[];
   googleDriveUserEmail?: string | null;
   driveConnecting?: boolean;
   onConnectGoogleDrive?: () => Promise<void>;
@@ -165,6 +171,9 @@ export function ShipmentDetailDrawer({
   checklistItems,
   userRole,
   phasePermissions,
+  currentUserName = '',
+  currentUserUsername = '',
+  users = [],
   googleDriveUserEmail,
   driveConnecting = false,
   onConnectGoogleDrive,
@@ -220,12 +229,22 @@ export function ShipmentDetailDrawer({
   const [loadingDriveFiles, setLoadingDriveFiles] = useState(false);
   const [driveListError, setDriveListError] = useState('');
 
-  const canEdit = canUserEditAnyPhase({ role: userRole, phasePermissions });
-  const canEditPhase1 = canUserEditPhase({ role: userRole, phasePermissions }, 1);
-  const canEditPhase2 = canUserEditPhase({ role: userRole, phasePermissions }, 2);
-  const canDelete = canPerformAction(userRole, 'delete_shipment');
-  const canComment = canPerformAction(userRole, 'add_catatan');
-  const canUpload = canPerformAction(userRole, 'upload_dokumen');
+  const editAccess = canUserEditShipmentRecord(
+    shipment,
+    {
+      username: currentUserUsername,
+      nama: currentUserName,
+      role: userRole,
+      phasePermissions,
+    },
+    users
+  );
+  const canEdit = canUserEditAnyPhase({ role: userRole, phasePermissions }) && editAccess.allowed;
+  const canEditPhase1 = canUserEditPhase({ role: userRole, phasePermissions }, 1) && editAccess.allowed;
+  const canEditPhase2 = canUserEditPhase({ role: userRole, phasePermissions }, 2) && editAccess.allowed;
+  const canDelete = canPerformAction(userRole, 'delete_shipment') && editAccess.allowed;
+  const canComment = canPerformAction(userRole, 'add_catatan') && editAccess.allowed;
+  const canUpload = canPerformAction(userRole, 'upload_dokumen') && editAccess.allowed;
   const currentDocStatus = normalizeStatusDokumen(shipment.statusDokumen);
   const currentDoStatus = normalizeStatusDoPelayaran(shipment.doPelayaranStatus);
   const currentGatePassStatus = normalizeStatusGatePass(shipment.doGatePassStatus);
@@ -496,6 +515,20 @@ export function ShipmentDetailDrawer({
         </div>
 
         <div className="p-6 space-y-6">
+          {!editAccess.allowed && (
+            <div
+              data-testid="drawer-checker-lock-banner"
+              role="status"
+              className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-500/15 border border-amber-300 dark:border-amber-500/40 flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-200"
+            >
+              <Lock className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-300" />
+              <div>
+                <div className="font-bold">Dokumen Terkunci untuk Edit</div>
+                <p className="text-[11px] mt-0.5 opacity-90">{editAccess.reason}</p>
+              </div>
+            </div>
+          )}
+
           {/* Sinyal Segera Proses (ETA Tiba / BC 1.1 Terbit) */}
           {processSignal.active && (
             <div
