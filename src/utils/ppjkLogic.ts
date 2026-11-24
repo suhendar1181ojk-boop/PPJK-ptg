@@ -3290,6 +3290,14 @@ export const APP_MODULE_META: AppModuleMeta[] = [
     category: 'Monitoring & Report',
   },
   {
+    id: 'd1-sync',
+    label: 'Cloudflare D1 Sync',
+    shortLabel: 'D1 Offline Sync',
+    description:
+      'Database Cloudflare D1 + Workers offline-first (IndexedDB, CSV Ekspor/Impor & Last-Write-Wins).',
+    category: 'Operasional',
+  },
+  {
     id: 'master',
     label: 'Master & Pengaturan',
     shortLabel: 'Master & Pengaturan',
@@ -3318,6 +3326,7 @@ export function getDefaultModuleAccessForRole(role: UserRole): ModulePermissions
       'keuangan-ops': true,
       shipments: true,
       'report-nopen': true,
+      'd1-sync': true,
       master: true,
       setup: true,
     };
@@ -3333,6 +3342,7 @@ export function getDefaultModuleAccessForRole(role: UserRole): ModulePermissions
       'keuangan-ops': true,
       shipments: true,
       'report-nopen': true,
+      'd1-sync': true,
       master: true,
       setup: false,
     };
@@ -3348,6 +3358,7 @@ export function getDefaultModuleAccessForRole(role: UserRole): ModulePermissions
       'keuangan-ops': true,
       shipments: true,
       'report-nopen': true,
+      'd1-sync': true,
       master: true,
       setup: false,
     };
@@ -3362,6 +3373,7 @@ export function getDefaultModuleAccessForRole(role: UserRole): ModulePermissions
     'keuangan-ops': true,
     shipments: true,
     'report-nopen': true,
+    'd1-sync': true,
     master: false,
     setup: false,
   };

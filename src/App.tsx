@@ -3,9 +3,6 @@ import Swal from 'sweetalert2';
 import {
   Bell,
   Building2,
-  FileSpreadsheet,
-  HardDrive,
-  LogOut as LogOutIcon,
   Menu,
   Moon,
   Plus,
@@ -181,9 +178,9 @@ import { PenagihanView } from './components/PenagihanView';
 import { KeuanganOpsView } from './components/KeuanganOpsView';
 import { NopenReportView } from './components/NopenReportView';
 import { BillingModal } from './components/BillingModal';
-import { GoogleSignInButton } from './components/GoogleDriveButton';
 import { OfflineIndicator } from './components/PWAStatusControls';
 import { ViewportModeSwitcher } from './components/ViewportModeSwitcher';
+import { PtgPpjkOutstandingPage } from './components/PtgPpjkOutstandingPage';
 import { useViewportMode } from './contexts/ViewportModeContext';
 
 const VIEW_TITLES: Record<AppView, string> = {
@@ -196,6 +193,7 @@ const VIEW_TITLES: Record<AppView, string> = {
   'report-nopen': 'Report Rekapan Dokumen No. NOPEN (PIB)',
   outstanding: 'Dokumen Outstanding',
   shipments: 'Semua Data Shipment',
+  'd1-sync': 'Cloudflare D1 Offline-First Sync',
   master: 'Master Data & Pengaturan',
   setup: 'Setup Identitas & Kontrol Owner',
 };
@@ -3145,72 +3143,6 @@ export default function App() {
               {darkMode ? <Sun className="w-4 h-4 text-amber-300" /> : <Moon className="w-4 h-4" />}
             </button>
 
-            {canAccessMaster && viewportMode !== 'mobile' && (
-              <button
-                type="button"
-                data-testid="header-sheets-status-btn"
-                onClick={() => {
-                  setMasterInitialTab('spreadsheet');
-                  setActiveView('master');
-                }}
-                title={
-                  db.pengaturan.spreadsheetId
-                    ? `Database Spreadsheet: ${db.pengaturan.spreadsheetTitle || 'Terhubung'} (${
-                        driveUserEmail ? 'Google Terhubung' : 'Perlu Sign in Google'
-                      })`
-                    : 'Hubungkan Database ke Google Spreadsheet'
-                }
-                className={`inline-flex items-center gap-1.5 h-9 px-2.5 rounded-xl border text-[11px] font-semibold cursor-pointer transition-colors ${
-                  db.pengaturan.spreadsheetId && driveUserEmail
-                    ? 'bg-emerald-500/15 border-emerald-400/35 text-emerald-100 hover:bg-emerald-500/25'
-                    : db.pengaturan.spreadsheetId
-                      ? 'bg-amber-500/15 border-amber-400/35 text-amber-100 hover:bg-amber-500/25'
-                      : 'bg-white/10 border-white/15 text-white/90 hover:bg-white/20'
-                }`}
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
-                {viewportMode === 'desktop' && (
-                  <span>
-                    {syncingSheets
-                      ? 'Sync Sheets...'
-                      : db.pengaturan.spreadsheetId
-                        ? driveUserEmail
-                          ? 'Sheets Aktif'
-                          : 'Sheets (Login)'
-                        : 'Sheets DB'}
-                  </span>
-                )}
-              </button>
-            )}
-
-            {viewportMode === 'desktop' && (
-              driveUserEmail ? (
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-400/30 text-[11px] font-medium text-emerald-100">
-                  <HardDrive className="w-3.5 h-3.5 text-emerald-300" />
-                  <span className="max-w-[120px] truncate" title={driveUserEmail}>
-                    {driveUserEmail}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleDisconnectGoogleDrive}
-                    title="Putuskan koneksi Google Drive & Sheets"
-                    aria-label="Putuskan koneksi Google Drive & Sheets"
-                    className="ml-1 p-0.5 rounded hover:bg-white/10 text-emerald-200 cursor-pointer"
-                  >
-                    <LogOutIcon className="w-3 h-3" />
-                  </button>
-                </div>
-              ) : (
-                <div>
-                  <GoogleSignInButton
-                    onClick={handleConnectGoogleDrive}
-                    disabled={driveConnecting}
-                    label={driveConnecting ? 'Menghubungkan...' : 'Sign in with Google'}
-                  />
-                </div>
-              )
-            )}
-
             <button
               type="button"
               data-testid="refresh-sync-btn"
@@ -3434,6 +3366,8 @@ export default function App() {
               onOpenDetail={(kodeOs) => setDetailKodeOs(kodeOs)}
             />
           )}
+
+          {effectiveView === 'd1-sync' && <PtgPpjkOutstandingPage />}
 
           {(effectiveView === 'shipments' || effectiveView === 'outstanding') && (
             <ShipmentTableView

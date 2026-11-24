@@ -1,0 +1,16 @@
+name = "ptg-ppjk-d1-worker"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+
+# Bind Cloudflare D1 database: ptg-ppjk-db
+# Create via: npx wrangler d1 create ptg-ppjk-db
+# Apply schema: npx wrangler d1 execute ptg-ppjk-db --remote --file=./schema_full.sql
+# Set secret API key: npx wrangler secret put API_KEY
+[[d1_databases]]
+binding = "DB"
+database_name = "ptg-ppjk-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[vars]
+# Comma-separated list of allowed web origins for CORS (e.g. "https://your-app.run.app,http://localhost:3000")
+ALLOWED_ORIGINS = ""

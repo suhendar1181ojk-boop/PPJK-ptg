@@ -3,25 +3,16 @@ import { Chart, registerables } from 'chart.js';
 import {
   AlertCircle,
   AlertTriangle,
-  Anchor,
   ArrowRight,
   Calendar,
   CheckCircle2,
   ChevronRight,
-  ClipboardList,
   Clock,
-  Database,
   FileCheck2,
-  FileSpreadsheet,
-  FileText,
   History,
   PackageCheck,
   Receipt,
-  ShieldAlert,
-  Ship,
-  SlidersHorizontal,
   UserCheck,
-  Wallet,
 } from 'lucide-react';
 import type {
   AppView,
@@ -31,11 +22,9 @@ import type {
   UserRole,
 } from '../types/ppjk';
 import {
-  canPerformAction,
   computeBillingSummary,
   computeCheckerSummaries,
   computeDashboardStats,
-  computeDoReadinessSummary,
   DEFAULT_STATUS_LIST,
   getShipmentProcessSignal,
   getStatusBadgeClass,
@@ -89,8 +78,6 @@ export function DashboardView({
   statusList = DEFAULT_STATUS_LIST,
   checklistItems,
   userName = 'Tim PPJK',
-  userRole = 'Admin',
-  moduleAccess,
   ppjkBrandName = 'PTG PPJK',
   darkMode = true,
   onOpenDetail,
@@ -103,7 +90,6 @@ export function DashboardView({
     () => computeCheckerSummaries(shipments, statusList, checklistItems),
     [shipments, statusList, checklistItems]
   );
-  const doSummary = useMemo(() => computeDoReadinessSummary(shipments), [shipments]);
   const billingSummary = useMemo(() => computeBillingSummary(shipments), [shipments]);
   const { isCollapsed } = useCardCollapse();
   const monthChartCollapsed = isCollapsed('dash-chart-month');
@@ -380,107 +366,6 @@ export function DashboardView({
     [logs]
   );
 
-  const canOpenModule = (id: AppView) =>
-    moduleAccess ? Boolean(moduleAccess[id]) : true;
-
-  const canAccessMaster =
-    (canPerformAction(userRole, 'manage_master') ||
-      canPerformAction(userRole, 'manage_users')) &&
-    canOpenModule('master');
-
-  const canAccessSetup =
-    canPerformAction(userRole, 'manage_setup') || Boolean(moduleAccess?.setup);
-
-  const moduleShortcuts: Array<{
-    id: AppView;
-    label: string;
-    subtitle: string;
-    icon: typeof UserCheck;
-    iconBoxClass: string;
-    visible: boolean;
-  }> = [
-    {
-      id: 'outstanding',
-      label: 'Outstanding',
-      subtitle: `${stats.outstanding} dokumen OS`,
-      icon: ShieldAlert,
-      iconBoxClass: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/25',
-      visible: canOpenModule('outstanding'),
-    },
-    {
-      id: 'checker',
-      label: 'Rekap Checker',
-      subtitle: `${stats.draftCount} Draft · ${stats.readyCount} Ready`,
-      icon: UserCheck,
-      iconBoxClass: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25',
-      visible: canOpenModule('checker'),
-    },
-    {
-      id: 'do',
-      label: 'Kesiapan D/O',
-      subtitle: `${doSummary.sediaCount} Sedia · ${doSummary.belumCount} Belum`,
-      icon: Anchor,
-      iconBoxClass: 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/25',
-      visible: canOpenModule('do'),
-    },
-    {
-      id: 'surat-jalan',
-      label: 'Surat Jalan',
-      subtitle: `${doSummary.gateOutSudahCount} Terbit · ${doSummary.suratJalanDalamPengirimanCount} Kirim`,
-      icon: ClipboardList,
-      iconBoxClass: 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/25',
-      visible: canOpenModule('surat-jalan'),
-    },
-    {
-      id: 'penagihan',
-      label: 'Penagihan & Owner',
-      subtitle: `${billingSummary.siapInfoOwnerCount} Siap Info · ${billingSummary.terbitCount + billingSummary.terkirimCustomerCount + billingSummary.lunasCount} Tagihan`,
-      icon: Receipt,
-      iconBoxClass: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/25',
-      visible: canOpenModule('penagihan'),
-    },
-    {
-      id: 'keuangan-ops',
-      label: 'Keuangan Ops',
-      subtitle: 'Biaya Dokumen, Bukti & Tanda Terima',
-      icon: Wallet,
-      iconBoxClass: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25',
-      visible: canOpenModule('keuangan-ops'),
-    },
-    {
-      id: 'shipments',
-      label: 'Semua Shipment',
-      subtitle: `${stats.total} total B/L`,
-      icon: FileSpreadsheet,
-      iconBoxClass: 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/25',
-      visible: canOpenModule('shipments'),
-    },
-    {
-      id: 'report-nopen',
-      label: 'Report NOPEN (PIB)',
-      subtitle: 'Rekap 1 bulan & tanggal',
-      icon: FileText,
-      iconBoxClass: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/25',
-      visible: canOpenModule('report-nopen'),
-    },
-    {
-      id: 'master',
-      label: 'Master & Pengaturan',
-      subtitle: 'Customer, Importir, RBAC, GAS',
-      icon: Database,
-      iconBoxClass: 'bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/25',
-      visible: canAccessMaster,
-    },
-    {
-      id: 'setup',
-      label: 'Setup & Kontrol',
-      subtitle: 'Identitas PPJK & Toggle Owner',
-      icon: SlidersHorizontal,
-      iconBoxClass: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/25',
-      visible: canAccessSetup,
-    },
-  ];
-
   const currentPeriodLabel = new Intl.DateTimeFormat('id-ID', {
     month: 'long',
     year: 'numeric',
@@ -495,7 +380,6 @@ export function DashboardView({
       'dash-chart-month',
       'dash-chart-jalur',
       'dash-checker-table',
-      'dash-menu-modul',
       'dash-status-dist',
       'dash-chart-customer',
       'dash-recent-logs',
@@ -1272,67 +1156,8 @@ export function DashboardView({
 
       {/* Bottom Asymmetric 7:5 Section */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-        {/* Left 7 Cols: Menu Modul + Distribusi Status + Top Customer */}
+        {/* Left 7 Cols: Distribusi Status + Top Customer */}
         <div className="lg:col-span-7 space-y-4">
-          {/* Menu Modul PPJK matching Menu Modul ERP */}
-          <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-5">
-            <div
-              className={`flex items-center justify-between gap-2 ${
-                isCollapsed('dash-menu-modul') ? '' : 'mb-3.5'
-              }`}
-            >
-              <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-                <Ship className="w-4 h-4 text-[#F28C28] dark:text-violet-400" />
-                <span>Menu Modul PPJK</span>
-              </h3>
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {isCollapsed('dash-menu-modul')
-                    ? `${moduleShortcuts.filter((m) => m.visible).length} modul aktif`
-                    : 'Akses cepat operasional'}
-                </span>
-                <CardWindowToggleButton
-                  cardId="dash-menu-modul"
-                  label="Menu Modul PPJK"
-                  compact
-                />
-              </div>
-            </div>
-            {!isCollapsed('dash-menu-modul') && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5">
-                {moduleShortcuts
-                  .filter((m) => m.visible)
-                  .map((mod) => {
-                    const Icon = mod.icon;
-                    return (
-                      <button
-                        key={mod.id}
-                        type="button"
-                        onClick={() =>
-                          onNavigateView ? onNavigateView(mod.id) : onGoToOutstanding()
-                        }
-                        className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-[#161D2F] hover:bg-slate-100 dark:hover:bg-[#1D263C] border border-slate-200/80 dark:border-white/[0.06] text-left transition-colors cursor-pointer group"
-                      >
-                        <div
-                          className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${mod.iconBoxClass}`}
-                        >
-                          <Icon className="w-4.5 h-4.5" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-xs font-semibold text-slate-900 dark:text-white truncate group-hover:text-violet-600 dark:group-hover:text-violet-300 transition-colors">
-                            {mod.label}
-                          </div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                            {mod.subtitle}
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-              </div>
-            )}
-          </div>
-
           {/* Distribusi Status Shipment + Draft/Ready indicators */}
           <div className="bg-white dark:bg-[#131926] rounded-2xl border border-slate-200 dark:border-white/[0.08] p-5">
             <div

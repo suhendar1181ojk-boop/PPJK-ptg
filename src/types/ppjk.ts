@@ -581,6 +581,7 @@ export type AppView =
   | 'report-nopen'
   | 'shipments'
   | 'outstanding'
+  | 'd1-sync'
   | 'master'
   | 'setup';
 export type ShipmentPhase = 1 | 2 | 3 | 4;

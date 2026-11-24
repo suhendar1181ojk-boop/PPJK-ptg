@@ -3,6 +3,7 @@ import {
   Anchor,
   ChevronRight,
   ClipboardList,
+  Cloud,
   Database,
   FileSpreadsheet,
   FileText,
@@ -124,6 +125,7 @@ export function Sidebar({
     },
     { id: 'shipments', label: 'Semua Shipment', icon: FileSpreadsheet, visible: Boolean(moduleAccess.shipments) },
     { id: 'report-nopen', label: 'Report NOPEN (PIB)', icon: FileText, visible: Boolean(moduleAccess['report-nopen']) },
+    { id: 'd1-sync', label: 'Cloudflare D1 Sync', icon: Cloud, visible: Boolean(moduleAccess['d1-sync']) },
     { id: 'master', label: 'Master & Pengaturan', icon: Database, visible: canAccessMaster },
     { id: 'setup', label: 'Setup & Kontrol', icon: SlidersHorizontal, visible: canAccessSetup },
   ];
@@ -318,6 +320,22 @@ export function Sidebar({
             <LogOut className="w-3.5 h-3.5 shrink-0" />
             {!effectiveCollapsed && <span>Keluar</span>}
           </button>
+
+          <div
+            data-testid="sidebar-watermark"
+            title="Designsystem-@bysuhendar-2026"
+            className="pt-0.5 text-center select-none"
+          >
+            {effectiveCollapsed ? (
+              <span className="block text-[9px] font-medium tracking-tight text-white/40 dark:text-slate-500">
+                ©2026
+              </span>
+            ) : (
+              <span className="block text-[10px] font-medium tracking-[0.02em] text-white/45 dark:text-slate-500 truncate">
+                Designsystem-@bysuhendar-2026
+              </span>
+            )}
+          </div>
         </div>
       </aside>
     </>

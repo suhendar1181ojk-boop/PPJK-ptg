@@ -1686,7 +1686,7 @@ test('getPpjkIdentity provides defaults and propagates custom company identity i
 });
 
 test('resolveUserModuleAccess enforces role matrix, per-user overrides, Owner immunity, and all-locked handling', () => {
-  assert.equal(APP_MODULE_META.length, 11);
+  assert.equal(APP_MODULE_META.length, 12);
 
   const pengaturanWithPolicy: Pick<Pengaturan, 'roleModuleAccess'> = {
     roleModuleAccess: {
@@ -1797,14 +1797,14 @@ test('buildUserMonitoringRows aggregates log activity counts, resolved modules, 
   assert.equal(rows.length, 2);
 
   const ownerRow = rows[0];
-  assert.equal(ownerRow.totalModulesCount, 11);
-  assert.equal(ownerRow.enabledModulesCount, 11);
+  assert.equal(ownerRow.totalModulesCount, 12);
+  assert.equal(ownerRow.enabledModulesCount, 12);
   assert.equal(ownerRow.activePhasesCount, 4);
   assert.equal(ownerRow.activityCount, 0);
 
   const checkerRow = rows[1];
-  assert.equal(checkerRow.totalModulesCount, 10); // excludes owner-exclusive setup module
-  assert.equal(checkerRow.enabledModulesCount, 8); // 10 - 2 disabled
+  assert.equal(checkerRow.totalModulesCount, 11); // excludes owner-exclusive setup module
+  assert.equal(checkerRow.enabledModulesCount, 9); // 11 - 2 disabled
   assert.equal(checkerRow.hasCustomModuleOverrides, true);
   assert.equal(checkerRow.activePhasesCount, 1);
   assert.equal(checkerRow.activityCount, 2);
