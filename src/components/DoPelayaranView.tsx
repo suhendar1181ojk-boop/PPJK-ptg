@@ -40,6 +40,7 @@ import type {
 } from '../types/ppjk';
 import {
   calculateCountdownEta,
+  canUserEditDoPelayaran,
   canUserEditPhase,
   canUserEditShipmentRecord,
   computeDoReadinessSummary,
@@ -207,8 +208,9 @@ export function DoPelayaranView({
   const [creating, setCreating] = useState(false);
 
   const canEditPhase1 = canUserEditPhase({ role: userRole, phasePermissions }, 1);
-  const canEditPhase2 = canUserEditPhase({ role: userRole, phasePermissions }, 2);
-  const canCreateFromDo = Boolean(canCreateShipment && onCreateShipmentFromDo);
+  const doEditAccess = canUserEditDoPelayaran({ role: userRole, phasePermissions });
+  const canEditDo = doEditAccess.allowed;
+  const canCreateFromDo = Boolean(canCreateShipment && onCreateShipmentFromDo && canEditDo);
   const { isCollapsed } = useCardCollapse();
 
   const getRowEditAccess = (s: Shipment) =>
@@ -218,7 +220,6 @@ export function DoPelayaranView({
       users
     );
   const canEditRowPhase1 = (s: Shipment) => canEditPhase1 && getRowEditAccess(s).allowed;
-  const canEditRowPhase2 = (s: Shipment) => canEditPhase2 && getRowEditAccess(s).allowed;
 
   const doModuleCardIds = useMemo(
     () => [
@@ -271,9 +272,6 @@ export function DoPelayaranView({
   const pickableShipments = useMemo(() => {
     const q = pickSearch.trim().toLowerCase();
     return shipments.filter((s) => {
-      if (!canUserEditShipmentRecord(s, { nama: currentUsername, username: currentUserUsername, role: userRole }, users).allowed) {
-        return false;
-      }
       const dok = normalizeStatusDokumen(s.statusDokumen);
       if (pickDokFilter && dok !== pickDokFilter) return false;
       if (!q) return true;
@@ -282,10 +280,10 @@ export function DoPelayaranView({
         .toLowerCase()
         .includes(q);
     });
-  }, [shipments, pickSearch, pickDokFilter, currentUsername, currentUserUsername, userRole, users]);
+  }, [shipments, pickSearch, pickDokFilter]);
 
   const openEditor = (s: Shipment) => {
-    if (!getRowEditAccess(s).allowed) return;
+    if (!canEditDo) return;
     const currentGateOut = normalizeStatusGateOut(s.gateOutStatus, s.status);
     setEditingShipment(s);
     setEditStatusDokumen(normalizeStatusDokumen(s.statusDokumen));
@@ -306,10 +304,11 @@ export function DoPelayaranView({
   };
 
   const openCreateModal = () => {
+    if (!canEditDo) return;
     setCreateError('');
     setPickSearch('');
     setPickDokFilter('');
-    setCreateTab(canEditPhase2 ? 'existing' : 'new');
+    setCreateTab('existing');
     setNewDokStatus('Draft');
     setNewKodeCustomer('');
     setNewNamaCustomer('');
@@ -544,7 +543,7 @@ export function DoPelayaranView({
             </span>
           </button>
 
-          {(canEditPhase2 || canCreateFromDo) && (
+          {canEditDo && (
             <button
               type="button"
               onClick={openCreateModal}
@@ -557,6 +556,30 @@ export function DoPelayaranView({
           )}
         </div>
       </div>
+
+      {!canEditDo ? (
+        <div
+          data-testid="do-readonly-banner"
+          className="flex items-start gap-2.5 px-3.5 py-2.5 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-xs text-amber-900 dark:text-amber-200 no-print"
+        >
+          <Lock className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-300" />
+          <div>
+            <span className="font-semibold">Mode Baca Saja ({userRole}):</span>{' '}
+            Edit dan update pada modul Kesiapan D/O Pelayaran (Pengeluaran Kontainer dari Pelabuhan) hanya dapat dilakukan oleh akun <strong>Operasional</strong> dan <strong>Manajer</strong> sesuai tugasnya.
+          </div>
+        </div>
+      ) : (
+        <div
+          data-testid="do-unlocked-banner"
+          className="flex items-start gap-2.5 px-3.5 py-2 rounded-xl bg-sky-50/80 dark:bg-sky-500/10 border border-sky-200 dark:border-sky-500/25 text-xs text-sky-900 dark:text-sky-200 no-print"
+        >
+          <Anchor className="w-4 h-4 shrink-0 mt-0.5 text-sky-600 dark:text-sky-300" />
+          <div>
+            <span className="font-semibold">Akses Operasional &amp; Manajer ({userRole}):</span>{' '}
+            Modul Kesiapan D/O Pelayaran tidak terkunci dari dokumen Checker — Anda dapat langsung memperbarui D/O, Eslah/TILA, Trucking, Gate-Out, dan Surat Jalan sesuai tugas.
+          </div>
+        </div>
+      )}
 
       {/* 8 KPI Summary Cards (4x2 on xl) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5 items-start">
@@ -1097,7 +1120,7 @@ export function DoPelayaranView({
                   const sppbWaitingDo = hasSppb && doStatus === 'Belum' && s.status !== 'Selesai';
                   const rowEditAccess = getRowEditAccess(s);
                   const rowCanEditPhase1 = canEditPhase1 && rowEditAccess.allowed;
-                  const rowCanEditPhase2 = canEditPhase2 && rowEditAccess.allowed;
+                  const rowCanEditPhase2 = canEditDo;
                   return (
                     <tr
                       key={s.kodeOs}
@@ -1324,7 +1347,7 @@ export function DoPelayaranView({
                             />
                           )}
                           <div className="inline-flex items-center gap-1">
-                            {rowCanEditPhase2 ? (
+                            {rowCanEditPhase2 && (
                               <button
                                 type="button"
                                 onClick={() => openEditor(s)}
@@ -1333,16 +1356,7 @@ export function DoPelayaranView({
                                 <Pencil className="w-3 h-3" />
                                 <span>Atur D/O</span>
                               </button>
-                            ) : canEditPhase2 && !rowEditAccess.allowed ? (
-                              <span
-                                title={rowEditAccess.reason}
-                                data-testid={`do-locked-${s.kodeOs}`}
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-[11px] font-semibold text-amber-700 dark:text-amber-300"
-                              >
-                                <Lock className="w-3 h-3" />
-                                <span>Terkunci</span>
-                              </span>
-                            ) : null}
+                            )}
                             <button
                               type="button"
                               onClick={() => onOpenDetail(s.kodeOs)}
@@ -1376,7 +1390,7 @@ export function DoPelayaranView({
               const mobCollapsed = isCollapsed(mobCardId);
               const rowEditAccess = getRowEditAccess(s);
               const rowCanEditPhase1 = canEditPhase1 && rowEditAccess.allowed;
-              const rowCanEditPhase2 = canEditPhase2 && rowEditAccess.allowed;
+              const rowCanEditPhase2 = canEditDo;
               return (
                 <div
                   key={s.kodeOs}
@@ -1578,7 +1592,7 @@ export function DoPelayaranView({
                     </div>
                   </div>
 
-                  {rowCanEditPhase2 ? (
+                  {rowCanEditPhase2 && (
                     <div
                       className="flex flex-wrap justify-end gap-2 pt-1"
                       onClick={(e) => e.stopPropagation()}
@@ -1601,20 +1615,7 @@ export function DoPelayaranView({
                         Atur D/O, TILA &amp; Gate-Out
                       </button>
                     </div>
-                  ) : canEditPhase2 && !rowEditAccess.allowed ? (
-                    <div
-                      className="flex flex-wrap justify-end gap-2 pt-1"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <span
-                        title={rowEditAccess.reason}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-[11px] font-semibold text-amber-700 dark:text-amber-300"
-                      >
-                        <Lock className="w-3 h-3" />
-                        <span>Terkunci (Checker)</span>
-                      </span>
-                    </div>
-                  ) : null}
+                  )}
                     </>
                   )}
                 </div>
@@ -1664,12 +1665,12 @@ export function DoPelayaranView({
                     Status Dokumen Checker (Draft / Ready)
                   </div>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                    {canEditPhase1
+                    {canEditPhase1 && getRowEditAccess(editingShipment).allowed
                       ? 'Pencatatan D/O dapat dibuat dari status Draft maupun Ready.'
                       : 'Menampilkan status dokumen dari Checker saat ini.'}
                   </p>
                 </div>
-                {canEditPhase1 ? (
+                {canEditPhase1 && getRowEditAccess(editingShipment).allowed ? (
                   <div
                     role="radiogroup"
                     aria-label="Status Dokumen Checker di Modal D/O"
@@ -2128,7 +2129,7 @@ export function DoPelayaranView({
               </button>
             </div>
 
-            {canCreateFromDo && canEditPhase2 && (
+            {canCreateFromDo && canEditDo && (
               <div className="px-5 pt-3 pb-2 border-b border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-[#0D111C]/70 grid grid-cols-2 gap-2 shrink-0" role="tablist">
                 <button
                   type="button"
@@ -2160,7 +2161,7 @@ export function DoPelayaranView({
             )}
 
             <div className="p-5 overflow-y-auto space-y-4">
-              {createTab === 'existing' && canEditPhase2 ? (
+              {createTab === 'existing' && canEditDo ? (
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="relative flex-1 min-w-[200px]">
@@ -2630,7 +2631,7 @@ export function DoPelayaranView({
           <SuratJalanModal
             shipment={sjShipment}
             pengaturan={pengaturan}
-            canEdit={canEditRowPhase2(sjShipment)}
+            canEdit={canEditDo}
             onClose={() => setActiveSjKodeOs(null)}
             onOpenBilling={onOpenBilling}
             onSaveSuratJalan={async (kodeOs, sjPayload) => {

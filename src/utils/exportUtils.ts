@@ -20,6 +20,11 @@ import {
   type KdiCoverDocument,
   type KdiCoverOptions,
 } from './kdiCoverLogic';
+import {
+  buildDklCoverDocument,
+  type DklCoverDocument,
+  type DklCoverOptions,
+} from './dklCoverLogic';
 import { formatRupiahOps, hasBuktiPengeluaran } from './pengeluaranOpsLogic';
 import {
   buildAutoBillingFields,
@@ -1612,5 +1617,319 @@ export function exportBatchKdiCoverPDF(
   doc.save(filename || `KDI_Bundel_Outstanding_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
+function drawDklCoverPage(doc: jsPDF, dkl: DklCoverDocument): void {
+  const pageWidth = 595.28;
+  const marginX = 28;
+  const contentWidth = pageWidth - marginX * 2;
+  const { identity } = dkl;
 
+  // 1. KOP PPJK (Prioritaskan Kop Surat Upload jika tersedia)
+  const hasKopBanner = Boolean(
+    identity.kopSuratDataUrl &&
+      addSafePdfImage(doc, identity.kopSuratDataUrl, marginX, 16, contentWidth, 49, {
+        centerX: true,
+      })
+  );
 
+  if (!hasKopBanner) {
+    const hasLogo = addSafePdfImage(doc, identity.logoDataUrl, marginX, 20, 42, 42, {
+      whiteBackdrop: true,
+    });
+
+    if (!hasLogo) {
+      doc.setFillColor(11, 37, 69);
+      doc.roundedRect(marginX, 20, 42, 42, 6, 6, 'F');
+      doc.setDrawColor(242, 140, 40);
+      doc.setLineWidth(1.2);
+      doc.roundedRect(marginX + 2, 22, 38, 38, 4, 4, 'S');
+
+      const initials =
+        identity.brandName
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((w) => w[0]?.toUpperCase() || '')
+          .join('') || 'PPJK';
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(255, 255, 255);
+      doc.text(initials, marginX + 21, 41, { align: 'center' });
+      doc.setFontSize(6.5);
+      doc.setTextColor(242, 140, 40);
+      doc.text('PPJK', marginX + 21, 52, { align: 'center' });
+    }
+
+    const textX = marginX + 52;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.setTextColor(11, 37, 69);
+    doc.text(identity.companyName.toUpperCase(), textX, 31);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(217, 119, 25);
+    doc.text(`${identity.brandName} · ${identity.tagline}`, textX, 42);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(71, 85, 105);
+    const contactLine = [
+      identity.address,
+      identity.phone ? `Telp: ${identity.phone}` : '',
+      identity.email ? `Email: ${identity.email}` : '',
+    ]
+      .filter(Boolean)
+      .join(' | ');
+    doc.text(truncatePdfText(contactLine, 98), textX, 52);
+
+    const legalLine = [
+      identity.npwp ? `NPWP / Izin: ${identity.npwp}` : '',
+      identity.website || '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    if (legalLine) {
+      doc.text(truncatePdfText(legalLine, 96), textX, 61);
+    }
+  }
+
+  // Garis Kop Ganda
+  doc.setDrawColor(11, 37, 69);
+  doc.setLineWidth(1.6);
+  doc.line(marginX, 68, pageWidth - marginX, 68);
+  doc.setDrawColor(242, 140, 40);
+  doc.setLineWidth(0.7);
+  doc.line(marginX, 71, pageWidth - marginX, 71);
+
+  // 2. Judul Dokumen DKL
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.setTextColor(15, 23, 42);
+  const titleText = 'DANA KERJA LAPANGAN (DKL)';
+  const titleWidth = doc.getTextWidth(titleText);
+  const centerX = pageWidth / 2;
+  doc.text(titleText, centerX, 86, { align: 'center' });
+  doc.setDrawColor(15, 23, 42);
+  doc.setLineWidth(0.8);
+  doc.line(centerX - titleWidth / 2, 88, centerX + titleWidth / 2, 88);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(51, 65, 85);
+  doc.text(truncatePdfText(dkl.subtitleLine, 96), centerX, 99, { align: 'center' });
+
+  // 3. Blok Metadata 2 Kolom
+  const metaPairs: Array<{
+    lLabel: string;
+    lVal: string;
+    rLabel?: string;
+    rVal?: string;
+  }> = [
+    { lLabel: 'CONTAINER NO.', lVal: dkl.containerNo, rLabel: 'NO. DKL', rVal: dkl.noReferensiDkl },
+    { lLabel: 'BL NO.', lVal: dkl.blNo, rLabel: 'TANGGAL', rVal: dkl.blTanggal },
+    { lLabel: 'SHIPPER', lVal: dkl.shipper },
+    { lLabel: 'CUSTOMER', lVal: dkl.customer },
+    { lLabel: 'COMMODITY', lVal: dkl.commodity },
+    { lLabel: 'CONSIGNEE', lVal: dkl.consignee },
+    { lLabel: 'VESSEL', lVal: dkl.vessel, rLabel: 'VOY', rVal: dkl.voy },
+    { lLabel: 'E.T.D', lVal: dkl.etd, rLabel: 'E.T.A', rVal: dkl.eta },
+    { lLabel: 'PORT OF LOADING', lVal: dkl.portOfLoading },
+    { lLabel: 'PORT OF DISCHARGE', lVal: dkl.portOfDischarge },
+    {
+      lLabel: 'NO. PENGAJUAN PIB',
+      lVal: dkl.noPengajuanPib,
+      rLabel: 'TANGGAL',
+      rVal: dkl.tglPengajuanPib,
+    },
+    { lLabel: 'NO. PIB', lVal: dkl.noPib, rLabel: 'TANGGAL', rVal: dkl.tglPib },
+    { lLabel: 'PFPB (BHDL)', lVal: dkl.pfpb, rLabel: 'TANGGAL', rVal: dkl.tglPfpb },
+    { lLabel: 'PFPD (SPTNP/SPPB)', lVal: dkl.pfpd, rLabel: 'TANGGAL', rVal: dkl.tglPfpd },
+    { lLabel: 'SPTNP NO.', lVal: dkl.sptnpNo, rLabel: 'TANGGAL', rVal: dkl.tglSptnp },
+    { lLabel: 'SPPB NO.', lVal: dkl.sppbNo, rLabel: 'TANGGAL', rVal: dkl.tglSppb },
+    { lLabel: 'ESLAH OLEH', lVal: dkl.eslahOleh, rLabel: 'TANGGAL', rVal: dkl.tglEslah },
+    { lLabel: 'TRUCKING SUPIR', lVal: dkl.truckingSupir, rLabel: 'NOPOL', rVal: dkl.nopol },
+  ];
+
+  const lLabelX = marginX + 6;
+  const lColonX = marginX + 114;
+  const lValX = marginX + 121;
+  const rLabelX = 358;
+  const rColonX = 412;
+  const rValX = 419;
+
+  let curY = 114;
+  const rowStep = 11.2;
+  doc.setFontSize(7.6);
+  doc.setTextColor(15, 23, 42);
+
+  for (const row of metaPairs) {
+    doc.setFont('helvetica', 'bold');
+    doc.text(row.lLabel, lLabelX, curY);
+    doc.text(':', lColonX, curY);
+    doc.setFont('helvetica', 'normal');
+    doc.text(truncatePdfText(row.lVal || '', row.rLabel ? 36 : 74), lValX, curY);
+
+    if (row.rLabel) {
+      doc.setFont('helvetica', 'bold');
+      doc.text(row.rLabel, rLabelX, curY);
+      doc.text(':', rColonX, curY);
+      doc.setFont('helvetica', 'normal');
+      doc.text(truncatePdfText(row.rVal || '', 26), rValX, curY);
+    }
+    curY += rowStep;
+  }
+
+  // 4. Tabel 13 Jenis Biaya Pengeluaran DKL
+  autoTable(doc, {
+    startY: curY + 5,
+    margin: { left: marginX, right: marginX },
+    tableWidth: contentWidth,
+    head: [['NO', 'JENIS BIAYA PENGELUARAN', 'ADA', 'TANGGAL', 'PETUGAS / VIA', 'NOMINAL (Rp)', 'KETERANGAN / TANDA TERIMA']],
+    body: [
+      ...dkl.rows.map((r) => [
+        String(r.no),
+        r.jenisBiaya,
+        '',
+        r.tanggal || '',
+        r.petugasVia || '',
+        r.nominal > 0 ? formatRupiahOps(r.nominal) : '-',
+        r.keterangan || '',
+      ]),
+      [
+        '',
+        'TOTAL DANA KERJA LAPANGAN (DKL)',
+        '',
+        '',
+        '',
+        formatRupiahOps(dkl.totalNominal),
+        `${dkl.totalTransaksi} transaksi ops`,
+      ],
+    ],
+    theme: 'grid',
+    styles: {
+      font: 'helvetica',
+      fontSize: 7.4,
+      cellPadding: { top: 3.4, bottom: 3.4, left: 4, right: 4 },
+      textColor: [15, 23, 42],
+      lineColor: [30, 41, 59],
+      lineWidth: 0.6,
+      valign: 'middle',
+      minCellHeight: 19,
+    },
+    headStyles: {
+      fillColor: [241, 245, 249],
+      textColor: [11, 37, 69],
+      fontStyle: 'bold',
+      fontSize: 7.5,
+      halign: 'center',
+      lineColor: [30, 41, 59],
+      lineWidth: 0.8,
+    },
+    columnStyles: {
+      0: { cellWidth: 22, halign: 'center' },
+      1: { cellWidth: 118, fontStyle: 'bold' },
+      2: { cellWidth: 32, halign: 'center' },
+      3: { cellWidth: 58, halign: 'center' },
+      4: { cellWidth: 74, halign: 'center' },
+      5: { cellWidth: 78, halign: 'right', fontStyle: 'bold' },
+      6: { cellWidth: contentWidth - 382 },
+    },
+    didParseCell: (hookData) => {
+      if (hookData.section === 'body' && hookData.row.index === dkl.rows.length) {
+        hookData.cell.styles.fillColor = [241, 245, 249];
+        hookData.cell.styles.fontStyle = 'bold';
+        hookData.cell.styles.textColor = [11, 37, 69];
+      }
+    },
+    didDrawCell: (hookData) => {
+      if (hookData.section !== 'body') return;
+      if (hookData.row.index >= dkl.rows.length) return;
+      if (hookData.column.index !== 2) return;
+      const rowData = dkl.rows[hookData.row.index];
+      if (!rowData) return;
+      const boxW = 20;
+      const boxH = 11.5;
+      const bx = hookData.cell.x + (hookData.cell.width - boxW) / 2;
+      const by = hookData.cell.y + (hookData.cell.height - boxH) / 2;
+
+      doc.setDrawColor(15, 23, 42);
+      doc.setLineWidth(0.65);
+      doc.rect(bx, by, boxW, boxH, 'S');
+      if (rowData.ada) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(15, 23, 42);
+        doc.text('X', bx + boxW / 2, by + 8.5, { align: 'center' });
+      }
+    },
+  });
+
+  // 5. Ringkasan Status & Tanda Tangan
+  const finalY =
+    (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ||
+    660;
+  const summaryY = Math.min(finalY + 14, 735);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.4);
+  doc.setTextColor(51, 65, 85);
+  const summaryLine = [
+    `Sudah Dibayar/Selesai: ${formatRupiahOps(dkl.totalSudahDibayar + dkl.totalSelesai)}`,
+    `Kasbon Ops: ${formatRupiahOps(dkl.totalKasbon)}`,
+    `Belum Ada Bukti: ${dkl.totalTanpaBukti} trx`,
+    dkl.bmPdriReferensi ? `Ref BM/PDRI: ${dkl.bmPdriReferensi}` : '',
+  ]
+    .filter(Boolean)
+    .join('   |   ');
+  doc.text(truncatePdfText(summaryLine, 110), marginX, summaryY);
+
+  const sigY = Math.min(summaryY + 20, 765);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.8);
+  doc.setTextColor(15, 23, 42);
+  doc.text('DISERAHKAN OLEH (KEUANGAN/ADMIN)', marginX + 6, sigY);
+  doc.text('DITERIMA / PELAKSANA LAPANGAN', marginX + 195, sigY);
+  doc.text(`TANGGAL : ${dkl.tanggalCetak || ''}`, marginX + 382, sigY);
+
+  const nameY = Math.min(sigY + 34, 804);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`( ${dkl.diserahkanOleh || '-'} )`, marginX + 6, nameY);
+  doc.text(`( ${dkl.koordinatorLapangan || '-'} )`, marginX + 195, nameY);
+  doc.text('MENGETAHUI / MANAJER', marginX + 382, nameY);
+
+  doc.setFontSize(7);
+  doc.setTextColor(100, 116, 139);
+  doc.text(
+    `${identity.companyName} · ${identity.footerNote}`,
+    marginX,
+    Math.min(nameY + 18, 825)
+  );
+}
+
+export function exportDklCoverPDF(
+  shipment: Shipment,
+  options: DklCoverOptions = {},
+  filename?: string
+): void {
+  const dkl = buildDklCoverDocument(shipment, options);
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+  drawDklCoverPage(doc, dkl);
+  const safeOs = shipment.kodeOs.replace(/[^A-Za-z0-9_-]/g, '_');
+  doc.save(filename || `DKL_${safeOs}.pdf`);
+}
+
+export function exportBatchDklCoverPDF(
+  shipments: Shipment[],
+  options: Omit<DklCoverOptions, 'customRows'> = {},
+  filename?: string
+): void {
+  if (shipments.length === 0) return;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+  shipments.forEach((s, index) => {
+    if (index > 0) doc.addPage();
+    const dkl = buildDklCoverDocument(s, options);
+    drawDklCoverPage(doc, dkl);
+  });
+  doc.save(filename || `DKL_Bundel_Per_OS_${new Date().toISOString().slice(0, 10)}.pdf`);
+}

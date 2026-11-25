@@ -22,8 +22,7 @@ import type {
   UserRole,
 } from '../types/ppjk';
 import {
-  canUserEditPhase,
-  canUserEditShipmentRecord,
+  canUserEditDoPelayaran,
   computeDoReadinessSummary,
   generateSuratJalanNomor,
   isContainerGateOut,
@@ -81,19 +80,8 @@ export function SuratJalanView({
   const [processingKodeOs, setProcessingKodeOs] = useState<string | null>(null);
   const { isCollapsed } = useCardCollapse();
 
-  const canEditPhase2 = canUserEditPhase({ role: userRole, phasePermissions }, 2);
-  const getRowEditAccess = (s: Shipment) =>
-    canUserEditShipmentRecord(
-      s,
-      {
-        username: currentUserUsername,
-        nama: currentUserName,
-        role: userRole,
-        phasePermissions,
-      },
-      users
-    );
-  const canEditRowPhase2 = (s: Shipment) => canEditPhase2 && getRowEditAccess(s).allowed;
+  const canEditPhase2 = canUserEditDoPelayaran({ role: userRole, phasePermissions }).allowed;
+  const canEditRowPhase2 = (_s: Shipment) => canEditPhase2;
   const summary = useMemo(() => computeDoReadinessSummary(shipments), [shipments]);
 
   const issuedShipments = useMemo(() => {
@@ -347,9 +335,7 @@ export function SuratJalanView({
           </div>
           {!readyPanelCollapsed && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-              {pendingGateOutShipments.map((s) => {
-                const rowAccess = getRowEditAccess(s);
-                return (
+              {pendingGateOutShipments.map((s) => (
                 <div
                   key={s.kodeOs}
                   className="p-3 rounded-xl bg-slate-50 dark:bg-[#161D2F] border border-slate-200 dark:border-white/[0.08] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
@@ -368,7 +354,7 @@ export function SuratJalanView({
                       Cont: {s.noCont || '-'} · Supir: {s.truckingNamaSupir || '-'} ({s.truckingNoPlat || '-'})
                     </div>
                   </div>
-                  {rowAccess.allowed ? (
+                  {canEditPhase2 && (
                     <button
                       type="button"
                       disabled={processingKodeOs === s.kodeOs}
@@ -382,20 +368,9 @@ export function SuratJalanView({
                           : 'Gate-Out & Buat SJ'}
                       </span>
                     </button>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled
-                      title={rowAccess.reason}
-                      className="shrink-0 w-full sm:w-auto justify-center inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs font-semibold cursor-not-allowed opacity-85"
-                    >
-                      <Lock className="w-3.5 h-3.5" />
-                      <span>Terkunci</span>
-                    </button>
                   )}
                 </div>
-                );
-              })}
+              ))}
             </div>
           )}
         </div>

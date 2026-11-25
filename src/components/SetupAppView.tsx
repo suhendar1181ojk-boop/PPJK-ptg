@@ -41,6 +41,7 @@ import {
   getDefaultModuleAccessForRole,
   getDefaultPhasePermissions,
   getPpjkIdentity,
+  isKeuanganOpsViewerRole,
   isOwnerSuperAdmin,
   PHASE_META,
   prepareBrandingImageDataUrl,
@@ -342,6 +343,9 @@ export function SetupAppView({
 
   const getEffectiveRoleModuleValue = (role: UserRole, moduleId: AppView): boolean => {
     if (role === 'Owner') return true;
+    if (moduleId === 'keuangan-ops' && !isKeuanganOpsViewerRole(role)) {
+      return false;
+    }
     const rolePolicy = pengaturan.roleModuleAccess?.[role];
     if (rolePolicy && typeof rolePolicy[moduleId] === 'boolean') {
       return Boolean(rolePolicy[moduleId]);
@@ -352,6 +356,7 @@ export function SetupAppView({
 
   const handleToggleRoleModule = async (role: UserRole, moduleId: AppView) => {
     if (!isOwner || role === 'Owner') return;
+    if (moduleId === 'keuangan-ops' && !isKeuanganOpsViewerRole(role)) return;
     const key = `role:${role}:${moduleId}`;
     setBusyKey(key);
     try {
@@ -424,6 +429,7 @@ export function SetupAppView({
     currentResolvedVal: boolean
   ) => {
     if (!isOwner || u.role === 'Owner') return;
+    if (moduleId === 'keuangan-ops' && !isKeuanganOpsViewerRole(u.role)) return;
     const key = `umod:${u.username}:${moduleId}`;
     setBusyKey(key);
     try {
@@ -1297,8 +1303,10 @@ export function SetupAppView({
                       </td>
 
                       {CONTROLLABLE_ROLES.map((role) => {
+                        const isProtectedKeuangan =
+                          mod.id === 'keuangan-ops' && !isKeuanganOpsViewerRole(role);
                         const enabled = getEffectiveRoleModuleValue(role, mod.id);
-                        const locked = role === 'Owner' || !isOwner;
+                        const locked = role === 'Owner' || !isOwner || isProtectedKeuangan;
                         const isBusy = busyKey === `role:${role}:${mod.id}`;
                         return (
                           <td key={role} className="py-2.5 px-2.5 text-center">
@@ -1308,6 +1316,11 @@ export function SetupAppView({
                               aria-checked={enabled}
                               aria-label={`Toggle modul ${mod.shortLabel} untuk peran ${role}`}
                               data-testid={`role-toggle-${role}-${mod.id}`}
+                              title={
+                                isProtectedKeuangan
+                                  ? 'Terproteksi: hanya dapat dilihat oleh Owner, Admin, Operasional, dan Manajer'
+                                  : undefined
+                              }
                               disabled={locked || isBusy}
                               onClick={() => handleToggleRoleModule(role, mod.id)}
                               className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold transition-colors ${
@@ -1327,7 +1340,15 @@ export function SetupAppView({
                               >
                                 <span className="w-2.5 h-2.5 rounded-full bg-white shadow-xs" />
                               </span>
-                              <span>{role === 'Owner' ? 'Kebal' : enabled ? 'Aktif' : 'Off'}</span>
+                              <span>
+                                {role === 'Owner'
+                                  ? 'Kebal'
+                                  : isProtectedKeuangan
+                                    ? 'Proteksi'
+                                    : enabled
+                                      ? 'Aktif'
+                                      : 'Off'}
+                              </span>
                             </button>
                           </td>
                         );
@@ -1578,11 +1599,15 @@ export function SetupAppView({
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2">
                               {APP_MODULE_META.map((mod) => {
+                                const isProtectedKeuangan =
+                                  mod.id === 'keuangan-ops' && !isKeuanganOpsViewerRole(u.role);
                                 const enabled = Boolean(row.resolvedModules[mod.id]);
                                 const hasOverride =
+                                  !isProtectedKeuangan &&
                                   u.modulePermissions &&
                                   typeof u.modulePermissions[mod.id] === 'boolean';
                                 const isBusy = busyKey === `umod:${u.username}:${mod.id}`;
+                                const isLocked = !isOwner || isProtectedKeuangan;
                                 return (
                                   <button
                                     key={mod.id}
@@ -1591,10 +1616,15 @@ export function SetupAppView({
                                     aria-checked={enabled}
                                     aria-label={`Toggle user ${u.username} modul ${mod.shortLabel}`}
                                     data-testid={`user-module-toggle-${u.username}-${mod.id}`}
-                                    disabled={!isOwner || isBusy}
+                                    title={
+                                      isProtectedKeuangan
+                                        ? 'Terproteksi: hanya dapat dilihat oleh Owner, Admin, Operasional, dan Manajer'
+                                        : undefined
+                                    }
+                                    disabled={isLocked || isBusy}
                                     onClick={() => handleToggleUserModule(u, mod.id, enabled)}
                                     className={`min-h-[42px] px-2.5 py-2 rounded-lg border flex items-center justify-between gap-2 text-[11px] font-semibold transition-colors ${
-                                      !isOwner ? 'opacity-75 cursor-not-allowed' : 'cursor-pointer'
+                                      isLocked ? 'opacity-75 cursor-not-allowed' : 'cursor-pointer'
                                     } ${
                                       enabled
                                         ? 'bg-emerald-50 dark:bg-emerald-500/15 border-emerald-300 dark:border-emerald-500/40 text-emerald-900 dark:text-emerald-200'
@@ -1611,7 +1641,7 @@ export function SetupAppView({
                                     </span>
                                     <span className="inline-flex items-center gap-1 shrink-0">
                                       <span className="text-[10px] font-bold uppercase">
-                                        {enabled ? 'Aktif' : 'Off'}
+                                        {isProtectedKeuangan ? 'Proteksi' : enabled ? 'Aktif' : 'Off'}
                                       </span>
                                       <span
                                         className={`w-6 h-3.5 rounded-full p-0.5 flex items-center transition-colors ${

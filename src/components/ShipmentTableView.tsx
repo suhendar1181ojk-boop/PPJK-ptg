@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import type {
   Customer,
+  DokumenItem,
   Importir,
   JalurType,
   Pengaturan,
@@ -29,6 +30,12 @@ import type {
   UserAccount,
   UserRole,
 } from '../types/ppjk';
+import {
+  formatDocumentFileSize,
+  getDocumentsForKodeOs,
+  groupDocumentsByKodeOs,
+  triggerDocumentDownload,
+} from '../utils/documentFileLogic';
 import type { BatchExcelImportItem } from '../services/gasSimulator';
 import {
   canPerformAction,
@@ -72,6 +79,7 @@ import { CardWindowToggleButton, ModuleCardBatchToggle } from './CardWindowContr
 interface ShipmentTableViewProps {
   mode: 'all' | 'outstanding';
   shipments: Shipment[];
+  documents?: DokumenItem[];
   customers?: Customer[];
   importirs?: Importir[];
   pengaturan?: Pengaturan;
@@ -143,6 +151,7 @@ function formatNumberId(value: number | '' | undefined): string {
 export function ShipmentTableView({
   mode,
   shipments,
+  documents = [],
   customers = [],
   importirs = [],
   pengaturan,
@@ -195,6 +204,11 @@ export function ShipmentTableView({
       setSearch(initialSearchQuery);
     }
   }, [initialSearchQuery]);
+
+  const documentsByKodeOs = useMemo(
+    () => groupDocumentsByKodeOs(documents),
+    [documents]
+  );
 
   const importirNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -423,38 +437,72 @@ export function ShipmentTableView({
 
     const code = (s.kodeManualDokOs || '').trim();
     const canEditRowDokOs = canEditPhase1 && Boolean(onUpdateKodeManualDokOs) && getRowEditAccess(s).allowed;
+    const rowDocs = getDocumentsForKodeOs(documentsByKodeOs, s.kodeOs);
     return (
-      <div
-        className="inline-flex items-center gap-1 group/dokos"
-        onClick={(e) => {
-          if (canEditRowDokOs) {
-            e.stopPropagation();
-          }
-        }}
-      >
-        {code ? (
-          <span
-            title="Kode Manual Terima Dokumen (Kode Dok Pemilik)"
-            className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-500/15 border border-amber-200 dark:border-amber-500/35 font-mono-code font-bold text-[#0B2545] dark:text-amber-200"
-          >
-            {code}
-          </span>
-        ) : (
-          <span className="text-slate-400 dark:text-slate-500 font-mono-code">-</span>
-        )}
-        {canEditRowDokOs && (
-          <button
-            type="button"
-            aria-label={`Ubah Dok. OS ${s.kodeOs}`}
-            title="Ubah Kode Manual Terima Dokumen / Dok. OS"
-            onClick={(e) => {
+      <div className="flex flex-col items-start gap-1">
+        <div
+          className="inline-flex items-center gap-1 group/dokos"
+          onClick={(e) => {
+            if (canEditRowDokOs) {
               e.stopPropagation();
-              setEditingManualOs({ kodeOs: s.kodeOs, value: code });
-            }}
-            className="p-1 rounded text-slate-400 hover:text-[#0B2545] dark:hover:text-violet-300 hover:bg-slate-100 dark:hover:bg-white/10 opacity-75 group-hover/dokos:opacity-100 cursor-pointer"
+            }
+          }}
+        >
+          {code ? (
+            <span
+              title="Kode Manual Terima Dokumen (Kode Dok Pemilik)"
+              className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-500/15 border border-amber-200 dark:border-amber-500/35 font-mono-code font-bold text-[#0B2545] dark:text-amber-200"
+            >
+              {code}
+            </span>
+          ) : (
+            <span className="text-slate-400 dark:text-slate-500 font-mono-code">-</span>
+          )}
+          {canEditRowDokOs && (
+            <button
+              type="button"
+              aria-label={`Ubah Dok. OS ${s.kodeOs}`}
+              title="Ubah Kode Manual Terima Dokumen / Dok. OS"
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditingManualOs({ kodeOs: s.kodeOs, value: code });
+              }}
+              className="p-1 rounded text-slate-400 hover:text-[#0B2545] dark:hover:text-violet-300 hover:bg-slate-100 dark:hover:bg-white/10 opacity-75 group-hover/dokos:opacity-100 cursor-pointer"
+            >
+              <Pencil className="w-2.5 h-2.5" />
+            </button>
+          )}
+        </div>
+        {rowDocs.length > 0 && (
+          <div
+            className="flex flex-col gap-1 w-full min-w-[155px] max-w-[215px]"
+            data-testid={`row-dok-os-files-${s.kodeOs}`}
+            onClick={(e) => e.stopPropagation()}
           >
-            <Pencil className="w-2.5 h-2.5" />
-          </button>
+            {rowDocs.map((doc) => {
+              const sizeLabel = formatDocumentFileSize(doc.fileSize);
+              return (
+                <button
+                  key={doc.id}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    triggerDocumentDownload(doc, s);
+                  }}
+                  aria-label={`Download ${doc.namaFile} (${s.kodeOs})`}
+                  title={`${doc.jenisDokumen} — ${doc.namaFile}${sizeLabel ? ` (${sizeLabel})` : ''} · Diupload: ${doc.user} · Klik untuk download`}
+                  data-testid={`row-download-${s.kodeOs}-${doc.id}`}
+                  className="w-full flex items-center justify-between gap-1.5 px-1.5 py-0.5 rounded bg-sky-50/90 dark:bg-violet-500/15 hover:bg-sky-100 dark:hover:bg-violet-500/25 border border-sky-200 dark:border-violet-500/35 text-[10px] font-medium text-[#0B2545] dark:text-violet-200 cursor-pointer transition-colors text-left"
+                >
+                  <span className="inline-flex items-center gap-1 min-w-0">
+                    <FileText className="w-2.5 h-2.5 shrink-0 text-[#0B2545] dark:text-violet-300" />
+                    <span className="truncate max-w-[140px]">{doc.namaFile}</span>
+                  </span>
+                  <Download className="w-2.5 h-2.5 shrink-0 text-[#F28C28] dark:text-violet-300" />
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
     );
@@ -1703,6 +1751,11 @@ export function ShipmentTableView({
                               {osProgress.checked}/{osProgress.total} ·{' '}
                               {osOutstanding ? 'OS' : 'Selesai'}
                             </span>
+                            {getDocumentsForKodeOs(documentsByKodeOs, s.kodeOs).length > 0 && (
+                              <div className="text-[10px] font-medium text-[#0B2545] dark:text-violet-300 mt-0.5">
+                                {getDocumentsForKodeOs(documentsByKodeOs, s.kodeOs).length} file Dok. OS
+                              </div>
+                            )}
                             {s.dokumenOs?.catatan && (
                               <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 max-w-[160px] truncate" title={s.dokumenOs.catatan}>
                                 {s.dokumenOs.catatan}
@@ -2099,6 +2152,41 @@ export function ShipmentTableView({
                       <span>Peringatan: ETA &lt; 3 hari tanpa No. AJU</span>
                     </div>
                   )}
+
+                  {(() => {
+                    const mobileDocs = getDocumentsForKodeOs(documentsByKodeOs, s.kodeOs);
+                    if (mobileDocs.length === 0) return null;
+                    return (
+                      <div
+                        className="pt-1.5 space-y-1.5"
+                        data-testid={`mobile-dok-os-files-${s.kodeOs}`}
+                      >
+                        <div className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                          File Dokumen OS ({mobileDocs.length})
+                        </div>
+                        <div className="space-y-1">
+                          {mobileDocs.map((doc) => (
+                            <button
+                              key={doc.id}
+                              type="button"
+                              onClick={() => triggerDocumentDownload(doc, s)}
+                              aria-label={`Download ${doc.namaFile} (${s.kodeOs})`}
+                              className="w-full min-h-[40px] flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-sky-50 dark:bg-violet-500/15 hover:bg-sky-100 dark:hover:bg-violet-500/25 border border-sky-200 dark:border-violet-500/35 text-xs font-medium text-[#0B2545] dark:text-violet-200 cursor-pointer text-left"
+                            >
+                              <span className="inline-flex items-center gap-1.5 min-w-0">
+                                <FileText className="w-3.5 h-3.5 shrink-0" />
+                                <span className="truncate">{doc.namaFile}</span>
+                              </span>
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#F28C28] dark:text-violet-300 shrink-0">
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Download</span>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   <div className="flex flex-wrap items-center gap-1.5 pt-1">
                     <StatusDokumenBadge

@@ -37,6 +37,7 @@ import {
   calculateCountdownEta,
   canPerformAction,
   canUserEditAnyPhase,
+  canUserEditDoPelayaran,
   canUserEditPhase,
   canUserEditShipmentRecord,
   computeSha256Hex,
@@ -1639,31 +1640,32 @@ export async function updateShipmentDoPelayaran(
     activeUser.role,
     activeUser.phasePermissions
   );
-  if (!canUserEditPhase({ role: activeUser.role, phasePermissions: activePerms }, 2)) {
-    throw new Error(
-      'Akses ditolak: Anda tidak memiliki izin mengubah kesiapan D/O Pelayaran (Fase 2).'
-    );
+  const doAccess = canUserEditDoPelayaran({
+    role: activeUser.role,
+    phasePermissions: activePerms,
+  });
+  if (!doAccess.allowed) {
+    throw new Error(doAccess.reason);
   }
   const idx = db.shipments.findIndex((s) => s.kodeOs === kodeOs);
   if (idx === -1) throw new Error(`Shipment ${kodeOs} tidak ditemukan.`);
 
   const target = db.shipments[idx];
-  const editAccess = canUserEditShipmentRecord(
-    target,
-    {
-      username: activeUser.username,
-      nama: activeUser.nama,
-      role: activeUser.role,
-      phasePermissions: activePerms,
-    },
-    db.users
-  );
-  if (!editAccess.allowed) {
-    throw new Error(editAccess.reason);
-  }
+  const canEditTargetPhase1 =
+    activePerms.phase1 &&
+    canUserEditShipmentRecord(
+      target,
+      {
+        username: activeUser.username,
+        nama: activeUser.nama,
+        role: activeUser.role,
+        phasePermissions: activePerms,
+      },
+      db.users
+    ).allowed;
   const oldDokStatus = normalizeStatusDokumen(target.statusDokumen);
   const nextDokStatus =
-    payload.statusDokumen !== undefined && activePerms.phase1
+    payload.statusDokumen !== undefined && canEditTargetPhase1
       ? normalizeStatusDokumen(payload.statusDokumen)
       : oldDokStatus;
 
@@ -2119,7 +2121,10 @@ export async function addShipmentDocument(
     linkDrive?: string;
     driveFileId?: string;
     driveFolderId?: string;
-    source?: 'google-drive' | 'simulasi';
+    source?: 'google-drive' | 'offline-local' | 'simulasi';
+    fileDataUrl?: string;
+    mimeType?: string;
+    fileSize?: number;
   }
 ): Promise<DatabaseState> {
   if (!canPerformAction(session.role, 'upload_dokumen')) {
@@ -2149,7 +2154,16 @@ export async function addShipmentDocument(
     user: session.username,
     driveFileId: driveMeta?.driveFileId,
     driveFolderId: driveMeta?.driveFolderId,
-    source: driveMeta?.source || (driveMeta?.driveFileId ? 'google-drive' : 'simulasi'),
+    source:
+      driveMeta?.source ||
+      (driveMeta?.driveFileId
+        ? 'google-drive'
+        : driveMeta?.fileDataUrl
+        ? 'offline-local'
+        : 'simulasi'),
+    fileDataUrl: driveMeta?.fileDataUrl,
+    mimeType: driveMeta?.mimeType,
+    fileSize: driveMeta?.fileSize,
   });
   db.logs.unshift({
     id: `log_${Date.now()}_${randSuffix}`,

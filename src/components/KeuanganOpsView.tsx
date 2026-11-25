@@ -10,6 +10,7 @@ import {
   FileSpreadsheet,
   FileText,
   Filter,
+  Lock,
   MessageCircle,
   Paperclip,
   Plus,
@@ -17,6 +18,7 @@ import {
   Receipt,
   RotateCcw,
   Search,
+  ShieldCheck,
   Trash2,
   Upload,
   UserCheck,
@@ -25,6 +27,7 @@ import {
   X,
 } from 'lucide-react';
 import type {
+  Importir,
   KategoriPengeluaranOps,
   MetodePembayaranOps,
   Pengaturan,
@@ -55,14 +58,17 @@ import {
   exportPengeluaranOpsToPDF,
   exportTandaTerimaOpsPDF,
 } from '../utils/exportUtils';
-import { canPerformAction, getPpjkIdentity } from '../utils/ppjkLogic';
+import { canPerformAction, canUserViewKeuanganOps, getPpjkIdentity } from '../utils/ppjkLogic';
 import { describeRegisteredDriveDestination } from '../utils/googleDriveFolderLogic';
 import { useCardCollapse } from '../contexts/CardCollapseContext';
 import { CardWindowToggleButton, ModuleCardBatchToggle } from './CardWindowControls';
+import { DklPrintModal } from './DklPrintModal';
+import { createPlaceholderNonOsShipment } from '../utils/dklCoverLogic';
 
 interface KeuanganOpsViewProps {
   items: PengeluaranOpsItem[];
   shipments: Shipment[];
+  importirs?: Importir[];
   users: UserAccount[];
   pengaturan: Pengaturan;
   session: SessionUser;
@@ -104,6 +110,7 @@ interface FormDraftState {
 export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
   items,
   shipments,
+  importirs = [],
   users,
   pengaturan,
   session,
@@ -113,8 +120,9 @@ export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
   onDeletePengeluaran,
   onOpenShipmentDetail,
 }) => {
-  const canManage = canPerformAction(session.role, 'manage_pengeluaran_ops');
-  const canDelete = canPerformAction(session.role, 'delete_pengeluaran_ops');
+  const canViewModule = canUserViewKeuanganOps(session, pengaturan);
+  const canManage = canViewModule && canPerformAction(session.role, 'manage_pengeluaran_ops');
+  const canDelete = canViewModule && canPerformAction(session.role, 'delete_pengeluaran_ops');
   const identity = useMemo(() => getPpjkIdentity(pengaturan), [pengaturan]);
   const { isCollapsed } = useCardCollapse();
 
@@ -139,6 +147,7 @@ export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
   const [submitting, setSubmitting] = useState(false);
 
   const [previewItem, setPreviewItem] = useState<PengeluaranOpsItem | null>(null);
+  const [dklTargetKodeOs, setDklTargetKodeOs] = useState<string | null>(null);
 
   const shipmentMap = useMemo(() => {
     const map = new Map<string, Shipment>();
@@ -385,6 +394,27 @@ export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
     return base;
   }, [subTab, summary.byPetugas]);
 
+  if (!canViewModule) {
+    return (
+      <div
+        data-testid="keuangan-ops-access-denied"
+        className="rounded-2xl bg-white dark:bg-[#131926] border border-amber-200 dark:border-amber-500/30 p-8 text-center space-y-3 shadow-sm"
+      >
+        <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-500/15 border border-amber-200 dark:border-amber-500/30 flex items-center justify-center mx-auto">
+          <Lock className="w-6 h-6 text-amber-600 dark:text-amber-300" />
+        </div>
+        <h2 className="text-base font-bold text-slate-900 dark:text-white">
+          Akses Terproteksi — Keuangan Pengeluaran Operasional
+        </h2>
+        <p className="text-xs text-slate-600 dark:text-slate-300 max-w-lg mx-auto leading-relaxed">
+          Tampilan <strong>Per Dokumen OS · Bukti &amp; Tanda Terima Ops</strong> diproteksi dari akun{' '}
+          <strong>{session.role}</strong> dan hanya dapat dilihat oleh{' '}
+          <strong>Owner, Admin, Operasional, dan Manajer</strong>.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       {/* Header Banner */}
@@ -418,6 +448,22 @@ export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
               <>
                 <button
                   type="button"
+                  data-testid="btn-cetak-dkl-header"
+                  onClick={() =>
+                    setDklTargetKodeOs(
+                      filterKodeOs ||
+                        summary.byDokumen[0]?.kodeOs ||
+                        sortedShipments[0]?.kodeOs ||
+                        NON_OS_KODE
+                    )
+                  }
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/15 hover:bg-amber-100 dark:hover:bg-amber-500/25 text-xs font-semibold text-amber-800 dark:text-amber-200 cursor-pointer transition-colors whitespace-nowrap"
+                >
+                  <Printer className="w-3.5 h-3.5 text-[#D97719] dark:text-amber-300" />
+                  <span>Cetak DKL</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => exportPengeluaranOpsToExcel(filteredItems, summary, shipments)}
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-[#182032] hover:bg-slate-50 dark:hover:bg-[#1F2940] text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer transition-colors whitespace-nowrap"
                 >
@@ -447,6 +493,19 @@ export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
               </>
             )}
           </div>
+        </div>
+      </div>
+
+      <div
+        data-testid="keuangan-ops-access-banner"
+        className="flex items-start gap-2.5 px-3.5 py-2 rounded-xl bg-sky-50/80 dark:bg-sky-500/10 border border-sky-200 dark:border-sky-500/25 text-xs text-sky-900 dark:text-sky-200"
+      >
+        <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5 text-sky-600 dark:text-sky-300" />
+        <div>
+          <span className="font-semibold">Proteksi Tampilan ({session.role}):</span>{' '}
+          {canManage
+            ? 'Keuangan Pengeluaran Operasional (Per Dokumen OS · Bukti & Tanda Terima Ops) hanya dapat dilihat oleh Owner, Admin, Operasional, dan Manajer (terproteksi dari Checker).'
+            : 'Mode lihat & pantau khusus Manajer — tampilan terproteksi dari Checker dan hanya dapat dilihat oleh Owner, Admin, Operasional, dan Manajer.'}
         </div>
       </div>
 
@@ -949,6 +1008,15 @@ export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
                             >
                               <Printer className="w-3.5 h-3.5" />
                             </button>
+                            <button
+                              type="button"
+                              aria-label={`Lembaran DKL ${item.kodeOs}`}
+                              title={`Cetak Lembaran DKL (${item.kodeOs})`}
+                              onClick={() => setDklTargetKodeOs(item.kodeOs)}
+                              className="p-1.5 rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50/80 dark:bg-amber-500/10 hover:bg-amber-100 text-amber-800 dark:text-amber-300 cursor-pointer"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                            </button>
                             {canManage &&
                               item.statusPengeluaran === 'Uang Muka / Kasbon' && (
                                 <button
@@ -1089,16 +1157,27 @@ export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
                           )}
                         </td>
                         <td className="pl-2 pr-3.5 py-2.5 text-right whitespace-nowrap">
-                          {canManage && (
+                          <div className="inline-flex items-center justify-end gap-1.5">
                             <button
                               type="button"
-                              onClick={() => openCreateModal(doc.kodeOs)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-[#1F2940] text-[11px] font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                              data-testid={`btn-cetak-dkl-${doc.kodeOs}`}
+                              onClick={() => setDklTargetKodeOs(doc.kodeOs)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-amber-300 dark:border-amber-500/35 bg-amber-50 dark:bg-amber-500/15 hover:bg-amber-100 dark:hover:bg-amber-500/25 text-[11px] font-semibold text-amber-800 dark:text-amber-200 cursor-pointer"
                             >
-                              <Plus className="w-3 h-3" />
-                              <span>Tambah Biaya</span>
+                              <Printer className="w-3 h-3" />
+                              <span>Cetak DKL</span>
                             </button>
-                          )}
+                            {canManage && (
+                              <button
+                                type="button"
+                                onClick={() => openCreateModal(doc.kodeOs)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-300 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-[#1F2940] text-[11px] font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>Tambah Biaya</span>
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1800,6 +1879,26 @@ export const KeuanganOpsView: React.FC<KeuanganOpsViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal Preview & Print Lembaran Dasi Dana Kerja Lapangan (DKL) */}
+      <DklPrintModal
+        isOpen={dklTargetKodeOs !== null}
+        initialKodeOs={dklTargetKodeOs || ''}
+        initialShipment={
+          dklTargetKodeOs
+            ? shipmentMap.get(dklTargetKodeOs.trim().toUpperCase()) ||
+              (dklTargetKodeOs.trim().toUpperCase() === NON_OS_KODE
+                ? createPlaceholderNonOsShipment()
+                : sortedShipments[0] || createPlaceholderNonOsShipment())
+            : null
+        }
+        availableShipments={sortedShipments}
+        importirs={importirs}
+        pengaturan={pengaturan}
+        pengeluaranOps={items}
+        defaultDiserahkanOleh={session.nama}
+        onClose={() => setDklTargetKodeOs(null)}
+      />
     </div>
   );
 };

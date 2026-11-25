@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lock, Paperclip, Plus, Trash2, Upload, X } from 'lucide-react';
+import { Download, Lock, Paperclip, Plus, Trash2, Upload, X } from 'lucide-react';
 import type {
   Customer,
   DokumenItem,
@@ -39,6 +39,7 @@ import {
 } from '../utils/ppjkLogic';
 import { GoogleSignInButton } from './GoogleDriveButton';
 import { describeRegisteredDriveDestination } from '../utils/googleDriveFolderLogic';
+import { formatDocumentFileSize, triggerDocumentDownload } from '../utils/documentFileLogic';
 
 interface ShipmentFormModalProps {
   initialShipment: Shipment | null;
@@ -719,6 +720,41 @@ export function ShipmentFormModal({
                       </a>
                     )}
                   </div>
+
+                  {!isNew && existingDocuments.length > 0 && (
+                    <div className="space-y-1.5" data-testid="form-existing-documents-list">
+                      <div className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                        Dokumen OS Sudah Terupload ({existingDocuments.length})
+                      </div>
+                      <div className="space-y-1 max-h-36 overflow-y-auto pr-0.5">
+                        {existingDocuments.map((doc) => (
+                          <div
+                            key={doc.id}
+                            className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#182032] border border-slate-200 dark:border-white/10 text-xs"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="font-medium text-slate-900 dark:text-white truncate">
+                                {doc.namaFile}
+                              </div>
+                              <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                                {doc.jenisDokumen} · {doc.user}
+                                {doc.fileSize ? ` · ${formatDocumentFileSize(doc.fileSize)}` : ''}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => triggerDocumentDownload(doc, form)}
+                              aria-label={`Download ${doc.namaFile}`}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded border border-sky-200 dark:border-violet-500/35 bg-sky-50 dark:bg-violet-500/15 hover:bg-sky-100 dark:hover:bg-violet-500/25 text-[11px] font-semibold text-[#0B2545] dark:text-violet-200 cursor-pointer shrink-0"
+                            >
+                              <Download className="w-3 h-3" />
+                              <span>Download</span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
                     <div className="sm:col-span-5">

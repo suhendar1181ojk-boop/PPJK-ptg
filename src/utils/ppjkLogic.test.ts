@@ -14,8 +14,10 @@ import {
   canPerformAction,
   canUserAccessModule,
   canUserEditAnyPhase,
+  canUserEditDoPelayaran,
   canUserEditPhase,
   canUserEditShipmentRecord,
+  canUserViewKeuanganOps,
   computeBillingSummary,
   computeCheckerSummaries,
   computeDashboardStats,
@@ -41,6 +43,7 @@ import {
   isShipmentVisibleToUser,
   formatContainerSummary,
   formatCurrencyTotals,
+  formatDashboardDateLabel,
   formatNopenPeriodLabel,
   formatRupiah,
   generateNextKodeOS,
@@ -68,6 +71,7 @@ import {
   getStatusTruckingMeta,
   hasSptnpIssue,
   isContainerGateOut,
+  isKeuanganOpsViewerRole,
   isOwnerSuperAdmin,
   isShipmentBillingEligible,
   isShipmentOutstanding,
@@ -1811,7 +1815,7 @@ test('buildUserMonitoringRows aggregates log activity counts, resolved modules, 
 
   const checkerRow = rows[1];
   assert.equal(checkerRow.totalModulesCount, 11); // excludes owner-exclusive setup module
-  assert.equal(checkerRow.enabledModulesCount, 9); // 11 - 2 disabled
+  assert.equal(checkerRow.enabledModulesCount, 8); // 11 - 2 disabled - 1 protected keuangan-ops
   assert.equal(checkerRow.hasCustomModuleOverrides, true);
   assert.equal(checkerRow.activePhasesCount, 1);
   assert.equal(checkerRow.activityCount, 2);
@@ -1999,6 +2003,102 @@ test('Checker document visibility and edit restriction lock other accounts excep
   assert.equal(canUserEditShipmentRecord(adminDoc, users[6], users).allowed, true);
   assert.equal(canUserEditShipmentRecord(adminDoc, users[2], users).allowed, false);
 });
+
+test('Kesiapan D/O Pelayaran edit access allows only Operasional and Manajer regardless of Checker lock', () => {
+  assert.equal(canUserEditDoPelayaran({ role: 'Operasional' }).allowed, true);
+  assert.equal(canUserEditDoPelayaran({ role: 'Manajer' }).allowed, true);
+  assert.equal(canUserEditDoPelayaran({ role: 'Owner' }).allowed, false);
+  assert.equal(canUserEditDoPelayaran({ role: 'Admin' }).allowed, false);
+  assert.equal(canUserEditDoPelayaran({ role: 'Checker' }).allowed, false);
+  assert.equal(canUserEditDoPelayaran({ role: 'Dokumen/Checker' }).allowed, false);
+  assert.equal(canUserEditDoPelayaran({ role: 'Drafter' }).allowed, false);
+  assert.equal(
+    canUserEditDoPelayaran({
+      role: 'Operasional',
+      phasePermissions: { phase1: false, phase2: false, phase3: true, phase4: false },
+    }).allowed,
+    false
+  );
+  assert.equal(
+    canUserEditDoPelayaran({
+      role: 'Drafter',
+      phasePermissions: { phase1: true, phase2: true, phase3: true, phase4: true },
+    }).allowed,
+    false
+  );
+});
+
+test('Keuangan Pengeluaran Operasional view is restricted to Owner, Admin, Operasional, and Manajer only', () => {
+  assert.equal(isKeuanganOpsViewerRole('Owner'), true);
+  assert.equal(isKeuanganOpsViewerRole('Admin'), true);
+  assert.equal(isKeuanganOpsViewerRole('Operasional'), true);
+  assert.equal(isKeuanganOpsViewerRole('Manajer'), true);
+  assert.equal(isKeuanganOpsViewerRole('Checker'), false);
+  assert.equal(isKeuanganOpsViewerRole('Dokumen/Checker'), false);
+  assert.equal(isKeuanganOpsViewerRole('Drafter'), false);
+
+  assert.equal(getDefaultModuleAccessForRole('Owner')['keuangan-ops'], true);
+  assert.equal(getDefaultModuleAccessForRole('Admin')['keuangan-ops'], true);
+  assert.equal(getDefaultModuleAccessForRole('Operasional')['keuangan-ops'], true);
+  assert.equal(getDefaultModuleAccessForRole('Manajer')['keuangan-ops'], true);
+  assert.equal(getDefaultModuleAccessForRole('Checker')['keuangan-ops'], false);
+  assert.equal(getDefaultModuleAccessForRole('Dokumen/Checker')['keuangan-ops'], false);
+  assert.equal(getDefaultModuleAccessForRole('Drafter')['keuangan-ops'], false);
+
+  // Even if legacy policy/overrides attempt to enable keuangan-ops for Checker or Drafter, it remains protected
+  const forcedEnablePolicy = {
+    roleModuleAccess: {
+      Checker: { 'keuangan-ops': true },
+      Drafter: { 'keuangan-ops': true },
+    },
+  };
+  assert.equal(
+    canUserViewKeuanganOps({ role: 'Checker', modulePermissions: { 'keuangan-ops': true } }, forcedEnablePolicy),
+    false
+  );
+  assert.equal(
+    canUserViewKeuanganOps({ role: 'Dokumen/Checker', modulePermissions: { 'keuangan-ops': true } }, forcedEnablePolicy),
+    false
+  );
+  assert.equal(
+    canUserViewKeuanganOps({ role: 'Drafter', modulePermissions: { 'keuangan-ops': true } }, forcedEnablePolicy),
+    false
+  );
+  assert.equal(
+    canUserAccessModule({ role: 'Checker', modulePermissions: { 'keuangan-ops': true } }, 'keuangan-ops', forcedEnablePolicy),
+    false
+  );
+  assert.equal(
+    resolveUserModuleAccess({ role: 'Checker', modulePermissions: { 'keuangan-ops': true } }, forcedEnablePolicy)['keuangan-ops'],
+    false
+  );
+
+  // Allowed roles can view Keuangan Pengeluaran Operasional
+  assert.equal(canUserViewKeuanganOps({ role: 'Owner' }), true);
+  assert.equal(canUserViewKeuanganOps({ role: 'Admin' }), true);
+  assert.equal(canUserViewKeuanganOps({ role: 'Operasional' }), true);
+  assert.equal(canUserViewKeuanganOps({ role: 'Manajer' }), true);
+
+  // Write/manage action excludes Checker, Drafter, and Manajer (Manajer is view-only)
+  assert.equal(canPerformAction('Owner', 'manage_pengeluaran_ops'), true);
+  assert.equal(canPerformAction('Admin', 'manage_pengeluaran_ops'), true);
+  assert.equal(canPerformAction('Operasional', 'manage_pengeluaran_ops'), true);
+  assert.equal(canPerformAction('Manajer', 'manage_pengeluaran_ops'), false);
+  assert.equal(canPerformAction('Checker', 'manage_pengeluaran_ops'), false);
+  assert.equal(canPerformAction('Dokumen/Checker', 'manage_pengeluaran_ops'), false);
+  assert.equal(canPerformAction('Drafter', 'manage_pengeluaran_ops'), false);
+});
+
+test('formatDashboardDateLabel formats full Indonesian weekday, day, month, and year', () => {
+  const sample = new Date(2026, 10, 25, 10, 0, 0);
+  const formatted = formatDashboardDateLabel(sample);
+  assert.match(formatted, /25/);
+  assert.match(formatted, /November/i);
+  assert.match(formatted, /2026/);
+  assert.match(formatted, /Rabu/i);
+});
+
+
 
 
 

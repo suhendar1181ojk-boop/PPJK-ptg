@@ -45,14 +45,17 @@ import {
   getStatusPengeluaranMeta,
   hasBuktiPengeluaran,
 } from '../utils/pengeluaranOpsLogic';
+import { formatDocumentFileSize, triggerDocumentDownload } from '../utils/documentFileLogic';
 import { KdiPrintModal } from './KdiPrintModal';
 import type { DriveFileEntry } from '../services/googleDriveService';
 import {
   buildAutoBillingFields,
   canPerformAction,
   canUserEditAnyPhase,
+  canUserEditDoPelayaran,
   canUserEditPhase,
   canUserEditShipmentRecord,
+  canUserViewKeuanganOps,
   formatChecklistProgress,
   formatRupiah,
   generateSuratJalanNomor,
@@ -114,6 +117,7 @@ interface ShipmentDetailDrawerProps {
   onEdit: (kodeOs: string) => void;
   onDelete: (kodeOs: string) => void;
   onOpenBilling?: (kodeOs: string, tab?: 'owner' | 'customer') => void;
+  canViewKeuanganOps?: boolean;
   onOpenKeuanganOps?: (kodeOs: string) => void;
   onAddComment: (kodeOs: string, isi: string) => Promise<void>;
   onUploadDocument: (
@@ -183,6 +187,7 @@ export function ShipmentDetailDrawer({
   onEdit,
   onDelete,
   onOpenBilling,
+  canViewKeuanganOps,
   onOpenKeuanganOps,
   onAddComment,
   onUploadDocument,
@@ -190,6 +195,10 @@ export function ShipmentDetailDrawer({
   onUpdateBc11,
   onUpdateDoPelayaran,
 }: ShipmentDetailDrawerProps) {
+  const effectiveCanViewKeuanganOps =
+    typeof canViewKeuanganOps === 'boolean'
+      ? canViewKeuanganOps
+      : canUserViewKeuanganOps({ role: userRole }, pengaturan);
   const [noteText, setNoteText] = useState('');
   const [docJenis, setDocJenis] = useState('Bill of Lading (BL)');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -242,6 +251,7 @@ export function ShipmentDetailDrawer({
   const canEdit = canUserEditAnyPhase({ role: userRole, phasePermissions }) && editAccess.allowed;
   const canEditPhase1 = canUserEditPhase({ role: userRole, phasePermissions }, 1) && editAccess.allowed;
   const canEditPhase2 = canUserEditPhase({ role: userRole, phasePermissions }, 2) && editAccess.allowed;
+  const canEditDoPelayaran = canUserEditDoPelayaran({ role: userRole, phasePermissions }).allowed;
   const canDelete = canPerformAction(userRole, 'delete_shipment') && editAccess.allowed;
   const canComment = canPerformAction(userRole, 'add_catatan') && editAccess.allowed;
   const canUpload = canPerformAction(userRole, 'upload_dokumen') && editAccess.allowed;
@@ -730,7 +740,7 @@ export function ShipmentDetailDrawer({
                 <StatusDoBadge
                   statusDo={currentDoStatus}
                   onToggle={
-                    canEditPhase2 && onUpdateDoPelayaran && !updatingDo
+                    canEditDoPelayaran && onUpdateDoPelayaran && !updatingDo
                       ? async (nextStatus) => {
                           setUpdatingDo(true);
                           try {
@@ -744,7 +754,7 @@ export function ShipmentDetailDrawer({
                       : undefined
                   }
                 />
-                {canEditPhase2 && onUpdateDoPelayaran && !editingDo && (
+                {canEditDoPelayaran && onUpdateDoPelayaran && !editingDo && (
                   <button
                     type="button"
                     onClick={() => {
@@ -784,7 +794,7 @@ export function ShipmentDetailDrawer({
                       <StatusGatePassBadge
                         statusGatePass={currentGatePassStatus}
                         onToggle={
-                          canEditPhase2 && onUpdateDoPelayaran && !updatingDo
+                          canEditDoPelayaran && onUpdateDoPelayaran && !updatingDo
                             ? async (nextGate) => {
                                 setUpdatingDo(true);
                                 try {
@@ -815,7 +825,7 @@ export function ShipmentDetailDrawer({
                       <StatusTruckingBadge
                         statusTrucking={currentTruckingStatus}
                         onToggle={
-                          canEditPhase2 && onUpdateDoPelayaran && !updatingDo
+                          canEditDoPelayaran && onUpdateDoPelayaran && !updatingDo
                             ? async (nextTruck) => {
                                 setUpdatingDo(true);
                                 try {
@@ -859,7 +869,7 @@ export function ShipmentDetailDrawer({
                       gateOutStatus={currentGateOutStatus}
                       shipmentStatus={shipment.status}
                       onToggle={
-                        canEditPhase2 && onUpdateDoPelayaran && !updatingDo
+                        canEditDoPelayaran && onUpdateDoPelayaran && !updatingDo
                           ? async (nextGateOut) => {
                               const wasGateOut = isContainerGateOut(shipment);
                               setUpdatingDo(true);
@@ -892,7 +902,7 @@ export function ShipmentDetailDrawer({
                             gateOutStatus={currentGateOutStatus}
                             shipmentStatus={shipment.status}
                             onToggle={
-                              canEditPhase2 && onUpdateDoPelayaran && !updatingDo
+                              canEditDoPelayaran && onUpdateDoPelayaran && !updatingDo
                                 ? async (nextSj) => {
                                     setUpdatingDo(true);
                                     try {
@@ -937,7 +947,7 @@ export function ShipmentDetailDrawer({
               </div>
             )}
 
-            {editingDo && canEditPhase2 && onUpdateDoPelayaran && (
+            {editingDo && canEditDoPelayaran && onUpdateDoPelayaran && (
               <form
                 onSubmit={async (e) => {
                   e.preventDefault();
@@ -1469,12 +1479,27 @@ export function ShipmentDetailDrawer({
                             Drive
                           </span>
                         )}
+                        {doc.fileDataUrl && (
+                          <span className="px-1.5 py-0.5 rounded bg-sky-50 dark:bg-sky-500/15 border border-sky-200 dark:border-sky-500/30 text-[10px] font-semibold text-sky-700 dark:text-sky-300 shrink-0">
+                            Siap Unduh
+                          </span>
+                        )}
                       </div>
                       <div className="text-[11px] text-slate-500 dark:text-slate-400">
                         Diupload oleh {doc.user} · {doc.waktuUpload.slice(0, 16).replace('T', ' ')}
+                        {doc.fileSize ? ` · ${formatDocumentFileSize(doc.fileSize)}` : ''}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => triggerDocumentDownload(doc, shipment)}
+                        aria-label={`Download ${doc.namaFile}`}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-sky-200 dark:border-violet-500/35 bg-sky-50 dark:bg-violet-500/15 hover:bg-sky-100 dark:hover:bg-violet-500/25 text-[11px] font-semibold text-[#0B2545] dark:text-violet-200 cursor-pointer shrink-0"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download</span>
+                      </button>
                       <a
                         href={doc.linkDrive}
                         target="_blank"
@@ -1541,8 +1566,9 @@ export function ShipmentDetailDrawer({
             )}
           </section>
 
-          {/* Pengeluaran Operasional Terkait Dokumen OS */}
-          <section className="space-y-3">
+          {/* Pengeluaran Operasional Terkait Dokumen OS (Terproteksi: Owner, Admin, Operasional, Manajer) */}
+          {effectiveCanViewKeuanganOps && (
+          <section data-testid="drawer-keuangan-ops-section" className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-white/[0.08] pb-1.5">
               <h3 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#0B2545] dark:text-violet-300">
                 <Wallet className="w-3.5 h-3.5" />
@@ -1622,6 +1648,7 @@ export function ShipmentDetailDrawer({
               </div>
             )}
           </section>
+          )}
 
           {/* Catatan / Komentar */}
           <section className="space-y-3">
@@ -1703,7 +1730,7 @@ export function ShipmentDetailDrawer({
         <SuratJalanModal
           shipment={shipment}
           pengaturan={pengaturan}
-          canEdit={canEditPhase2}
+          canEdit={canEditDoPelayaran}
           onClose={() => setSjModalOpen(false)}
           onOpenBilling={onOpenBilling}
           onSaveSuratJalan={async (kodeOs, sjPayload) => {

@@ -149,6 +149,7 @@ import {
 import {
   canPerformAction,
   canUserEditShipmentRecord,
+  canUserViewKeuanganOps,
   computeBillingSummary,
   filterShipments,
   filterShipmentsVisibleToUser,
@@ -166,6 +167,7 @@ import {
   hasBuktiPengeluaran,
   type PengeluaranOpsInputPayload,
 } from './utils/pengeluaranOpsLogic';
+import { readShipmentFilePayload } from './utils/documentFileLogic';
 import { LoginView } from './components/LoginView';
 import { Sidebar } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
@@ -2103,7 +2105,7 @@ export default function App() {
     file?: File
   ): Promise<{
     nextDb: DatabaseState;
-    source: 'google-drive' | 'simulasi';
+    source: 'google-drive' | 'offline-local' | 'simulasi';
     channel?: 'oauth-direct' | 'gas-webapp';
     folderName?: string;
     ownerEmail?: string;
@@ -2111,6 +2113,15 @@ export default function App() {
   } | undefined> => {
     if (!session || !db) return undefined;
     if (file) {
+      let localPayload: { fileDataUrl?: string; mimeType?: string; fileSize?: number } = {
+        mimeType: file.type || 'application/octet-stream',
+        fileSize: file.size,
+      };
+      try {
+        localPayload = await readShipmentFilePayload(file);
+      } catch {
+        // lanjutkan dengan metadata file bila pembacaan lokal gagal
+      }
       try {
         const uploaded = await uploadFileViaRegisteredDrive(db, {
           file,
@@ -2122,6 +2133,9 @@ export default function App() {
           driveFileId: uploaded.fileId,
           driveFolderId: uploaded.folderId,
           source: 'google-drive',
+          fileDataUrl: localPayload.fileDataUrl,
+          mimeType: localPayload.mimeType,
+          fileSize: localPayload.fileSize,
         });
         nextDb = await persistResolvedDriveFolderToPengaturan(nextDb, uploaded);
         return {
@@ -2134,12 +2148,16 @@ export default function App() {
       } catch (err) {
         const fallbackReason =
           err instanceof Error ? err.message : 'Gagal upload ke Google Drive';
+        const fallbackSource = localPayload.fileDataUrl ? 'offline-local' : 'simulasi';
         const nextDb = await addShipmentDocument(session, kodeOs, jenisDokumen, namaFile, {
-          source: 'simulasi',
+          source: fallbackSource,
+          fileDataUrl: localPayload.fileDataUrl,
+          mimeType: localPayload.mimeType,
+          fileSize: localPayload.fileSize,
         });
         return {
           nextDb,
-          source: 'simulasi',
+          source: fallbackSource,
           fallbackReason,
         };
       }
@@ -2180,6 +2198,19 @@ export default function App() {
     let driveFallbackError = '';
 
     for (const item of pendingUploads) {
+      let localPayload: { fileDataUrl?: string; mimeType?: string; fileSize?: number } = item.file
+        ? {
+            mimeType: item.file.type || 'application/octet-stream',
+            fileSize: item.file.size,
+          }
+        : {};
+      if (item.file) {
+        try {
+          localPayload = await readShipmentFilePayload(item.file);
+        } catch {
+          // lanjutkan dengan metadata file
+        }
+      }
       try {
         if (item.file) {
           const uploaded = await uploadFileViaRegisteredDrive(latestDb, {
@@ -2197,6 +2228,9 @@ export default function App() {
               driveFileId: uploaded.fileId,
               driveFolderId: uploaded.folderId,
               source: 'google-drive',
+              fileDataUrl: localPayload.fileDataUrl,
+              mimeType: localPayload.mimeType,
+              fileSize: localPayload.fileSize,
             }
           );
           latestDb = await persistResolvedDriveFolderToPengaturan(latestDb, uploaded);
@@ -2218,7 +2252,12 @@ export default function App() {
           res.saved.kodeOs,
           item.jenisDokumen,
           item.namaFile,
-          { source: 'simulasi' }
+          {
+            source: localPayload.fileDataUrl ? 'offline-local' : 'simulasi',
+            fileDataUrl: localPayload.fileDataUrl,
+            mimeType: localPayload.mimeType,
+            fileSize: localPayload.fileSize,
+          }
         );
       }
     }
@@ -2354,6 +2393,9 @@ export default function App() {
     proofFile?: File
   ) => {
     if (!session || !db) return;
+    if (!canUserViewKeuanganOps(session, db.pengaturan) || !canPerformAction(session.role, 'manage_pengeluaran_ops')) {
+      return;
+    }
     let finalPayload: PengeluaranOpsInputPayload = { ...payload };
     let driveNote = '';
     let workingDb = db;
@@ -2400,7 +2442,10 @@ export default function App() {
   };
 
   const handleDeletePengeluaranOps = async (id: string) => {
-    if (!session) return;
+    if (!session || !db) return;
+    if (!canUserViewKeuanganOps(session, db.pengaturan) || !canPerformAction(session.role, 'delete_pengeluaran_ops')) {
+      return;
+    }
     const confirm = await Swal.fire({
       title: 'Hapus Catatan Pengeluaran Ops?',
       text: 'Catatan pengeluaran dan nomor tanda terima terkait akan dihapus dari log operasional.',
@@ -2893,11 +2938,11 @@ export default function App() {
   const billingSummary = computeBillingSummary(visibleShipments);
   const pendingBillingCount =
     billingSummary.siapInfoOwnerCount + billingSummary.ownerNotifiedCount;
-  const opsExpenseMissingProofCount = (db.pengeluaranOps || []).filter(
-    (item) => !hasBuktiPengeluaran(item)
-  ).length;
-
   const moduleAccess = resolveUserModuleAccess(session, db.pengaturan);
+  const canViewKeuanganOps = canUserViewKeuanganOps(session, db.pengaturan);
+  const opsExpenseMissingProofCount = canViewKeuanganOps
+    ? (db.pengeluaranOps || []).filter((item) => !hasBuktiPengeluaran(item)).length
+    : 0;
   const canCreate = canPerformAction(session.role, 'create_shipment');
   const canAccessMaster =
     (canPerformAction(session.role, 'manage_master') ||
@@ -2909,6 +2954,7 @@ export default function App() {
   const isViewAllowed = (v: AppView): boolean => {
     if (v === 'master') return canAccessMaster;
     if (v === 'setup') return canAccessSetup;
+    if (v === 'keuangan-ops') return canViewKeuanganOps;
     return Boolean(moduleAccess[v]);
   };
 
@@ -3433,10 +3479,11 @@ export default function App() {
             />
           )}
 
-          {effectiveView === 'keuangan-ops' && (
+          {effectiveView === 'keuangan-ops' && canViewKeuanganOps && (
             <KeuanganOpsView
               items={db.pengeluaranOps || []}
               shipments={visibleShipments}
+              importirs={db.importirs}
               users={db.users}
               pengaturan={db.pengaturan}
               session={session}
@@ -3467,6 +3514,7 @@ export default function App() {
             <ShipmentTableView
               mode={effectiveView === 'outstanding' ? 'outstanding' : 'all'}
               shipments={visibleShipments}
+              documents={db.dokumen}
               customers={db.customers}
               importirs={db.importirs}
               pengaturan={db.pengaturan}
@@ -3673,13 +3721,16 @@ export default function App() {
             setDetailKodeOs(null);
             setBillingModalState({ kodeOs, tab });
           }}
-          onOpenKeuanganOps={(kodeOs) => {
-            setDetailKodeOs(null);
-            if (isViewAllowed('keuangan-ops')) {
-              setKeuanganOpsFilterKodeOs(kodeOs);
-              setActiveView('keuangan-ops');
-            }
-          }}
+          canViewKeuanganOps={canViewKeuanganOps}
+          onOpenKeuanganOps={
+            canViewKeuanganOps
+              ? (kodeOs) => {
+                  setDetailKodeOs(null);
+                  setKeuanganOpsFilterKodeOs(kodeOs);
+                  setActiveView('keuangan-ops');
+                }
+              : undefined
+          }
           onAddComment={handleAddComment}
           onUploadDocument={handleUploadDocument}
           onUpdateStatusDokumen={handleUpdateStatusDokumen}

@@ -229,7 +229,10 @@ export interface DokumenItem {
   user: string;
   driveFileId?: string;
   driveFolderId?: string;
-  source?: 'google-drive' | 'simulasi';
+  source?: 'google-drive' | 'offline-local' | 'simulasi';
+  fileDataUrl?: string;
+  mimeType?: string;
+  fileSize?: number;
 }
 
 export interface PendingUploadFile {

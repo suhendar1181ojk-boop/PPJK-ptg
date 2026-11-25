@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Chart, registerables } from 'chart.js';
 import {
   AlertCircle,
@@ -26,6 +26,7 @@ import {
   computeCheckerSummaries,
   computeDashboardStats,
   DEFAULT_STATUS_LIST,
+  formatDashboardDateLabel,
   getShipmentProcessSignal,
   getStatusBadgeClass,
   isShipmentOutstanding,
@@ -366,10 +367,16 @@ export function DashboardView({
     [logs]
   );
 
-  const currentPeriodLabel = new Intl.DateTimeFormat('id-ID', {
-    month: 'long',
-    year: 'numeric',
-  }).format(new Date());
+  const [nowDate, setNowDate] = useState<Date>(() => new Date());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNowDate(new Date());
+    }, 60000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const currentPeriodLabel = formatDashboardDateLabel(nowDate);
 
   const dashboardCardIds = useMemo(() => {
     const ids = [
@@ -405,8 +412,12 @@ export function DashboardView({
 
         <div className="flex flex-wrap items-center gap-2">
           <ModuleCardBatchToggle cardIds={dashboardCardIds} moduleName="dashboard" />
-          <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white dark:bg-[#131926] border border-slate-200 dark:border-white/[0.08] text-xs font-medium text-slate-700 dark:text-slate-200 shadow-xs">
-            <Calendar className="w-3.5 h-3.5 text-[#F28C28] dark:text-violet-400" />
+          <div
+            data-testid="dashboard-current-date"
+            title="Tanggal, Bulan & Tahun saat ini"
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white dark:bg-[#131926] border border-slate-200 dark:border-white/[0.08] text-xs font-semibold text-slate-700 dark:text-slate-100 shadow-xs tabular-nums whitespace-nowrap"
+          >
+            <Calendar className="w-3.5 h-3.5 text-[#F28C28] dark:text-violet-400 shrink-0" />
             <span className="capitalize">{currentPeriodLabel}</span>
           </div>
         </div>

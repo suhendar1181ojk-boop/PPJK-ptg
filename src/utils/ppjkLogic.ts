@@ -1161,7 +1161,7 @@ export const ROLE_LIMITS_INFO: Record<
   Checker: {
     title: 'Checker (Dokumen & Pasca-SPPB)',
     summary: 'Buat shipment baru, edit Fase 1 (Dokumen) & Fase 4 (Pasca-SPPB/OS + Status), upload scan, catatan, master data.',
-    restrictions: 'Fase 2 (Pelayaran) & Fase 3 (Customs) terkunci; tidak bisa hapus shipment, kelola user, atau pengaturan sistem.',
+    restrictions: 'Fase 2 (Pelayaran) & Fase 3 (Customs) serta Keuangan Pengeluaran Operasional terkunci; tidak bisa hapus shipment, kelola user, atau pengaturan sistem.',
   },
   Drafter: {
     title: 'Drafter (PIB / Pelayaran & Customs)',
@@ -1231,7 +1231,7 @@ export function canPerformAction(
         role === 'Manajer'
       );
     case 'manage_pengeluaran_ops':
-      return role === 'Admin' || isCheckerRole(role) || role === 'Operasional';
+      return role === 'Admin' || role === 'Operasional';
     case 'upload_dokumen':
     case 'add_catatan':
       return (
@@ -1550,6 +1550,66 @@ export function canUserEditShipmentRecord(
   }
 
   return { allowed: true, reason: '' };
+}
+
+/**
+ * Modul Kesiapan D/O Pelayaran (Pengeluaran Kontainer dari Pelabuhan):
+ * Tidak terkunci oleh kepemilikan dokumen Checker, dan hanya akun Operasional
+ * serta Manajer yang dapat melakukan edit/update sesuai tugasnya.
+ */
+export function canUserEditDoPelayaran(
+  user:
+    | {
+        role: UserRole;
+        phasePermissions?: Partial<PhasePermissions> | null;
+      }
+    | null
+    | undefined
+): { allowed: boolean; reason: string } {
+  if (!user) {
+    return { allowed: false, reason: 'Sesi pengguna tidak ditemukan.' };
+  }
+  if (user.role !== 'Operasional' && user.role !== 'Manajer') {
+    return {
+      allowed: false,
+      reason:
+        'Akses edit/update modul Kesiapan D/O Pelayaran (Pengeluaran Kontainer dari Pelabuhan) hanya diperbolehkan untuk akun Operasional dan Manajer.',
+    };
+  }
+  if (!canUserEditPhase({ role: user.role, phasePermissions: user.phasePermissions }, 2)) {
+    return {
+      allowed: false,
+      reason: `Izin Fase 2 (Pelayaran & D/O) dinonaktifkan untuk akun Anda (${user.role}).`,
+    };
+  }
+  return { allowed: true, reason: '' };
+}
+
+export function isKeuanganOpsViewerRole(role: UserRole): boolean {
+  return (
+    role === 'Owner' ||
+    role === 'Admin' ||
+    role === 'Operasional' ||
+    role === 'Manajer'
+  );
+}
+
+export function canUserViewKeuanganOps(
+  user: { role: UserRole; modulePermissions?: ModulePermissionsMap } | null | undefined,
+  pengaturan?: Pick<Pengaturan, 'roleModuleAccess'> | null
+): boolean {
+  if (!user) return false;
+  if (!isKeuanganOpsViewerRole(user.role)) return false;
+  return canUserAccessModule(user, 'keuangan-ops', pengaturan);
+}
+
+export function formatDashboardDateLabel(date: Date = new Date()): string {
+  return new Intl.DateTimeFormat('id-ID', {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  }).format(date);
 }
 
 /**
@@ -3507,11 +3567,27 @@ export function getDefaultModuleAccessForRole(role: UserRole): ModulePermissions
       do: true,
       'surat-jalan': true,
       penagihan: true,
-      'keuangan-ops': true,
+      'keuangan-ops': false,
       shipments: true,
       'report-nopen': true,
       'd1-sync': true,
       master: true,
+      setup: false,
+    };
+  }
+  if (role === 'Drafter') {
+    return {
+      dashboard: true,
+      outstanding: true,
+      checker: true,
+      do: true,
+      'surat-jalan': true,
+      penagihan: true,
+      'keuangan-ops': false,
+      shipments: true,
+      'report-nopen': true,
+      'd1-sync': true,
+      master: false,
       setup: false,
     };
   }
@@ -3555,6 +3631,10 @@ export function resolveUserModuleAccess(
             : roleDefault.setup ?? false;
       continue;
     }
+    if (mod.id === 'keuangan-ops' && !isKeuanganOpsViewerRole(user.role)) {
+      resolved['keuangan-ops'] = false;
+      continue;
+    }
     if (typeof userOverrides[mod.id] === 'boolean') {
       resolved[mod.id] = userOverrides[mod.id];
     } else if (typeof rolePolicy[mod.id] === 'boolean') {
@@ -3572,6 +3652,9 @@ export function canUserAccessModule(
   pengaturan?: Pick<Pengaturan, 'roleModuleAccess'> | null
 ): boolean {
   if (user.role === 'Owner') return true;
+  if (moduleId === 'keuangan-ops' && !isKeuanganOpsViewerRole(user.role)) {
+    return false;
+  }
   const resolved = resolveUserModuleAccess(user, pengaturan);
   return resolved[moduleId] !== false;
 }
